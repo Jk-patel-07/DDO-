@@ -8,6 +8,14 @@ const SPOTIFY_AUTHORIZE_URL = 'https://accounts.spotify.com/authorize';
 const SPOTIFY_TOKEN_URL = 'https://accounts.spotify.com/api/token';
 const SPOTIFY_PROFILE_URL = 'https://api.spotify.com/v1/me';
 const SPOTIFY_SCOPES = 'user-read-private user-read-email';
+const SPOTIFY_TOP_TRACKS_TOKEN = 'BQCX6vqRbXVFjD99m2bX2wsFknB2aCLYZhfm27pZc9q7GvVAgvi1GDIhstakgBwE1hPtpELZKjU5UFio5XMR7uCb1sqHmktMrVr5bTyFIeGDavZwYSwdmMSviL6veF9RJTo_0YY-nU4DUjFqTl3b6mTvF4tYaTs99jHRRlDMBP_mBN_CsomDEOhGz0wzTVOTTyZbzRJXt_WTcXuQizEEO_aMJwN5qYApzE5xvNUnlQRCNZtL5vfVu22Z2iLgq8BqoryTfSpa5ZYxX8YJvNmtTZCILdTn0HpgM3FsMtvdrMOJG39sNFFus5aVB7whQreN30GBI9zhOA';
+const SPOTIFY_PLAYLIST_TRACK_URIS = [
+  'spotify:track:0lYBSQXN6rCTvUZvg9S0lU',
+  'spotify:track:3vuGwx5CP51j6c4xW1qD6y',
+  'spotify:track:7qiZfU4dY1lWllzX7mPBI3',
+  'spotify:track:6b3b7lILUJqXcp6w9wNQSm',
+  'spotify:track:5HOlyK1Tpj6cbhNTg72z3O',
+];
 const APP_BOX_SELECTED_APPS_STORAGE_KEY = 'app_box_selected_apps';
 const APP_BOX_SETTINGS_STORAGE_KEY = 'app_box_settings';
 const APP_BOX_PRIVACY_STORAGE_KEY = 'app_box_privacy_settings';
@@ -127,6 +135,100 @@ const clearSpotifySession = () => {
   Object.values(SPOTIFY_STORAGE_KEYS).forEach((key) => sessionStorage.removeItem(key));
 };
 
+async function refreshSpotifyAccessToken() {
+  const refreshToken = sessionStorage.getItem(SPOTIFY_STORAGE_KEYS.refreshToken);
+  const clientId = import.meta.env.VITE_SPOTIFY_CLIENT_ID;
+
+  if (!refreshToken || !clientId) {
+    throw new Error('Spotify session expired. Please log in again.');
+  }
+
+  const response = await fetch(SPOTIFY_TOKEN_URL, {
+    method: 'POST',
+    headers: {
+      'Content-Type': 'application/x-www-form-urlencoded',
+    },
+    body: new URLSearchParams({
+      client_id: clientId,
+      grant_type: 'refresh_token',
+      refresh_token: refreshToken,
+    }),
+  });
+
+  if (!response.ok) {
+    throw new Error('Spotify session refresh failed.');
+  }
+
+  const payload = await response.json();
+  sessionStorage.setItem(SPOTIFY_STORAGE_KEYS.accessToken, payload.access_token);
+  if (payload.refresh_token) {
+    sessionStorage.setItem(SPOTIFY_STORAGE_KEYS.refreshToken, payload.refresh_token);
+  }
+  sessionStorage.setItem(
+    SPOTIFY_STORAGE_KEYS.expiresAt,
+    String(Date.now() + (payload.expires_in ?? 3600) * 1000),
+  );
+
+  return payload.access_token;
+}
+
+async function fetchWebApi(endpoint, method, body) {
+  const performRequest = async (authToken) => {
+    const res = await fetch(`https://api.spotify.com/${endpoint}`, {
+      headers: {
+        Authorization: `Bearer ${authToken}`,
+      },
+      method,
+      body: body ? JSON.stringify(body) : undefined,
+    });
+
+    return res;
+  };
+
+  const token = sessionStorage.getItem(SPOTIFY_STORAGE_KEYS.accessToken) || SPOTIFY_TOP_TRACKS_TOKEN;
+  let response = await performRequest(token);
+
+  if (response.status === 401 && sessionStorage.getItem(SPOTIFY_STORAGE_KEYS.refreshToken)) {
+    const refreshedToken = await refreshSpotifyAccessToken();
+    response = await performRequest(refreshedToken);
+  }
+
+  if (!response.ok) {
+    const errorPayload = await response.json().catch(() => ({}));
+    throw new Error(errorPayload.error?.message || 'Spotify data could not be loaded right now.');
+  }
+
+  return await response.json();
+}
+
+async function getTopTracks() {
+  return (
+    await fetchWebApi(
+      'v1/me/top/tracks?time_range=long_term&limit=5',
+      'GET',
+    )
+  ).items;
+}
+
+async function createPlaylist(tracksUri = SPOTIFY_PLAYLIST_TRACK_URIS) {
+  const playlist = await fetchWebApi(
+    'v1/me/playlists',
+    'POST',
+    {
+      name: 'My top tracks playlist',
+      description: 'Playlist created by the tutorial on developer.spotify.com',
+      public: false,
+    },
+  );
+
+  await fetchWebApi(
+    `v1/playlists/${playlist.id}/items?uris=${tracksUri.join(',')}`,
+    'POST',
+  );
+
+  return playlist;
+}
+
 const RightTray = ({ onPopupStateChange = () => {} }) => {
   const [time, setTime] = useState(new Date());
   
@@ -152,6 +254,10 @@ const RightTray = ({ onPopupStateChange = () => {} }) => {
   const [spotifyUser, setSpotifyUser] = useState(() => readStoredSpotifyUser());
   const [spotifyAuthStatus, setSpotifyAuthStatus] = useState(() => (readStoredSpotifyUser() ? 'connected' : 'idle'));
   const [spotifyAuthError, setSpotifyAuthError] = useState('');
+  const [spotifyTopTracks, setSpotifyTopTracks] = useState([]);
+  const [isSpotifyTracksLoading, setIsSpotifyTracksLoading] = useState(false);
+  const [spotifyPlaylistStatus, setSpotifyPlaylistStatus] = useState('');
+  const [isSpotifyPlaylistCreating, setIsSpotifyPlaylistCreating] = useState(false);
   const [isUserLoginOpen, setIsUserLoginOpen] = useState(false);
   const [isUsStatusPopupOpen, setIsUsStatusPopupOpen] = useState(false);
   const [usStatusActiveSection, setUsStatusActiveSection] = useState('none');
@@ -494,6 +600,45 @@ const RightTray = ({ onPopupStateChange = () => {} }) => {
       active = false;
     };
   }, [spotifyUser]);
+
+  useEffect(() => {
+    if (!showSpotifyPopup) {
+      return undefined;
+    }
+
+    let active = true;
+
+    const loadTopTracks = async () => {
+      try {
+        setIsSpotifyTracksLoading(true);
+        setSpotifyAuthError('');
+        const tracks = await getTopTracks();
+
+        if (!active) {
+          return;
+        }
+
+        setSpotifyTopTracks(Array.isArray(tracks) ? tracks.slice(0, 5) : []);
+      } catch (error) {
+        if (!active) {
+          return;
+        }
+
+        setSpotifyTopTracks([]);
+        setSpotifyAuthError(error.message || 'Spotify top tracks could not be loaded.');
+      } finally {
+        if (active) {
+          setIsSpotifyTracksLoading(false);
+        }
+      }
+    };
+
+    void loadTopTracks();
+
+    return () => {
+      active = false;
+    };
+  }, [showSpotifyPopup, spotifyUser]);
 
   useEffect(() => {
     let batteryManager;
@@ -1996,8 +2141,8 @@ const RightTray = ({ onPopupStateChange = () => {} }) => {
                 <h3>Spotify</h3>
                 <p>
                   {spotifyUser
-                    ? 'Your Spotify account is connected to this website.'
-                    : 'Connect with Spotify using the official OAuth flow.'}
+                    ? 'Your top Spotify tracks are loaded from the Spotify Web API.'
+                    : 'Showing your top 5 tracks with real Spotify Web API data.'}
                 </p>
               </div>
 
@@ -2025,6 +2170,46 @@ const RightTray = ({ onPopupStateChange = () => {} }) => {
               ) : null}
 
               {spotifyAuthError ? <div className="spotify-auth-error">{spotifyAuthError}</div> : null}
+
+              <div className="spotify-top-tracks-panel">
+                <div className="spotify-top-tracks-header">
+                  <span>Top Tracks</span>
+                  <span className="spotify-user-pill">Top 5</span>
+                </div>
+
+                {isSpotifyTracksLoading ? (
+                  <div className="spotify-tracks-loading">
+                    <LoaderCircle size={16} className="spotify-tracks-spinner" />
+                    <span>Loading your Spotify tracks...</span>
+                  </div>
+                ) : spotifyTopTracks.length ? (
+                  <div className="spotify-track-list">
+                    {spotifyTopTracks.map((track, index) => (
+                      <div key={track.id || `${track.name}-${index}`} className="spotify-track-item">
+                        {track.album?.images?.[2]?.url || track.album?.images?.[1]?.url || track.album?.images?.[0]?.url ? (
+                          <img
+                            src={track.album?.images?.[2]?.url || track.album?.images?.[1]?.url || track.album?.images?.[0]?.url}
+                            alt={track.album?.name || track.name}
+                            className="spotify-track-art"
+                          />
+                        ) : (
+                          <div className="spotify-track-art spotify-track-art-fallback">
+                            <FaSpotify size={18} />
+                          </div>
+                        )}
+                        <div className="spotify-track-copy">
+                          <strong>{track.name}</strong>
+                          <span>{track.artists?.map((artist) => artist.name).join(', ') || 'Unknown artist'}</span>
+                        </div>
+                      </div>
+                    ))}
+                  </div>
+                ) : (
+                  <div className="spotify-tracks-empty">
+                    No top tracks available right now.
+                  </div>
+                )}
+              </div>
 
               <button
                 type="button"
