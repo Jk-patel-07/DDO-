@@ -1,6 +1,6 @@
 import { useState, useEffect, useRef } from 'react';
 import { createPortal } from 'react-dom';
-import { Wifi, Bluetooth, Bell, X, User, Phone, Mail, Users, Briefcase, Plus, ChevronDown, Smartphone, MoreVertical, Zap, HeartPulse, Gauge, Clock3, Leaf, Thermometer, Square, Lock, Check, LoaderCircle, RefreshCw, LayoutGrid, Search as SearchIcon, Settings, Volume, Volume1, Volume2, VolumeX } from 'lucide-react';
+import { Wifi, Bluetooth, Bell, X, User, Phone, Mail, Users, Briefcase, Plus, ChevronDown, Smartphone, MoreVertical, Zap, HeartPulse, Gauge, Clock3, Leaf, Thermometer, Square, Lock, Check, LoaderCircle, RefreshCw, LayoutGrid, Search as SearchIcon, Settings, Music4, Volume, Volume1, Volume2, VolumeX } from 'lucide-react';
 import { FaWhatsapp, FaSpotify } from 'react-icons/fa';
 import CenterSearch from './CenterSearch';
 
@@ -10,7 +10,6 @@ const SPOTIFY_PROFILE_URL = 'https://api.spotify.com/v1/me';
 const SPOTIFY_SCOPES = 'user-read-private user-read-email user-top-read playlist-modify-public playlist-modify-private';
 const SPOTIFY_TOP_TRACKS_TOKEN = 'BQCX6vqRbXVFjD99m2bX2wsFknB2aCLYZhfm27pZc9q7GvVAgvi1GDIhstakgBwE1hPtpELZKjU5UFio5XMR7uCb1sqHmktMrVr5bTyFIeGDavZwYSwdmMSviL6veF9RJTo_0YY-nU4DUjFqTl3b6mTvF4tYaTs99jHRRlDMBP_mBN_CsomDEOhGz0wzTVOTTyZbzRJXt_WTcXuQizEEO_aMJwN5qYApzE5xvNUnlQRCNZtL5vfVu22Z2iLgq8BqoryTfSpa5ZYxX8YJvNmtTZCILdTn0HpgM3FsMtvdrMOJG39sNFFus5aVB7whQreN30GBI9zhOA';
 const SPOTIFY_PLAYLIST_ID = '3JiykyOcsQUbfaa6hBydNr';
-const SPOTIFY_PLAYLIST_EMBED_URL = `https://open.spotify.com/embed/playlist/${SPOTIFY_PLAYLIST_ID}?utm_source=generator&theme=0`;
 const SPOTIFY_PLAYLIST_TRACK_URIS = [
   'spotify:track:0lYBSQXN6rCTvUZvg9S0lU',
   'spotify:track:3vuGwx5CP51j6c4xW1qD6y',
@@ -273,6 +272,9 @@ const RightTray = ({ onPopupStateChange = () => {} }) => {
   const [wifiPasswordInput, setWifiPasswordInput] = useState('');
   const [wifiPasswordError, setWifiPasswordError] = useState('');
   const spotifyPopupRef = useRef(null);
+  const spotifyNowPlayingRef = useRef(null);
+  const spotifyPlayerHostRef = useRef(null);
+  const spotifyEmbedControllerRef = useRef(null);
   const [showSpotifyPopup, setShowSpotifyPopup] = useState(false);
   const [spotifyUser, setSpotifyUser] = useState(() => readStoredSpotifyUser());
   const [spotifyAuthStatus, setSpotifyAuthStatus] = useState(() => (readStoredSpotifyUser() ? 'connected' : 'idle'));
@@ -283,6 +285,17 @@ const RightTray = ({ onPopupStateChange = () => {} }) => {
   const [isSpotifyPlaylistCreating, setIsSpotifyPlaylistCreating] = useState(false);
   const [spotifyActiveView, setSpotifyActiveView] = useState('none');
   const [spotifyPlaylistName, setSpotifyPlaylistName] = useState('My top tracks playlist');
+  const [isSpotifyPlayerMounted, setIsSpotifyPlayerMounted] = useState(false);
+  const [isSpotifyPlayerReady, setIsSpotifyPlayerReady] = useState(false);
+  const [showSpotifyNowPlayingPopup, setShowSpotifyNowPlayingPopup] = useState(false);
+  const [spotifyPlayback, setSpotifyPlayback] = useState({
+    title: 'Recommendation Playlist',
+    artist: 'Spotify',
+    albumImage: '',
+    isPlaying: false,
+  });
+  const [hasSpotifyBackgroundSession, setHasSpotifyBackgroundSession] = useState(false);
+  const [spotifyVolume, setSpotifyVolume] = useState(70);
   const [isUserLoginOpen, setIsUserLoginOpen] = useState(false);
   const [isUsStatusPopupOpen, setIsUsStatusPopupOpen] = useState(false);
   const [usStatusActiveSection, setUsStatusActiveSection] = useState('none');
@@ -425,7 +438,9 @@ const RightTray = ({ onPopupStateChange = () => {} }) => {
     }
   };
 
-  loadWifiNetworksRef.current = loadWifiNetworks;
+  useEffect(() => {
+    loadWifiNetworksRef.current = loadWifiNetworks;
+  });
 
   useEffect(() => {
     const kickoffTimer = window.setTimeout(() => {
@@ -749,8 +764,17 @@ const RightTray = ({ onPopupStateChange = () => {} }) => {
 
   useEffect(() => {
     const handleSpotifyClickOutside = (event) => {
+      if (spotifyNowPlayingRef.current && spotifyNowPlayingRef.current.contains(event.target)) {
+        return;
+      }
+
       if (spotifyPopupRef.current && !spotifyPopupRef.current.contains(event.target)) {
-        closeSpotifyPopups();
+        setShowSpotifyPopup(false);
+        setSpotifyActiveView('none');
+      }
+
+      if (spotifyNowPlayingRef.current && !spotifyNowPlayingRef.current.contains(event.target)) {
+        setShowSpotifyNowPlayingPopup(false);
       }
     };
 
@@ -759,6 +783,155 @@ const RightTray = ({ onPopupStateChange = () => {} }) => {
       document.removeEventListener('mousedown', handleSpotifyClickOutside);
     };
   }, []);
+
+  useEffect(() => {
+    if (!isSpotifyPlayerMounted || !spotifyPlayerHostRef.current || spotifyEmbedControllerRef.current) {
+      return undefined;
+    }
+
+    let cancelled = false;
+
+    const initializeSpotifyPlayer = (IFrameAPI) => {
+      if (cancelled || !spotifyPlayerHostRef.current || spotifyEmbedControllerRef.current) {
+        return;
+      }
+
+      const options = {
+        width: '100%',
+        height: 360,
+        uri: `spotify:playlist:${SPOTIFY_PLAYLIST_ID}`,
+      };
+
+      IFrameAPI.createController(spotifyPlayerHostRef.current, options, (EmbedController) => {
+        if (cancelled) {
+          EmbedController.destroy?.();
+          return;
+        }
+
+        spotifyEmbedControllerRef.current = EmbedController;
+        setIsSpotifyPlayerReady(true);
+
+        EmbedController.addListener?.('ready', () => {
+          setIsSpotifyPlayerReady(true);
+        });
+
+        EmbedController.addListener?.('playback_started', () => {
+          setHasSpotifyBackgroundSession(true);
+          setSpotifyPlayback((current) => ({
+            ...current,
+            isPlaying: true,
+          }));
+        });
+
+        EmbedController.addListener?.('playback_update', (event) => {
+          setSpotifyPlayback((current) => ({
+            ...current,
+            isPlaying: !event?.data?.isPaused,
+          }));
+        });
+      });
+    };
+
+    const existingApi = window.SpotifyIframeApi;
+    const previousReadyHandler = window.onSpotifyIframeApiReady;
+    window.onSpotifyIframeApiReady = (IFrameAPI) => {
+      window.SpotifyIframeApi = IFrameAPI;
+      if (typeof previousReadyHandler === 'function') {
+        previousReadyHandler(IFrameAPI);
+      }
+      initializeSpotifyPlayer(IFrameAPI);
+    };
+
+    if (existingApi) {
+      initializeSpotifyPlayer(existingApi);
+    } else if (!document.querySelector('script[data-spotify-iframe-api="true"]')) {
+      const script = document.createElement('script');
+      script.src = 'https://open.spotify.com/embed/iframe-api/v1';
+      script.async = true;
+      script.dataset.spotifyIframeApi = 'true';
+      document.body.appendChild(script);
+    }
+
+    return () => {
+      cancelled = true;
+    };
+  }, [isSpotifyPlayerMounted]);
+
+  useEffect(() => {
+    if (!isSpotifyPlayerMounted) {
+      return undefined;
+    }
+
+    let active = true;
+
+    const loadSpotifyPlaybackState = async () => {
+      const performFetch = async (accessToken) =>
+        fetch('https://api.spotify.com/v1/me/player/currently-playing', {
+          headers: {
+            Authorization: `Bearer ${accessToken}`,
+          },
+        });
+
+      const accessToken = sessionStorage.getItem(SPOTIFY_STORAGE_KEYS.accessToken);
+      if (!accessToken) {
+        return;
+      }
+
+      try {
+        let response = await performFetch(accessToken);
+        if (response.status === 401 && sessionStorage.getItem(SPOTIFY_STORAGE_KEYS.refreshToken)) {
+          const refreshedToken = await refreshSpotifyAccessToken();
+          response = await performFetch(refreshedToken);
+        }
+
+        if (!active) {
+          return;
+        }
+
+        if (response.status === 204) {
+          setSpotifyPlayback((current) => ({ ...current, isPlaying: false }));
+          return;
+        }
+
+        if (!response.ok) {
+          throw new Error('Spotify playback info is unavailable right now.');
+        }
+
+        const payload = await response.json();
+        const item = payload?.item;
+        if (!item) {
+          setSpotifyPlayback((current) => ({ ...current, isPlaying: false }));
+          return;
+        }
+
+        setHasSpotifyBackgroundSession(true);
+        setSpotifyPlayback({
+          title: item.name || 'Recommendation Playlist',
+          artist: item.artists?.map((artist) => artist.name).join(', ') || 'Spotify',
+          albumImage: item.album?.images?.[2]?.url || item.album?.images?.[1]?.url || item.album?.images?.[0]?.url || '',
+          isPlaying: Boolean(payload?.is_playing),
+        });
+      } catch {
+        if (!active) {
+          return;
+        }
+        setSpotifyPlayback((current) => ({
+          ...current,
+          isPlaying: Boolean(current.isPlaying),
+        }));
+      }
+    };
+
+    void loadSpotifyPlaybackState();
+    const interval = window.setInterval(() => {
+      void loadSpotifyPlaybackState();
+    }, 5000);
+
+    return () => {
+      active = false;
+      window.clearInterval(interval);
+    };
+  }, [isSpotifyPlayerMounted]);
 
   useEffect(() => {
     const handleAppLauncherClickOutside = (event) => {
@@ -921,7 +1094,7 @@ const RightTray = ({ onPopupStateChange = () => {} }) => {
     return date.toLocaleDateString('en-GB', { weekday: 'long', year: 'numeric', month: 'long', day: 'numeric' });
   };
 
-  const isAnySpotifyPopupOpen = showSpotifyPopup;
+  const isAnySpotifyPopupOpen = showSpotifyPopup || showSpotifyNowPlayingPopup;
   const normalizedPickerSearch = appPickerQuery.trim().toLowerCase();
   const visiblePickerApps = normalizedPickerSearch
     ? installedApps.filter((app) => app.name.toLowerCase().includes(normalizedPickerSearch))
@@ -992,10 +1165,17 @@ const RightTray = ({ onPopupStateChange = () => {} }) => {
   function closeSpotifyPopups() {
     setShowSpotifyPopup(false);
     setSpotifyActiveView('none');
+    setShowSpotifyNowPlayingPopup(false);
   }
 
   function toggleSpotifyPopup() {
+    setShowSpotifyNowPlayingPopup(false);
     setShowSpotifyPopup((open) => !open);
+  }
+
+  function toggleSpotifyNowPlayingPopup() {
+    setShowSpotifyPopup(false);
+    setShowSpotifyNowPlayingPopup((open) => !open);
   }
 
   const handleWifiToggle = () => {
@@ -1127,6 +1307,13 @@ const RightTray = ({ onPopupStateChange = () => {} }) => {
   };
 
   const disconnectSpotify = () => {
+    spotifyEmbedControllerRef.current?.pause?.();
+    spotifyEmbedControllerRef.current?.destroy?.();
+    spotifyEmbedControllerRef.current = null;
+    setIsSpotifyPlayerMounted(false);
+    setIsSpotifyPlayerReady(false);
+    setHasSpotifyBackgroundSession(false);
+    setShowSpotifyNowPlayingPopup(false);
     clearSpotifySession();
     setSpotifyUser(null);
     setSpotifyAuthStatus('idle');
@@ -1177,6 +1364,7 @@ const RightTray = ({ onPopupStateChange = () => {} }) => {
   };
 
   const openSpotifyPlaylistView = () => {
+    setIsSpotifyPlayerMounted(true);
     setSpotifyActiveView('playlist');
     setSpotifyAuthError('');
     setSpotifyPlaylistStatus('');
@@ -1186,6 +1374,44 @@ const RightTray = ({ onPopupStateChange = () => {} }) => {
     setSpotifyActiveView('none');
     setSpotifyAuthError('');
     setSpotifyPlaylistStatus('');
+  };
+
+  const handleSpotifyTogglePlayback = () => {
+    if (!spotifyEmbedControllerRef.current) {
+      return;
+    }
+
+    if (spotifyEmbedControllerRef.current.togglePlay) {
+      spotifyEmbedControllerRef.current.togglePlay();
+      return;
+    }
+
+    if (spotifyPlayback.isPlaying && spotifyEmbedControllerRef.current.pause) {
+      spotifyEmbedControllerRef.current.pause();
+      return;
+    }
+
+    if (!spotifyPlayback.isPlaying && spotifyEmbedControllerRef.current.resume) {
+      spotifyEmbedControllerRef.current.resume();
+    }
+  };
+
+  const handleSpotifyStopPlayback = () => {
+    spotifyEmbedControllerRef.current?.pause?.();
+    spotifyEmbedControllerRef.current?.destroy?.();
+    spotifyEmbedControllerRef.current = null;
+    setIsSpotifyPlayerMounted(false);
+    setIsSpotifyPlayerReady(false);
+    setHasSpotifyBackgroundSession(false);
+    setShowSpotifyNowPlayingPopup(false);
+    setSpotifyPlayback((current) => ({
+      ...current,
+      isPlaying: false,
+    }));
+  };
+
+  const handleSpotifyVolumeChange = (event) => {
+    setSpotifyVolume(Number(event.target.value));
   };
 
   const loadInstalledApps = async (showLoader = true) => {
@@ -1478,6 +1704,87 @@ const RightTray = ({ onPopupStateChange = () => {} }) => {
     <div className="flex-center" style={{ gap: '16px' }}>
       {/* Social Icons */}
       <div className="flex-center" style={{ gap: '6px' }}>
+        {hasSpotifyBackgroundSession && (
+          <div ref={spotifyNowPlayingRef} style={{ position: 'relative' }}>
+            <button
+              type="button"
+              className={`spotify-now-playing-trigger ${spotifyPlayback.isPlaying ? 'is-playing' : ''}`}
+              onClick={toggleSpotifyNowPlayingPopup}
+              title={spotifyPlayback.title}
+              aria-label="Open now playing"
+            >
+              <Music4 size={13} />
+            </button>
+
+            {showSpotifyNowPlayingPopup && (
+              <div className="spotify-now-playing-popup popup-aurora-surface" onClick={(event) => event.stopPropagation()}>
+                <button
+                  type="button"
+                  className="spotify-start-close"
+                  onClick={() => setShowSpotifyNowPlayingPopup(false)}
+                >
+                  <X size={15} />
+                </button>
+
+                <div className="spotify-now-playing-header">
+                  {spotifyPlayback.albumImage ? (
+                    <img
+                      src={spotifyPlayback.albumImage}
+                      alt={spotifyPlayback.title}
+                      className="spotify-now-playing-art"
+                    />
+                  ) : (
+                    <div className="spotify-now-playing-art spotify-track-art-fallback">
+                      <Music4 size={18} />
+                    </div>
+                  )}
+
+                  <div className="spotify-now-playing-copy">
+                    <strong>{spotifyPlayback.title}</strong>
+                    <span>{spotifyPlayback.artist}</span>
+                  </div>
+
+                  <button
+                    type="button"
+                    className="spotify-now-playing-settings"
+                    onClick={openSpotifyPlaylistView}
+                    title="Open playlist"
+                  >
+                    <Settings size={14} />
+                  </button>
+                </div>
+
+                <div className="spotify-now-playing-controls">
+                  <button
+                    type="button"
+                    className="spotify-start-secondary-button"
+                    onClick={handleSpotifyTogglePlayback}
+                    disabled={!isSpotifyPlayerReady}
+                  >
+                    {spotifyPlayback.isPlaying ? 'Pause' : 'Play'}
+                  </button>
+                  <button
+                    type="button"
+                    className="spotify-start-secondary-button spotify-now-playing-stop"
+                    onClick={handleSpotifyStopPlayback}
+                  >
+                    Stop
+                  </button>
+                  <input
+                    type="range"
+                    min="0"
+                    max="100"
+                    value={spotifyVolume}
+                    onChange={handleSpotifyVolumeChange}
+                    className="spotify-now-playing-volume"
+                    aria-label="Spotify volume"
+                  />
+                </div>
+              </div>
+            )}
+          </div>
+        )}
+
         <CenterSearch onPopupStateChange={setIsSearchPopupOpen} />
         
         {/* WhatsApp Icon with Popup */}
@@ -2376,8 +2683,11 @@ const RightTray = ({ onPopupStateChange = () => {} }) => {
             </div>
           )}
 
-          {showSpotifyPopup && spotifyActiveView === 'playlist' && (
-            <div className="spotify-detail-popup spotify-detail-popup-wide popup-aurora-surface" onClick={(event) => event.stopPropagation()}>
+          {isSpotifyPlayerMounted && (
+            <div
+              className={`spotify-detail-popup spotify-detail-popup-wide popup-aurora-surface spotify-player-shell ${spotifyActiveView === 'playlist' ? 'is-visible' : 'is-hidden'}`}
+              onClick={(event) => event.stopPropagation()}
+            >
               <button
                 type="button"
                 className="spotify-start-close"
@@ -2397,20 +2707,16 @@ const RightTray = ({ onPopupStateChange = () => {} }) => {
                   </button>
                 </div>
                 <div className="spotify-embed-shell">
-                  <iframe
-                    title="Spotify Embed: Recommendation Playlist"
-                    src={SPOTIFY_PLAYLIST_EMBED_URL}
-                    width="100%"
-                    height="100%"
-                    style={{ minHeight: '360px' }}
-                    frameBorder="0"
-                    allow="autoplay; clipboard-write; encrypted-media; fullscreen; picture-in-picture"
-                    loading="lazy"
+                  <div
+                    ref={spotifyPlayerHostRef}
+                    className="spotify-iframe-host"
+                    aria-label="Spotify Embed: Recommendation Playlist"
                   />
                 </div>
               </div>
             </div>
           )}
+
         </div>
       </div>
 
