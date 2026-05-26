@@ -1182,6 +1182,12 @@ const RightTray = ({ onPopupStateChange = () => {} }) => {
     setSpotifyPlaylistStatus('');
   };
 
+  const closeSpotifyOptionPopup = () => {
+    setSpotifyActiveView('none');
+    setSpotifyAuthError('');
+    setSpotifyPlaylistStatus('');
+  };
+
   const loadInstalledApps = async (showLoader = true) => {
     try {
       if (showLoader) {
@@ -2172,7 +2178,7 @@ const RightTray = ({ onPopupStateChange = () => {} }) => {
             <FaSpotify size={15} />
           </div>
 
-          {showSpotifyPopup && (
+          {showSpotifyPopup && spotifyActiveView === 'none' && (
             <div className="spotify-start-popup popup-aurora-surface" onClick={(event) => event.stopPropagation()}>
               <button
                 type="button"
@@ -2229,7 +2235,7 @@ const RightTray = ({ onPopupStateChange = () => {} }) => {
                 {spotifyAuthStatus === 'loading'
                   ? 'Connecting...'
                   : spotifyUser
-                    ? 'Disconnect'
+                    ? 'Logout'
                     : 'Login with Spotify'}
               </button>
 
@@ -2238,7 +2244,7 @@ const RightTray = ({ onPopupStateChange = () => {} }) => {
                   <div className="spotify-dashboard-actions">
                     <button
                       type="button"
-                      className={`spotify-start-secondary-button ${spotifyActiveView === 'top-tracks' ? 'is-active' : ''}`}
+                      className="spotify-start-secondary-button"
                       onClick={handleLoadSpotifyTopTracks}
                       disabled={isSpotifyTracksLoading}
                     >
@@ -2246,84 +2252,163 @@ const RightTray = ({ onPopupStateChange = () => {} }) => {
                     </button>
                     <button
                       type="button"
-                      className={`spotify-start-secondary-button ${spotifyActiveView === 'create-spotify' ? 'is-active' : ''}`}
+                      className="spotify-start-secondary-button"
                       onClick={openSpotifyCreateView}
                     >
                       Create Spotify
                     </button>
+                    <button
+                      type="button"
+                      className="spotify-start-secondary-button"
+                      onClick={openSpotifyPlaylistView}
+                    >
+                      Playlist
+                    </button>
                   </div>
-
-                  {spotifyActiveView === 'top-tracks' ? (
-                    <div className="spotify-top-tracks-panel">
-                      <div className="spotify-top-tracks-header">
-                        <span>Top Tracks</span>
-                        <span className="spotify-user-pill">Top 5</span>
-                      </div>
-
-                      {isSpotifyTracksLoading ? (
-                        <div className="spotify-tracks-loading">
-                          <LoaderCircle size={16} className="spotify-tracks-spinner" />
-                          <span>Loading your Spotify tracks...</span>
-                        </div>
-                      ) : spotifyTopTracks.length ? (
-                        <div className="spotify-track-list">
-                          {spotifyTopTracks.map((track, index) => (
-                            <div key={track.id || `${track.name}-${index}`} className="spotify-track-item">
-                              {track.album?.images?.[2]?.url || track.album?.images?.[1]?.url || track.album?.images?.[0]?.url ? (
-                                <img
-                                  src={track.album?.images?.[2]?.url || track.album?.images?.[1]?.url || track.album?.images?.[0]?.url}
-                                  alt={track.album?.name || track.name}
-                                  className="spotify-track-art"
-                                />
-                              ) : (
-                                <div className="spotify-track-art spotify-track-art-fallback">
-                                  <FaSpotify size={18} />
-                                </div>
-                              )}
-                              <div className="spotify-track-copy">
-                                <strong>{track.name}</strong>
-                                <span>{track.artists?.map((artist) => artist.name).join(', ') || 'Unknown artist'}</span>
-                              </div>
-                            </div>
-                          ))}
-                        </div>
-                      ) : (
-                        <div className="spotify-tracks-empty">
-                          No top tracks available right now.
-                        </div>
-                      )}
-                    </div>
-                  ) : null}
-
-                  {spotifyActiveView === 'create-spotify' ? (
-                    <div className="spotify-top-tracks-panel spotify-create-panel">
-                      <div className="spotify-top-tracks-header">
-                        <span>Create Spotify</span>
-                        <span className="spotify-user-pill">Playlist</span>
-                      </div>
-                      <input
-                        type="text"
-                        className="spotify-create-input"
-                        value={spotifyPlaylistName}
-                        onChange={(event) => setSpotifyPlaylistName(event.target.value)}
-                        placeholder="Playlist name"
-                      />
-                      <button
-                        type="button"
-                        className="spotify-start-secondary-button spotify-create-submit"
-                        onClick={handleCreateSpotifyPlaylist}
-                        disabled={isSpotifyPlaylistCreating}
-                      >
-                        {isSpotifyPlaylistCreating ? 'Creating Playlist...' : 'Create Playlist'}
-                      </button>
-                    </div>
-                  ) : null}
                 </>
               ) : null}
 
               {spotifyPlaylistStatus ? (
                 <div className="spotify-playlist-status">{spotifyPlaylistStatus}</div>
               ) : null}
+            </div>
+          )}
+
+          {showSpotifyPopup && spotifyActiveView === 'top-tracks' && (
+            <div className="spotify-detail-popup popup-aurora-surface" onClick={(event) => event.stopPropagation()}>
+              <button
+                type="button"
+                className="spotify-start-close"
+                onClick={closeSpotifyOptionPopup}
+              >
+                <X size={15} />
+              </button>
+              <div className="spotify-top-tracks-panel">
+                <div className="spotify-top-tracks-header">
+                  <span>Top Tracks</span>
+                  <button
+                    type="button"
+                    className="spotify-embed-back-button"
+                    onClick={closeSpotifyOptionPopup}
+                  >
+                    Back
+                  </button>
+                </div>
+
+                {spotifyAuthError ? <div className="spotify-auth-error">{spotifyAuthError}</div> : null}
+
+                {isSpotifyTracksLoading ? (
+                  <div className="spotify-tracks-loading">
+                    <LoaderCircle size={16} className="spotify-tracks-spinner" />
+                    <span>Loading your Spotify tracks...</span>
+                  </div>
+                ) : spotifyTopTracks.length ? (
+                  <div className="spotify-track-list">
+                    {spotifyTopTracks.map((track, index) => (
+                      <div key={track.id || `${track.name}-${index}`} className="spotify-track-item">
+                        {track.album?.images?.[2]?.url || track.album?.images?.[1]?.url || track.album?.images?.[0]?.url ? (
+                          <img
+                            src={track.album?.images?.[2]?.url || track.album?.images?.[1]?.url || track.album?.images?.[0]?.url}
+                            alt={track.album?.name || track.name}
+                            className="spotify-track-art"
+                          />
+                        ) : (
+                          <div className="spotify-track-art spotify-track-art-fallback">
+                            <FaSpotify size={18} />
+                          </div>
+                        )}
+                        <div className="spotify-track-copy">
+                          <strong>{track.name}</strong>
+                          <span>{track.artists?.map((artist) => artist.name).join(', ') || 'Unknown artist'}</span>
+                        </div>
+                      </div>
+                    ))}
+                  </div>
+                ) : (
+                  <div className="spotify-tracks-empty">
+                    No top tracks available right now.
+                  </div>
+                )}
+              </div>
+            </div>
+          )}
+
+          {showSpotifyPopup && spotifyActiveView === 'create-spotify' && (
+            <div className="spotify-detail-popup popup-aurora-surface" onClick={(event) => event.stopPropagation()}>
+              <button
+                type="button"
+                className="spotify-start-close"
+                onClick={closeSpotifyOptionPopup}
+              >
+                <X size={15} />
+              </button>
+              <div className="spotify-top-tracks-panel spotify-create-panel">
+                <div className="spotify-top-tracks-header">
+                  <span>Create Spotify</span>
+                  <button
+                    type="button"
+                    className="spotify-embed-back-button"
+                    onClick={closeSpotifyOptionPopup}
+                  >
+                    Back
+                  </button>
+                </div>
+                <input
+                  type="text"
+                  className="spotify-create-input"
+                  value={spotifyPlaylistName}
+                  onChange={(event) => setSpotifyPlaylistName(event.target.value)}
+                  placeholder="Playlist name"
+                />
+                <button
+                  type="button"
+                  className="spotify-start-secondary-button spotify-create-submit"
+                  onClick={handleCreateSpotifyPlaylist}
+                  disabled={isSpotifyPlaylistCreating}
+                >
+                  {isSpotifyPlaylistCreating ? 'Creating Playlist...' : 'Create Playlist'}
+                </button>
+                {spotifyAuthError ? <div className="spotify-auth-error">{spotifyAuthError}</div> : null}
+                {spotifyPlaylistStatus ? (
+                  <div className="spotify-playlist-status">{spotifyPlaylistStatus}</div>
+                ) : null}
+              </div>
+            </div>
+          )}
+
+          {showSpotifyPopup && spotifyActiveView === 'playlist' && (
+            <div className="spotify-detail-popup spotify-detail-popup-wide popup-aurora-surface" onClick={(event) => event.stopPropagation()}>
+              <button
+                type="button"
+                className="spotify-start-close"
+                onClick={closeSpotifyOptionPopup}
+              >
+                <X size={15} />
+              </button>
+              <div className="spotify-top-tracks-panel spotify-playlist-embed-panel">
+                <div className="spotify-top-tracks-header">
+                  <span>Playlist</span>
+                  <button
+                    type="button"
+                    className="spotify-embed-back-button"
+                    onClick={closeSpotifyOptionPopup}
+                  >
+                    Back
+                  </button>
+                </div>
+                <div className="spotify-embed-shell">
+                  <iframe
+                    title="Spotify Embed: Recommendation Playlist"
+                    src={SPOTIFY_PLAYLIST_EMBED_URL}
+                    width="100%"
+                    height="100%"
+                    style={{ minHeight: '360px' }}
+                    frameBorder="0"
+                    allow="autoplay; clipboard-write; encrypted-media; fullscreen; picture-in-picture"
+                    loading="lazy"
+                  />
+                </div>
+              </div>
             </div>
           )}
         </div>

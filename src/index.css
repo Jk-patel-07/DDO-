@@ -2834,6 +2834,31 @@ button:active::after,
   z-index: 125;
 }
 
+.spotify-detail-popup {
+  position: absolute;
+  top: calc(100% + 12px);
+  right: -18px;
+  width: min(332px, calc(100vw - 22px));
+  padding: 22px 20px 20px;
+  border-radius: 28px;
+  border: 1px solid rgba(255,255,255,0.08);
+  background:
+    radial-gradient(circle at top right, rgba(30, 215, 96, 0.18), transparent 34%),
+    linear-gradient(180deg, rgba(15, 18, 17, 0.92), rgba(7, 10, 9, 0.97));
+  backdrop-filter: blur(30px);
+  -webkit-backdrop-filter: blur(30px);
+  box-shadow: 0 28px 64px rgba(4, 8, 12, 0.44);
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+  animation: spotify-start-in 0.22s cubic-bezier(0.16, 1, 0.3, 1);
+  z-index: 126;
+}
+
+.spotify-detail-popup-wide {
+  width: min(380px, calc(100vw - 22px));
+}
+
 .spotify-start-close {
   position: absolute;
   top: 12px;
@@ -2945,7 +2970,7 @@ button:active::after,
 .spotify-dashboard-actions {
   width: 100%;
   display: grid;
-  grid-template-columns: 1fr 1fr;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
   gap: 10px;
 }
 
@@ -2999,6 +3024,48 @@ button:active::after,
 
 .spotify-create-submit {
   min-height: 42px;
+}
+
+.spotify-playlist-embed-panel {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+
+.spotify-embed-back-button {
+  min-height: 28px;
+  padding: 0 12px;
+  border: 1px solid rgba(255,255,255,0.08);
+  border-radius: 999px;
+  background: rgba(255,255,255,0.06);
+  color: #ffffff;
+  font-size: 11px;
+  font-weight: 700;
+  cursor: pointer;
+  transition: background 0.18s ease, border-color 0.18s ease, transform 0.18s ease;
+}
+
+.spotify-embed-back-button:hover {
+  background: rgba(255,255,255,0.1);
+  border-color: rgba(255,255,255,0.14);
+  transform: translateY(-1px);
+}
+
+.spotify-embed-shell {
+  width: 100%;
+  min-height: 360px;
+  border-radius: 18px;
+  overflow: hidden;
+  background: rgba(0,0,0,0.18);
+  border: 1px solid rgba(255,255,255,0.06);
+}
+
+.spotify-embed-shell iframe {
+  display: block;
+  width: 100%;
+  min-height: 360px;
+  border: 0;
+  background: transparent;
 }
 
 .spotify-user-card {
@@ -3086,6 +3153,10 @@ button:active::after,
   border-radius: 18px;
   background: rgba(255,255,255,0.05);
   border: 1px solid rgba(255,255,255,0.08);
+}
+
+.spotify-detail-popup .spotify-top-tracks-panel {
+  margin-top: 8px;
 }
 
 .spotify-top-tracks-header {
@@ -3845,6 +3916,16 @@ button:active::after,
     right: -18px;
     width: min(286px, calc(100vw - 18px));
     padding: 20px 16px 18px;
+  }
+
+  .spotify-detail-popup {
+    right: -18px;
+    width: min(286px, calc(100vw - 18px));
+    padding: 20px 16px 18px;
+  }
+
+  .spotify-detail-popup-wide {
+    width: min(332px, calc(100vw - 18px));
   }
 
   .spotify-start-icon {
