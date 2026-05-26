@@ -63,6 +63,38 @@ const readStoredAppBoxSettings = () => {
   }
 };
 
+const readStoredAppBoxPrivacySettings = () => {
+  try {
+    const raw = localStorage.getItem(APP_BOX_PRIVACY_STORAGE_KEY);
+    if (!raw) {
+      return {
+        mode: 'local',
+        trackingDisabled: true,
+        analyticsDisabled: true,
+        pinEnabled: false,
+        pin: '',
+      };
+    }
+
+    const parsed = JSON.parse(raw);
+    return {
+      mode: parsed.mode === 'private' ? 'private' : 'local',
+      trackingDisabled: parsed.trackingDisabled !== false,
+      analyticsDisabled: parsed.analyticsDisabled !== false,
+      pinEnabled: Boolean(parsed.pinEnabled),
+      pin: typeof parsed.pin === 'string' ? parsed.pin : '',
+    };
+  } catch {
+    return {
+      mode: 'local',
+      trackingDisabled: true,
+      analyticsDisabled: true,
+      pinEnabled: false,
+      pin: '',
+    };
+  }
+};
+
 const createSpotifyVerifier = (length = 64) => {
   const charset = 'ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789-._~';
   const randomValues = window.crypto.getRandomValues(new Uint8Array(length));
@@ -1994,6 +2026,7 @@ const RightTray = ({ onPopupStateChange = () => {} }) => {
                       className="app-launcher-picker-close"
                       onClick={() => {
                         setIsAppSettingsOpen(false);
+                        setIsAppPrivacyOpen(false);
                         setIsResetAppsConfirmOpen(false);
                       }}
                       aria-label="Close app settings"
@@ -2057,6 +2090,16 @@ const RightTray = ({ onPopupStateChange = () => {} }) => {
                     <button
                       type="button"
                       className="app-launcher-settings-action"
+                      onClick={() => {
+                        setIsResetAppsConfirmOpen(false);
+                        setIsAppPrivacyOpen((open) => !open);
+                      }}
+                    >
+                      Local App / Private App
+                    </button>
+                    <button
+                      type="button"
+                      className="app-launcher-settings-action"
                       onClick={openAddAppsPanel}
                     >
                       Manage Apps
@@ -2089,6 +2132,126 @@ const RightTray = ({ onPopupStateChange = () => {} }) => {
                           Reset
                         </button>
                       </div>
+                    </div>
+                  )}
+
+                  {isAppPrivacyOpen && (
+                    <div className="app-launcher-privacy-popup popup-aurora-surface">
+                      <div className="app-launcher-settings-header">
+                        <div className="app-launcher-nested-title">Local App / Private App</div>
+                        <button
+                          type="button"
+                          className="app-launcher-picker-close"
+                          onClick={() => setIsAppPrivacyOpen(false)}
+                          aria-label="Close privacy settings"
+                        >
+                          <X size={14} />
+                        </button>
+                      </div>
+
+                      <div className="app-launcher-settings-section">
+                        <div className="app-launcher-settings-pill-row">
+                          {[
+                            { label: 'Local App', value: 'local' },
+                            { label: 'Private App', value: 'private' },
+                          ].map((option) => (
+                            <button
+                              key={option.value}
+                              type="button"
+                              className={`app-launcher-settings-pill ${appPrivacySettings.mode === option.value ? 'is-active' : ''}`}
+                              onClick={() => setAppPrivacySettings((current) => ({ ...current, mode: option.value }))}
+                            >
+                              {option.label}
+                            </button>
+                          ))}
+                        </div>
+                      </div>
+
+                      {appPrivacySettings.mode === 'local' ? (
+                        <div className="app-launcher-privacy-panel">
+                          <div className="app-launcher-privacy-status">Local Mode Active</div>
+                          <p className="app-launcher-privacy-copy">
+                            This app works only on your local device, keeps data in local storage, and supports offline local features without uploading your data to cloud services.
+                          </p>
+                        </div>
+                      ) : (
+                        <div className="app-launcher-privacy-panel">
+                          <div className="app-launcher-privacy-status">Private Mode Active</div>
+                          <p className="app-launcher-privacy-copy">
+                            Privacy mode focuses on user control with local-only settings for tracking, analytics, saved files, and launcher protection.
+                          </p>
+
+                          <div className="app-launcher-privacy-toggle-list">
+                            <button
+                              type="button"
+                              className={`app-launcher-privacy-toggle ${appPrivacySettings.trackingDisabled ? 'is-active' : ''}`}
+                              onClick={() => setAppPrivacySettings((current) => ({
+                                ...current,
+                                trackingDisabled: !current.trackingDisabled,
+                              }))}
+                            >
+                              <span>Disable Tracking</span>
+                              <strong>{appPrivacySettings.trackingDisabled ? 'On' : 'Off'}</strong>
+                            </button>
+                            <button
+                              type="button"
+                              className={`app-launcher-privacy-toggle ${appPrivacySettings.analyticsDisabled ? 'is-active' : ''}`}
+                              onClick={() => setAppPrivacySettings((current) => ({
+                                ...current,
+                                analyticsDisabled: !current.analyticsDisabled,
+                              }))}
+                            >
+                              <span>Disable Analytics</span>
+                              <strong>{appPrivacySettings.analyticsDisabled ? 'On' : 'Off'}</strong>
+                            </button>
+                          </div>
+
+                          <div className="app-launcher-privacy-saved">
+                            <div className="app-launcher-privacy-saved-copy">
+                              <span>Manage Saved Files</span>
+                              <strong>{selectedApps.length} saved apps</strong>
+                            </div>
+                            <button
+                              type="button"
+                              className="app-launcher-settings-pill"
+                              onClick={openAddAppsPanel}
+                            >
+                              Manage
+                            </button>
+                          </div>
+
+                          <div className="app-launcher-privacy-pin">
+                            <label className="app-launcher-settings-label" htmlFor="app-private-pin">
+                              Lock app with password/PIN
+                            </label>
+                            <div className="app-launcher-privacy-pin-row">
+                              <input
+                                id="app-private-pin"
+                                type="password"
+                                value={privacyPinDraft}
+                                onChange={(event) => setPrivacyPinDraft(event.target.value)}
+                                className="app-launcher-privacy-input"
+                                placeholder="Enter PIN"
+                              />
+                              <button
+                                type="button"
+                                className="app-launcher-settings-pill"
+                                onClick={handleSavePrivacyPin}
+                              >
+                                Save
+                              </button>
+                            </div>
+                          </div>
+
+                          <button
+                            type="button"
+                            className="app-launcher-settings-action is-danger"
+                            onClick={handleClearLocalAppData}
+                          >
+                            Clear Local Data
+                          </button>
+                        </div>
+                      )}
                     </div>
                   )}
                 </div>

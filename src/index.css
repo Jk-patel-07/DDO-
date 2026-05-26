@@ -1257,6 +1257,121 @@ button:active::after,
   gap: 8px;
 }
 
+.app-launcher-privacy-popup {
+  margin-top: 12px;
+  padding: 12px;
+  border-radius: 16px;
+  border: 1px solid rgba(255,255,255,0.08);
+  background: rgba(255,255,255,0.04);
+}
+
+.app-launcher-privacy-panel {
+  margin-top: 12px;
+}
+
+.app-launcher-privacy-status {
+  color: #8cf5ad;
+  font-size: 11px;
+  font-weight: 700;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+}
+
+.app-launcher-privacy-copy {
+  margin-top: 8px;
+  color: rgba(255,255,255,0.74);
+  font-size: 11px;
+  line-height: 1.6;
+}
+
+.app-launcher-privacy-toggle-list {
+  margin-top: 12px;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.app-launcher-privacy-toggle {
+  width: 100%;
+  min-height: 40px;
+  padding: 0 12px;
+  border-radius: 12px;
+  border: 1px solid rgba(255,255,255,0.08);
+  background: rgba(255,255,255,0.05);
+  color: #ffffff;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  font-size: 11px;
+  cursor: pointer;
+  transition: background 0.18s ease, border-color 0.18s ease, transform 0.18s ease;
+}
+
+.app-launcher-privacy-toggle:hover {
+  background: rgba(255,255,255,0.08);
+  border-color: rgba(255,255,255,0.14);
+  transform: translateY(-1px);
+}
+
+.app-launcher-privacy-toggle.is-active strong {
+  color: #8cf5ad;
+}
+
+.app-launcher-privacy-saved {
+  margin-top: 12px;
+  padding: 12px;
+  border-radius: 14px;
+  border: 1px solid rgba(255,255,255,0.06);
+  background: rgba(255,255,255,0.04);
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+}
+
+.app-launcher-privacy-saved-copy {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+
+.app-launcher-privacy-saved-copy span {
+  color: rgba(255,255,255,0.76);
+  font-size: 11px;
+}
+
+.app-launcher-privacy-saved-copy strong {
+  color: #ffffff;
+  font-size: 11px;
+  font-weight: 700;
+}
+
+.app-launcher-privacy-pin {
+  margin-top: 12px;
+}
+
+.app-launcher-privacy-pin-row {
+  display: grid;
+  grid-template-columns: 1fr auto;
+  gap: 8px;
+}
+
+.app-launcher-privacy-input {
+  min-height: 34px;
+  padding: 0 12px;
+  border-radius: 12px;
+  border: 1px solid rgba(255,255,255,0.08);
+  background: rgba(255,255,255,0.06);
+  color: #ffffff;
+  font-size: 11px;
+  outline: none;
+}
+
+.app-launcher-privacy-input::placeholder {
+  color: rgba(255,255,255,0.46) !important;
+}
+
 .app-launcher-nested-popup,
 .app-launcher-picker-popup {
   position: absolute;
