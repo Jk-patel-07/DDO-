@@ -2916,6 +2916,91 @@ button:active::after,
   filter: saturate(1.04);
 }
 
+.spotify-start-secondary-button {
+  width: 100%;
+  min-height: 42px;
+  border: 1px solid rgba(255,255,255,0.08);
+  border-radius: 999px;
+  background: rgba(255,255,255,0.06);
+  color: #ffffff;
+  font-size: 13px;
+  font-weight: 700;
+  letter-spacing: 0.01em;
+  cursor: pointer;
+  transition: transform 0.18s ease, background 0.18s ease, border-color 0.18s ease;
+}
+
+.spotify-start-secondary-button.is-active {
+  background: rgba(30, 215, 96, 0.14);
+  border-color: rgba(30, 215, 96, 0.2);
+  color: #a6ffbf;
+}
+
+.spotify-start-secondary-button:hover {
+  transform: translateY(-1px);
+  background: rgba(255,255,255,0.1);
+  border-color: rgba(255,255,255,0.14);
+}
+
+.spotify-dashboard-actions {
+  width: 100%;
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 10px;
+}
+
+.spotify-dashboard-actions .spotify-start-secondary-button {
+  min-height: 40px;
+}
+
+.spotify-start-secondary-button:disabled {
+  cursor: wait;
+  opacity: 0.78;
+}
+
+.spotify-playlist-status {
+  width: 100%;
+  padding: 10px 12px;
+  border-radius: 14px;
+  background: rgba(30, 215, 96, 0.1);
+  border: 1px solid rgba(30, 215, 96, 0.16);
+  color: #c8ffd9;
+  font-size: 12px;
+  line-height: 1.5;
+  text-align: center;
+}
+
+.spotify-create-panel {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+
+.spotify-create-input {
+  width: 100%;
+  min-height: 42px;
+  padding: 0 14px;
+  border-radius: 14px;
+  border: 1px solid rgba(255,255,255,0.08);
+  background: rgba(255,255,255,0.05);
+  color: #ffffff;
+  font-size: 13px;
+  outline: none;
+}
+
+.spotify-create-input::placeholder {
+  color: rgba(255,255,255,0.46);
+}
+
+.spotify-create-input:focus {
+  border-color: rgba(30, 215, 96, 0.26);
+  box-shadow: 0 0 0 1px rgba(30, 215, 96, 0.12);
+}
+
+.spotify-create-submit {
+  min-height: 42px;
+}
+
 .spotify-user-card {
   width: 100%;
   display: grid;
