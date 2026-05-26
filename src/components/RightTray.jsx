@@ -1,5 +1,5 @@
 import { useState, useEffect, useRef } from 'react';
-import { Wifi, Bluetooth, Bell, X, User, Phone, Mail, Users, Briefcase, Plus, ChevronDown, Smartphone, MoreVertical, Zap, HeartPulse, Gauge, Clock3, Leaf, Thermometer, Square, Lock, Check, LoaderCircle, RefreshCw, LayoutGrid, Search as SearchIcon } from 'lucide-react';
+import { Wifi, Bluetooth, Bell, X, User, Phone, Mail, Users, Briefcase, Plus, ChevronDown, Smartphone, MoreVertical, Zap, HeartPulse, Gauge, Clock3, Leaf, Thermometer, Square, Lock, Check, LoaderCircle, RefreshCw, LayoutGrid, Search as SearchIcon, Settings } from 'lucide-react';
 import { FaWhatsapp, FaSpotify } from 'react-icons/fa';
 import CenterSearch from './CenterSearch';
 
@@ -8,6 +8,8 @@ const SPOTIFY_TOKEN_URL = 'https://accounts.spotify.com/api/token';
 const SPOTIFY_PROFILE_URL = 'https://api.spotify.com/v1/me';
 const SPOTIFY_SCOPES = 'user-read-private user-read-email';
 const APP_BOX_SELECTED_APPS_STORAGE_KEY = 'app_box_selected_apps';
+const APP_BOX_SETTINGS_STORAGE_KEY = 'app_box_settings';
+const APP_BOX_PRIVACY_STORAGE_KEY = 'app_box_privacy_settings';
 const SPOTIFY_STORAGE_KEYS = {
   codeVerifier: 'spotify_code_verifier',
   state: 'spotify_auth_state',
@@ -42,6 +44,24 @@ const createStoredAppSelection = (app, visual = {}) => ({
   appPath: visual.targetPath || app.targetPath || '',
   iconDataUrl: visual.iconDataUrl || app.iconDataUrl || '',
 });
+
+const readStoredAppBoxSettings = () => {
+  try {
+    const raw = localStorage.getItem(APP_BOX_SETTINGS_STORAGE_KEY);
+    if (!raw) {
+      return { appView: 'dock', iconSize: 'medium', dockAnimation: true };
+    }
+
+    const parsed = JSON.parse(raw);
+    return {
+      appView: parsed.appView === 'grid' ? 'grid' : 'dock',
+      iconSize: ['small', 'medium', 'large'].includes(parsed.iconSize) ? parsed.iconSize : 'medium',
+      dockAnimation: parsed.dockAnimation !== false,
+    };
+  } catch {
+    return { appView: 'dock', iconSize: 'medium', dockAnimation: true };
+  }
+};
 
 const createSpotifyVerifier = (length = 64) => {
   const charset = 'ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789-._~';
@@ -100,16 +120,27 @@ const RightTray = ({ onPopupStateChange = () => {} }) => {
   const [spotifyAuthStatus, setSpotifyAuthStatus] = useState(() => (readStoredSpotifyUser() ? 'connected' : 'idle'));
   const [spotifyAuthError, setSpotifyAuthError] = useState('');
   const [isUserLoginOpen, setIsUserLoginOpen] = useState(false);
+  const [isUsStatusPopupOpen, setIsUsStatusPopupOpen] = useState(false);
+  const [usStatusActiveSection, setUsStatusActiveSection] = useState('none');
+  const usStatusPopupRef = useRef(null);
+  const [studySecondsLeft, setStudySecondsLeft] = useState(25 * 60);
+  const [isStudyTimerRunning, setIsStudyTimerRunning] = useState(false);
   const [isSearchPopupOpen, setIsSearchPopupOpen] = useState(false);
   const appLauncherRef = useRef(null);
   const [isAppLauncherOpen, setIsAppLauncherOpen] = useState(false);
   const [isAppPickerOpen, setIsAppPickerOpen] = useState(false);
+  const [isAppSettingsOpen, setIsAppSettingsOpen] = useState(false);
+  const [isAppPrivacyOpen, setIsAppPrivacyOpen] = useState(false);
+  const [isResetAppsConfirmOpen, setIsResetAppsConfirmOpen] = useState(false);
   const [installedApps, setInstalledApps] = useState([]);
   const [isAppsLoading, setIsAppsLoading] = useState(false);
   const [appsError, setAppsError] = useState('');
   const [appPickerQuery, setAppPickerQuery] = useState('');
   const [selectedApps, setSelectedApps] = useState(() => readStoredAppBoxSelections());
   const [appVisuals, setAppVisuals] = useState({});
+  const [appBoxSettings, setAppBoxSettings] = useState(() => readStoredAppBoxSettings());
+  const [appPrivacySettings, setAppPrivacySettings] = useState(() => readStoredAppBoxPrivacySettings());
+  const [privacyPinDraft, setPrivacyPinDraft] = useState(() => readStoredAppBoxPrivacySettings().pin || '');
 
   // WhatsApp Popup States
   const [isWaOpen, setIsWaOpen] = useState(false);
@@ -175,6 +206,14 @@ const RightTray = ({ onPopupStateChange = () => {} }) => {
   useEffect(() => {
     localStorage.setItem(APP_BOX_SELECTED_APPS_STORAGE_KEY, JSON.stringify(selectedApps));
   }, [selectedApps]);
+
+  useEffect(() => {
+    localStorage.setItem(APP_BOX_SETTINGS_STORAGE_KEY, JSON.stringify(appBoxSettings));
+  }, [appBoxSettings]);
+
+  useEffect(() => {
+    localStorage.setItem(APP_BOX_PRIVACY_STORAGE_KEY, JSON.stringify(appPrivacySettings));
+  }, [appPrivacySettings]);
 
   const applyWifiSnapshot = (snapshot) => {
     setWifiNetworks(Array.isArray(snapshot.networks) ? snapshot.networks : []);
@@ -568,6 +607,47 @@ const RightTray = ({ onPopupStateChange = () => {} }) => {
     };
   }, []);
 
+  // US Status Popup Click Outside
+  useEffect(() => {
+    const handleUsStatusClickOutside = (event) => {
+      if (usStatusPopupRef.current && !usStatusPopupRef.current.contains(event.target)) {
+        setIsUsStatusPopupOpen(false);
+      }
+    };
+    document.addEventListener('mousedown', handleUsStatusClickOutside);
+    return () => {
+      document.removeEventListener('mousedown', handleUsStatusClickOutside);
+    };
+  }, []);
+
+  // Study Timer logic
+  useEffect(() => {
+    let interval = null;
+    if (isStudyTimerRunning && studySecondsLeft > 0) {
+      interval = setInterval(() => {
+        setStudySecondsLeft((prev) => {
+          if (prev <= 1) {
+            return 0;
+          }
+          return prev - 1;
+        });
+      }, 1000);
+    }
+    return () => {
+      if (interval) clearInterval(interval);
+    };
+  }, [isStudyTimerRunning, studySecondsLeft]);
+
+  // Turn off timer running state asynchronously when it hits 0
+  useEffect(() => {
+    if (studySecondsLeft === 0 && isStudyTimerRunning) {
+      const delay = setTimeout(() => {
+        setIsStudyTimerRunning(false);
+      }, 0);
+      return () => clearTimeout(delay);
+    }
+  }, [studySecondsLeft, isStudyTimerRunning]);
+
   useEffect(() => {
     const hasAnyPopupOpen = Boolean(
       isSearchPopupOpen
@@ -582,7 +662,8 @@ const RightTray = ({ onPopupStateChange = () => {} }) => {
       || isWifiDropdownOpen
       || isAppLauncherOpen
       || showSpotifyPopup
-      || isUserLoginOpen,
+      || isUserLoginOpen
+      || isUsStatusPopupOpen,
     );
 
     onPopupStateChange(hasAnyPopupOpen);
@@ -595,6 +676,7 @@ const RightTray = ({ onPopupStateChange = () => {} }) => {
     isSearchPopupOpen,
     isTimePopupOpen,
     isUserLoginOpen,
+    isUsStatusPopupOpen,
     isWaOpen,
     isWaSendMsgOpen,
     isAppLauncherOpen,
@@ -885,6 +967,9 @@ const RightTray = ({ onPopupStateChange = () => {} }) => {
       }
       if (!nextOpen) {
         setIsAppPickerOpen(false);
+        setIsAppSettingsOpen(false);
+        setIsAppPrivacyOpen(false);
+        setIsResetAppsConfirmOpen(false);
         setAppPickerQuery('');
       }
       return nextOpen;
@@ -892,6 +977,9 @@ const RightTray = ({ onPopupStateChange = () => {} }) => {
   };
 
   const openAddAppsPanel = () => {
+    setIsAppSettingsOpen(false);
+    setIsAppPrivacyOpen(false);
+    setIsResetAppsConfirmOpen(false);
     setIsAppPickerOpen(true);
     void loadInstalledApps(true);
   };
@@ -912,6 +1000,39 @@ const RightTray = ({ onPopupStateChange = () => {} }) => {
 
   const removeSelectedApp = (appId) => {
     setSelectedApps((current) => current.filter((app) => app.id !== appId));
+  };
+
+  const handleResetApps = () => {
+    setSelectedApps([]);
+    setIsResetAppsConfirmOpen(false);
+    setIsAppSettingsOpen(false);
+  };
+
+  const handleClearLocalAppData = () => {
+    setSelectedApps([]);
+    setAppVisuals({});
+    setAppPickerQuery('');
+    setAppsError('');
+    try {
+      localStorage.removeItem(APP_BOX_SELECTED_APPS_STORAGE_KEY);
+    } catch {
+      // Ignore local cleanup issues and keep the in-memory reset.
+    }
+  };
+
+  const handleSavePrivacyPin = () => {
+    const normalizedPin = privacyPinDraft.trim();
+    if (!normalizedPin) {
+      setAppPrivacySettings((current) => ({ ...current, pinEnabled: false, pin: '' }));
+      setPrivacyPinDraft('');
+      return;
+    }
+
+    setAppPrivacySettings((current) => ({
+      ...current,
+      pinEnabled: true,
+      pin: normalizedPin,
+    }));
   };
 
   const openSelectedApp = async (app) => {
@@ -1828,23 +1949,150 @@ const RightTray = ({ onPopupStateChange = () => {} }) => {
           </button>
 
           {isAppLauncherOpen && (
-            <div className="app-launcher-popup popup-aurora-surface" onClick={(event) => event.stopPropagation()}>
+            <div
+              className={`app-launcher-popup popup-aurora-surface app-launcher-view-${appBoxSettings.appView} app-launcher-size-${appBoxSettings.iconSize} ${appBoxSettings.dockAnimation ? 'dock-anim-on' : 'dock-anim-off'}`}
+              onClick={(event) => event.stopPropagation()}
+            >
               <div className="app-launcher-dock-header">
                 <div className="app-launcher-dock-title">Apps</div>
-                <button
-                  type="button"
-                  className="app-launcher-add-trigger"
-                  onClick={(event) => {
-                    event.stopPropagation();
-                    openAddAppsPanel();
-                  }}
-                  aria-label="Add apps"
-                >
-                  <Plus size={15} />
-                </button>
+                <div className="app-launcher-dock-actions">
+                  <button
+                    type="button"
+                    className="app-launcher-settings-trigger"
+                    onClick={(event) => {
+                      event.stopPropagation();
+                      setIsAppPickerOpen(false);
+                      setIsResetAppsConfirmOpen(false);
+                      setIsAppSettingsOpen((open) => !open);
+                    }}
+                    aria-label="App settings"
+                  >
+                    <Settings size={14} />
+                  </button>
+                  <button
+                    type="button"
+                    className="app-launcher-add-trigger"
+                    onClick={(event) => {
+                      event.stopPropagation();
+                      openAddAppsPanel();
+                    }}
+                    aria-label="Add apps"
+                  >
+                    <Plus size={15} />
+                  </button>
+                </div>
               </div>
 
               {appsError ? <div className="app-launcher-message app-launcher-message--error">{appsError}</div> : null}
+
+              {isAppSettingsOpen && (
+                <div className="app-launcher-settings-popup popup-aurora-surface" onClick={(event) => event.stopPropagation()}>
+                  <div className="app-launcher-settings-header">
+                    <div className="app-launcher-nested-title">Settings</div>
+                    <button
+                      type="button"
+                      className="app-launcher-picker-close"
+                      onClick={() => {
+                        setIsAppSettingsOpen(false);
+                        setIsResetAppsConfirmOpen(false);
+                      }}
+                      aria-label="Close app settings"
+                    >
+                      <X size={14} />
+                    </button>
+                  </div>
+
+                  <div className="app-launcher-settings-section">
+                    <span className="app-launcher-settings-label">App View</span>
+                    <div className="app-launcher-settings-pill-row">
+                      {['dock', 'grid'].map((option) => (
+                        <button
+                          key={option}
+                          type="button"
+                          className={`app-launcher-settings-pill ${appBoxSettings.appView === option ? 'is-active' : ''}`}
+                          onClick={() => setAppBoxSettings((current) => ({ ...current, appView: option }))}
+                        >
+                          {option === 'dock' ? 'Dock' : 'Grid'}
+                        </button>
+                      ))}
+                    </div>
+                  </div>
+
+                  <div className="app-launcher-settings-section">
+                    <span className="app-launcher-settings-label">Icon Size</span>
+                    <div className="app-launcher-settings-pill-row">
+                      {['small', 'medium', 'large'].map((option) => (
+                        <button
+                          key={option}
+                          type="button"
+                          className={`app-launcher-settings-pill ${appBoxSettings.iconSize === option ? 'is-active' : ''}`}
+                          onClick={() => setAppBoxSettings((current) => ({ ...current, iconSize: option }))}
+                        >
+                          {option[0].toUpperCase() + option.slice(1)}
+                        </button>
+                      ))}
+                    </div>
+                  </div>
+
+                  <div className="app-launcher-settings-section">
+                    <span className="app-launcher-settings-label">Dock Animation</span>
+                    <div className="app-launcher-settings-pill-row">
+                      {[
+                        { label: 'On', value: true },
+                        { label: 'Off', value: false },
+                      ].map((option) => (
+                        <button
+                          key={option.label}
+                          type="button"
+                          className={`app-launcher-settings-pill ${appBoxSettings.dockAnimation === option.value ? 'is-active' : ''}`}
+                          onClick={() => setAppBoxSettings((current) => ({ ...current, dockAnimation: option.value }))}
+                        >
+                          {option.label}
+                        </button>
+                      ))}
+                    </div>
+                  </div>
+
+                  <div className="app-launcher-settings-actions">
+                    <button
+                      type="button"
+                      className="app-launcher-settings-action"
+                      onClick={openAddAppsPanel}
+                    >
+                      Manage Apps
+                    </button>
+                    <button
+                      type="button"
+                      className="app-launcher-settings-action is-danger"
+                      onClick={() => setIsResetAppsConfirmOpen((open) => !open)}
+                    >
+                      Reset Apps
+                    </button>
+                  </div>
+
+                  {isResetAppsConfirmOpen && (
+                    <div className="app-launcher-reset-confirm">
+                      <div className="app-launcher-reset-copy">Remove all added apps from the launcher?</div>
+                      <div className="app-launcher-reset-actions">
+                        <button
+                          type="button"
+                          className="app-launcher-settings-pill"
+                          onClick={() => setIsResetAppsConfirmOpen(false)}
+                        >
+                          Cancel
+                        </button>
+                        <button
+                          type="button"
+                          className="app-launcher-settings-pill is-danger"
+                          onClick={handleResetApps}
+                        >
+                          Reset
+                        </button>
+                      </div>
+                    </div>
+                  )}
+                </div>
+              )}
 
               <div className="app-launcher-selected-list">
                 {visibleSelectedApps.length ? (
@@ -2267,17 +2515,120 @@ const RightTray = ({ onPopupStateChange = () => {} }) => {
       </div>
 
       {/* User Profile & Notifications */}
-      <div className="flex-center" style={{ gap: '8px' }}>
+      <div className="flex-center" style={{ gap: '8px', position: 'relative' }} ref={usStatusPopupRef}>
         <div className="flex-center icon-item"><Bell size={14} /></div>
         <button
           type="button"
-          className={`user-status-button ${isUserLoginOpen ? 'open' : ''}`}
+          className={`user-status-button ${isUserLoginOpen || isUsStatusPopupOpen ? 'open' : ''}`}
           onClick={() => {
-            setIsUserLoginOpen(true);
+            if (isUsStatusPopupOpen) {
+              setIsUsStatusPopupOpen(false);
+            } else {
+              setIsUserLoginOpen(true);
+            }
           }}
         >
           US
         </button>
+
+        {/* Small Control Popup after Login */}
+        {isUsStatusPopupOpen && (
+          <div className="us-status-popup popup-aurora-surface" onClick={(event) => event.stopPropagation()}>
+            <button
+              type="button"
+              className="us-status-close-btn"
+              onClick={() => setIsUsStatusPopupOpen(false)}
+              aria-label="Close status panel"
+            >
+              <X size={13} />
+            </button>
+
+            <div className="us-status-content">
+              {usStatusActiveSection === 'study' ? (
+                <div className="us-status-panel study-panel">
+                  <h3>Study Tracker</h3>
+                  <div className="study-timer-display">
+                    {Math.floor(studySecondsLeft / 60)}:{(studySecondsLeft % 60).toString().padStart(2, '0')}
+                  </div>
+                  <div className="study-controls">
+                    <button
+                      className={`study-btn ${isStudyTimerRunning ? 'running' : ''}`}
+                      onClick={() => setIsStudyTimerRunning(!isStudyTimerRunning)}
+                    >
+                      {isStudyTimerRunning ? 'Pause' : 'Start'}
+                    </button>
+                    <button
+                      className="study-btn reset"
+                      onClick={() => {
+                        setIsStudyTimerRunning(false);
+                        setStudySecondsLeft(25 * 60);
+                      }}
+                    >
+                      Reset
+                    </button>
+                  </div>
+                  <div className="study-progress-container">
+                    <div className="study-progress-bar" style={{ width: `${(1 - studySecondsLeft / (25 * 60)) * 100}%` }} />
+                  </div>
+                  <p className="study-note">Focus on your task</p>
+                </div>
+              ) : usStatusActiveSection === 'setting' ? (
+                <div className="us-status-panel setting-panel">
+                  <h3>System Settings</h3>
+                  <div className="setting-row">
+                    <span>Do Not Disturb</span>
+                    <label className="switch-toggle">
+                      <input type="checkbox" />
+                      <span className="slider" />
+                    </label>
+                  </div>
+                  <div className="setting-row">
+                    <span>Notifications</span>
+                    <label className="switch-toggle">
+                      <input type="checkbox" defaultChecked />
+                      <span className="slider" />
+                    </label>
+                  </div>
+                  <div className="setting-row">
+                    <span>Volume</span>
+                    <input type="range" className="setting-slider" defaultValue="65" />
+                  </div>
+                </div>
+              ) : (
+                <div className="us-status-panel welcome-panel">
+                  <div className="welcome-avatar">US</div>
+                  <h3>US Dashboard</h3>
+                  <p className="welcome-subtext">You are signed in to DDO</p>
+                  <div className="welcome-info-pill">Status: Online</div>
+                </div>
+              )}
+            </div>
+
+            <div className="us-status-btn-group">
+              <button
+                className={`us-status-btn ${usStatusActiveSection === 'setting' ? 'active' : ''}`}
+                onClick={() => setUsStatusActiveSection(usStatusActiveSection === 'setting' ? 'none' : 'setting')}
+              >
+                Setting
+              </button>
+              <button
+                className={`us-status-btn ${usStatusActiveSection === 'study' ? 'active' : ''}`}
+                onClick={() => setUsStatusActiveSection(usStatusActiveSection === 'study' ? 'none' : 'study')}
+              >
+                Study
+              </button>
+              <button
+                className="us-status-btn us-option"
+                onClick={() => {
+                  setIsUsStatusPopupOpen(false);
+                  setIsUserLoginOpen(true);
+                }}
+              >
+                US
+              </button>
+            </div>
+          </div>
+        )}
       </div>
     </div>
     {isUserLoginOpen && (
@@ -2317,7 +2668,14 @@ const RightTray = ({ onPopupStateChange = () => {} }) => {
                 <p>Please enter your details.</p>
               </div>
 
-              <form className="user-login-form" onSubmit={(event) => event.preventDefault()}>
+              <form
+                className="user-login-form"
+                onSubmit={(event) => {
+                  event.preventDefault();
+                  setIsUserLoginOpen(false);
+                  setIsUsStatusPopupOpen(true);
+                }}
+              >
                 <label className="user-login-field">
                   <span>E-mail</span>
                   <input type="email" placeholder="Enter your e-mail" />
