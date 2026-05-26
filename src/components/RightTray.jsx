@@ -1,5 +1,6 @@
 import { useState, useEffect, useRef } from 'react';
-import { Wifi, Bluetooth, Bell, X, User, Phone, Mail, Users, Briefcase, Plus, ChevronDown, Smartphone, MoreVertical, Zap, HeartPulse, Gauge, Clock3, Leaf, Thermometer, Square, Lock, Check, LoaderCircle, RefreshCw, LayoutGrid, Search as SearchIcon, Settings } from 'lucide-react';
+import { createPortal } from 'react-dom';
+import { Wifi, Bluetooth, Bell, X, User, Phone, Mail, Users, Briefcase, Plus, ChevronDown, Smartphone, MoreVertical, Zap, HeartPulse, Gauge, Clock3, Leaf, Thermometer, Square, Lock, Check, LoaderCircle, RefreshCw, LayoutGrid, Search as SearchIcon, Settings, Volume, Volume1, Volume2, VolumeX } from 'lucide-react';
 import { FaWhatsapp, FaSpotify } from 'react-icons/fa';
 import CenterSearch from './CenterSearch';
 
@@ -157,12 +158,18 @@ const RightTray = ({ onPopupStateChange = () => {} }) => {
   const usStatusPopupRef = useRef(null);
   const [studySecondsLeft, setStudySecondsLeft] = useState(25 * 60);
   const [isStudyTimerRunning, setIsStudyTimerRunning] = useState(false);
+  const [usVolume, setUsVolume] = useState(65);
+  const [isUsMuted, setIsUsMuted] = useState(false);
+  const [prevUsVolume, setPrevUsVolume] = useState(65);
   const [isSearchPopupOpen, setIsSearchPopupOpen] = useState(false);
   const appLauncherRef = useRef(null);
+  const appSettingsPopupRef = useRef(null);
+  const appPrivacyPopupRef = useRef(null);
   const [isAppLauncherOpen, setIsAppLauncherOpen] = useState(false);
   const [isAppPickerOpen, setIsAppPickerOpen] = useState(false);
   const [isAppSettingsOpen, setIsAppSettingsOpen] = useState(false);
   const [isAppPrivacyOpen, setIsAppPrivacyOpen] = useState(false);
+  const [appPrivacyPosition, setAppPrivacyPosition] = useState({ top: 0, left: 0, side: 'right' });
   const [isResetAppsConfirmOpen, setIsResetAppsConfirmOpen] = useState(false);
   const [installedApps, setInstalledApps] = useState([]);
   const [isAppsLoading, setIsAppsLoading] = useState(false);
@@ -611,6 +618,10 @@ const RightTray = ({ onPopupStateChange = () => {} }) => {
 
   useEffect(() => {
     const handleAppLauncherClickOutside = (event) => {
+      if (appPrivacyPopupRef.current && appPrivacyPopupRef.current.contains(event.target)) {
+        return;
+      }
+
       if (appLauncherRef.current && !appLauncherRef.current.contains(event.target)) {
         setIsAppLauncherOpen(false);
       }
@@ -621,6 +632,25 @@ const RightTray = ({ onPopupStateChange = () => {} }) => {
       document.removeEventListener('mousedown', handleAppLauncherClickOutside);
     };
   }, []);
+
+  useEffect(() => {
+    if (!isAppPrivacyOpen) {
+      return undefined;
+    }
+
+    const handlePrivacyClickOutside = (event) => {
+      if (appPrivacyPopupRef.current && appPrivacyPopupRef.current.contains(event.target)) {
+        return;
+      }
+
+      setIsAppPrivacyOpen(false);
+    };
+
+    document.addEventListener('mousedown', handlePrivacyClickOutside);
+    return () => {
+      document.removeEventListener('mousedown', handlePrivacyClickOutside);
+    };
+  }, [isAppPrivacyOpen]);
 
   // WhatsApp Popup Click Outside
   useEffect(() => {
@@ -1066,6 +1096,51 @@ const RightTray = ({ onPopupStateChange = () => {} }) => {
       pin: normalizedPin,
     }));
   };
+
+  const updateAppPrivacyPosition = () => {
+    if (!appSettingsPopupRef.current) {
+      return;
+    }
+
+    const settingsRect = appSettingsPopupRef.current.getBoundingClientRect();
+    const panelWidth = 312;
+    const panelHeight = 428;
+    const gap = 14;
+    const viewportPadding = 12;
+    const rightSpace = window.innerWidth - settingsRect.right - viewportPadding;
+    const leftSpace = settingsRect.left - viewportPadding;
+    const shouldOpenRight = rightSpace >= panelWidth || rightSpace >= leftSpace;
+    const left = shouldOpenRight
+      ? Math.min(settingsRect.right + gap, window.innerWidth - panelWidth - viewportPadding)
+      : Math.max(viewportPadding, settingsRect.left - panelWidth - gap);
+    const top = Math.min(
+      Math.max(viewportPadding, settingsRect.top),
+      window.innerHeight - panelHeight - viewportPadding,
+    );
+
+    setAppPrivacyPosition({
+      top,
+      left,
+      side: shouldOpenRight ? 'right' : 'left',
+    });
+  };
+
+  useEffect(() => {
+    if (!isAppPrivacyOpen) {
+      return undefined;
+    }
+
+    updateAppPrivacyPosition();
+
+    const handleReposition = () => updateAppPrivacyPosition();
+    window.addEventListener('resize', handleReposition);
+    window.addEventListener('scroll', handleReposition, true);
+
+    return () => {
+      window.removeEventListener('resize', handleReposition);
+      window.removeEventListener('scroll', handleReposition, true);
+    };
+  }, [isAppPrivacyOpen]);
 
   const openSelectedApp = async (app) => {
     try {
@@ -2018,7 +2093,11 @@ const RightTray = ({ onPopupStateChange = () => {} }) => {
               {appsError ? <div className="app-launcher-message app-launcher-message--error">{appsError}</div> : null}
 
               {isAppSettingsOpen && (
-                <div className="app-launcher-settings-popup popup-aurora-surface" onClick={(event) => event.stopPropagation()}>
+                <div
+                  ref={appSettingsPopupRef}
+                  className="app-launcher-settings-popup popup-aurora-surface"
+                  onClick={(event) => event.stopPropagation()}
+                >
                   <div className="app-launcher-settings-header">
                     <div className="app-launcher-nested-title">Settings</div>
                     <button
@@ -2092,7 +2171,11 @@ const RightTray = ({ onPopupStateChange = () => {} }) => {
                       className="app-launcher-settings-action"
                       onClick={() => {
                         setIsResetAppsConfirmOpen(false);
-                        setIsAppPrivacyOpen((open) => !open);
+                        const nextOpen = !isAppPrivacyOpen;
+                        if (nextOpen) {
+                          updateAppPrivacyPosition();
+                        }
+                        setIsAppPrivacyOpen(nextOpen);
                       }}
                     >
                       Local App / Private App
@@ -2135,127 +2218,144 @@ const RightTray = ({ onPopupStateChange = () => {} }) => {
                     </div>
                   )}
 
-                  {isAppPrivacyOpen && (
-                    <div className="app-launcher-privacy-popup popup-aurora-surface">
-                      <div className="app-launcher-settings-header">
-                        <div className="app-launcher-nested-title">Local App / Private App</div>
+                </div>
+              )}
+
+              {isAppPrivacyOpen ? createPortal(
+                <div
+                  ref={appPrivacyPopupRef}
+                  className={`app-launcher-privacy-popup popup-aurora-surface is-side-panel is-${appPrivacyPosition.side}`}
+                  style={{
+                    top: `${appPrivacyPosition.top}px`,
+                    left: `${appPrivacyPosition.left}px`,
+                  }}
+                  onClick={(event) => event.stopPropagation()}
+                >
+                  <div className="app-launcher-settings-header">
+                    <div className="app-launcher-nested-title">Local App / Private App</div>
+                    <button
+                      type="button"
+                      className="app-launcher-picker-close"
+                      onClick={() => setIsAppPrivacyOpen(false)}
+                      aria-label="Close privacy settings"
+                    >
+                      <X size={14} />
+                    </button>
+                  </div>
+
+                  <div className="app-launcher-settings-section">
+                    <div className="app-launcher-settings-pill-row">
+                      {[
+                        { label: 'Local App', value: 'local' },
+                        { label: 'Private App', value: 'private' },
+                      ].map((option) => (
+                        <button
+                          key={option.value}
+                          type="button"
+                          className={`app-launcher-settings-pill ${appPrivacySettings.mode === option.value ? 'is-active' : ''}`}
+                          onClick={() => setAppPrivacySettings((current) => ({ ...current, mode: option.value }))}
+                        >
+                          {option.label}
+                        </button>
+                      ))}
+                    </div>
+                  </div>
+
+                  {appPrivacySettings.mode === 'local' ? (
+                    <div className="app-launcher-privacy-panel">
+                      <div className="app-launcher-privacy-status">Local Mode Active</div>
+                      <p className="app-launcher-privacy-copy">
+                        This app works only on your local device, keeps data in local storage, and supports offline local features without uploading your data to cloud services.
+                      </p>
+
+                      <div className="app-launcher-privacy-toggle-list">
+                        {[
+                          'Store data locally',
+                          'Offline mode',
+                          'Manage local files',
+                        ].map((label) => (
+                          <button key={label} type="button" className="app-launcher-privacy-toggle is-active">
+                            <span>{label}</span>
+                            <strong>Ready</strong>
+                          </button>
+                        ))}
+                      </div>
+                    </div>
+                  ) : (
+                    <div className="app-launcher-privacy-panel">
+                      <div className="app-launcher-privacy-status">Private Mode Active</div>
+                      <p className="app-launcher-privacy-copy">
+                        Privacy mode focuses on user control with local-only settings for tracking, analytics, saved files, and launcher protection.
+                      </p>
+
+                      <div className="app-launcher-privacy-toggle-list">
                         <button
                           type="button"
-                          className="app-launcher-picker-close"
-                          onClick={() => setIsAppPrivacyOpen(false)}
-                          aria-label="Close privacy settings"
+                          className={`app-launcher-privacy-toggle ${appPrivacySettings.trackingDisabled ? 'is-active' : ''}`}
+                          onClick={() => setAppPrivacySettings((current) => ({
+                            ...current,
+                            trackingDisabled: !current.trackingDisabled,
+                          }))}
                         >
-                          <X size={14} />
+                          <span>Disable Tracking</span>
+                          <strong>{appPrivacySettings.trackingDisabled ? 'On' : 'Off'}</strong>
+                        </button>
+                        <button
+                          type="button"
+                          className={`app-launcher-privacy-toggle ${appPrivacySettings.analyticsDisabled ? 'is-active' : ''}`}
+                          onClick={() => setAppPrivacySettings((current) => ({
+                            ...current,
+                            analyticsDisabled: !current.analyticsDisabled,
+                          }))}
+                        >
+                          <span>Disable Analytics</span>
+                          <strong>{appPrivacySettings.analyticsDisabled ? 'On' : 'Off'}</strong>
+                        </button>
+                        <button
+                          type="button"
+                          className="app-launcher-privacy-toggle"
+                          onClick={openAddAppsPanel}
+                        >
+                          <span>Manage Saved Files</span>
+                          <strong>{selectedApps.length}</strong>
                         </button>
                       </div>
 
-                      <div className="app-launcher-settings-section">
-                        <div className="app-launcher-settings-pill-row">
-                          {[
-                            { label: 'Local App', value: 'local' },
-                            { label: 'Private App', value: 'private' },
-                          ].map((option) => (
-                            <button
-                              key={option.value}
-                              type="button"
-                              className={`app-launcher-settings-pill ${appPrivacySettings.mode === option.value ? 'is-active' : ''}`}
-                              onClick={() => setAppPrivacySettings((current) => ({ ...current, mode: option.value }))}
-                            >
-                              {option.label}
-                            </button>
-                          ))}
+                      <div className="app-launcher-privacy-pin">
+                        <label className="app-launcher-settings-label" htmlFor="app-private-pin">
+                          Lock App / Privacy Protection
+                        </label>
+                        <div className="app-launcher-privacy-pin-row">
+                          <input
+                            id="app-private-pin"
+                            type="password"
+                            value={privacyPinDraft}
+                            onChange={(event) => setPrivacyPinDraft(event.target.value)}
+                            className="app-launcher-privacy-input"
+                            placeholder="Enter PIN"
+                          />
+                          <button
+                            type="button"
+                            className="app-launcher-settings-pill"
+                            onClick={handleSavePrivacyPin}
+                          >
+                            Save
+                          </button>
                         </div>
                       </div>
 
-                      {appPrivacySettings.mode === 'local' ? (
-                        <div className="app-launcher-privacy-panel">
-                          <div className="app-launcher-privacy-status">Local Mode Active</div>
-                          <p className="app-launcher-privacy-copy">
-                            This app works only on your local device, keeps data in local storage, and supports offline local features without uploading your data to cloud services.
-                          </p>
-                        </div>
-                      ) : (
-                        <div className="app-launcher-privacy-panel">
-                          <div className="app-launcher-privacy-status">Private Mode Active</div>
-                          <p className="app-launcher-privacy-copy">
-                            Privacy mode focuses on user control with local-only settings for tracking, analytics, saved files, and launcher protection.
-                          </p>
-
-                          <div className="app-launcher-privacy-toggle-list">
-                            <button
-                              type="button"
-                              className={`app-launcher-privacy-toggle ${appPrivacySettings.trackingDisabled ? 'is-active' : ''}`}
-                              onClick={() => setAppPrivacySettings((current) => ({
-                                ...current,
-                                trackingDisabled: !current.trackingDisabled,
-                              }))}
-                            >
-                              <span>Disable Tracking</span>
-                              <strong>{appPrivacySettings.trackingDisabled ? 'On' : 'Off'}</strong>
-                            </button>
-                            <button
-                              type="button"
-                              className={`app-launcher-privacy-toggle ${appPrivacySettings.analyticsDisabled ? 'is-active' : ''}`}
-                              onClick={() => setAppPrivacySettings((current) => ({
-                                ...current,
-                                analyticsDisabled: !current.analyticsDisabled,
-                              }))}
-                            >
-                              <span>Disable Analytics</span>
-                              <strong>{appPrivacySettings.analyticsDisabled ? 'On' : 'Off'}</strong>
-                            </button>
-                          </div>
-
-                          <div className="app-launcher-privacy-saved">
-                            <div className="app-launcher-privacy-saved-copy">
-                              <span>Manage Saved Files</span>
-                              <strong>{selectedApps.length} saved apps</strong>
-                            </div>
-                            <button
-                              type="button"
-                              className="app-launcher-settings-pill"
-                              onClick={openAddAppsPanel}
-                            >
-                              Manage
-                            </button>
-                          </div>
-
-                          <div className="app-launcher-privacy-pin">
-                            <label className="app-launcher-settings-label" htmlFor="app-private-pin">
-                              Lock app with password/PIN
-                            </label>
-                            <div className="app-launcher-privacy-pin-row">
-                              <input
-                                id="app-private-pin"
-                                type="password"
-                                value={privacyPinDraft}
-                                onChange={(event) => setPrivacyPinDraft(event.target.value)}
-                                className="app-launcher-privacy-input"
-                                placeholder="Enter PIN"
-                              />
-                              <button
-                                type="button"
-                                className="app-launcher-settings-pill"
-                                onClick={handleSavePrivacyPin}
-                              >
-                                Save
-                              </button>
-                            </div>
-                          </div>
-
-                          <button
-                            type="button"
-                            className="app-launcher-settings-action is-danger"
-                            onClick={handleClearLocalAppData}
-                          >
-                            Clear Local Data
-                          </button>
-                        </div>
-                      )}
+                      <button
+                        type="button"
+                        className="app-launcher-settings-action is-danger"
+                        onClick={handleClearLocalAppData}
+                      >
+                        Clear Local Data
+                      </button>
                     </div>
                   )}
-                </div>
-              )}
+                </div>,
+                document.body,
+              ) : null}
 
               <div className="app-launcher-selected-list">
                 {visibleSelectedApps.length ? (
@@ -2752,9 +2852,83 @@ const RightTray = ({ onPopupStateChange = () => {} }) => {
                       <span className="slider" />
                     </label>
                   </div>
-                  <div className="setting-row">
-                    <span>Volume</span>
-                    <input type="range" className="setting-slider" defaultValue="65" />
+                  <div className="setting-row volume-section-row">
+                    <div className="volume-header-row">
+                      <div className="volume-label-container">
+                        <button
+                          type="button"
+                          className="volume-icon-btn"
+                          onClick={() => {
+                            if (isUsMuted) {
+                              setIsUsMuted(false);
+                              setUsVolume(prevUsVolume);
+                            } else {
+                              setPrevUsVolume(usVolume);
+                              setIsUsMuted(true);
+                              setUsVolume(0);
+                            }
+                          }}
+                          title={isUsMuted ? "Unmute" : "Mute"}
+                        >
+                          {isUsMuted || usVolume === 0 ? (
+                            <VolumeX size={15} />
+                          ) : usVolume < 34 ? (
+                            <Volume size={15} />
+                          ) : usVolume < 67 ? (
+                            <Volume1 size={15} />
+                          ) : (
+                            <Volume2 size={15} />
+                          )}
+                        </button>
+                        <span>Volume</span>
+                      </div>
+                      <span className="volume-percent-text">
+                        {isUsMuted ? '0%' : `${usVolume}%`}
+                      </span>
+                    </div>
+
+                    <div className="volume-controls-wrapper">
+                      <button
+                        type="button"
+                        className="volume-step-btn"
+                        onClick={() => {
+                          setIsUsMuted(false);
+                          setUsVolume((prev) => Math.max(0, prev - 5));
+                        }}
+                        title="Decrease volume"
+                      >
+                        -
+                      </button>
+
+                      <div className="volume-slider-container">
+                        <input
+                          type="range"
+                          className="setting-slider volume-slider"
+                          min="0"
+                          max="100"
+                          value={isUsMuted ? 0 : usVolume}
+                          onChange={(e) => {
+                            const val = parseInt(e.target.value, 10);
+                            setUsVolume(val);
+                            if (val > 0) {
+                              setIsUsMuted(false);
+                            }
+                          }}
+                        />
+                      </div>
+
+                      <button
+                        type="button"
+                        className="volume-step-btn"
+                        onClick={() => {
+                          setIsUsMuted(false);
+                          setUsVolume((prev) => Math.min(100, prev + 5));
+                        }}
+                        title="Increase volume"
+                      >
+                        +
+                      </button>
+                    </div>
                   </div>
                 </div>
               ) : (
