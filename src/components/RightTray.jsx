@@ -3,6 +3,7 @@ import { createPortal } from 'react-dom';
 import { Wifi, Bluetooth, Bell, X, User, Phone, Mail, Users, Briefcase, Plus, ChevronDown, Smartphone, MoreVertical, Zap, HeartPulse, Gauge, Clock3, Leaf, Thermometer, Square, Lock, Check, LoaderCircle, RefreshCw, LayoutGrid, Search as SearchIcon, Settings, Music4, Volume, Volume1, Volume2, VolumeX } from 'lucide-react';
 import { FaWhatsapp, FaSpotify } from 'react-icons/fa';
 import CenterSearch from './CenterSearch';
+import BrandLogo from './BrandLogo';
 
 const SPOTIFY_AUTHORIZE_URL = 'https://accounts.spotify.com/authorize';
 const SPOTIFY_TOKEN_URL = 'https://accounts.spotify.com/api/token';
@@ -2738,7 +2739,10 @@ const RightTray = ({ onPopupStateChange = () => {} }) => {
               onClick={(event) => event.stopPropagation()}
             >
               <div className="app-launcher-dock-header">
-                <div className="app-launcher-dock-title">Apps</div>
+                <div className="app-launcher-dock-title">
+                  <BrandLogo className="app-launcher-brand-logo" surface="dark" />
+                  <span>Apps</span>
+                </div>
                 <div className="app-launcher-dock-actions">
                   <button
                     type="button"
@@ -3610,7 +3614,10 @@ const RightTray = ({ onPopupStateChange = () => {} }) => {
                 </div>
               ) : (
                 <div className="us-status-panel welcome-panel">
-                  <div className="welcome-avatar">US</div>
+                  <div className="welcome-brand-row">
+                    <BrandLogo className="welcome-brand-logo" surface="dark" />
+                    <div className="welcome-avatar">US</div>
+                  </div>
                   <h3>US Dashboard</h3>
                   <p className="welcome-subtext">You are signed in to DDO</p>
                   <div className="welcome-info-pill">Status: Online</div>

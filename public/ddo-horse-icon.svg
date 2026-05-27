@@ -1,0 +1,24 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="8 8 112 112" fill="none">
+  <defs>
+    <linearGradient id="ddo-bg" x1="18" y1="12" x2="108" y2="118" gradientUnits="userSpaceOnUse">
+      <stop stop-color="#5AAE95"/>
+      <stop offset="1" stop-color="#2E6C5D"/>
+    </linearGradient>
+    <radialGradient id="ddo-glow" cx="0" cy="0" r="1" gradientUnits="userSpaceOnUse" gradientTransform="translate(50 34) rotate(53.13) scale(68.4 72.9)">
+      <stop stop-color="#7FD5BA" stop-opacity=".34"/>
+      <stop offset="1" stop-color="#7FD5BA" stop-opacity="0"/>
+    </radialGradient>
+  </defs>
+
+  <circle cx="64" cy="64" r="50" fill="url(#ddo-bg)"/>
+  <circle cx="64" cy="64" r="50" fill="url(#ddo-glow)"/>
+  <circle cx="64" cy="64" r="49.25" stroke="#D0FFF0" stroke-opacity=".55" stroke-width="1.5"/>
+
+  <g transform="translate(31 28)" stroke="#FFF" stroke-linecap="round" stroke-linejoin="round">
+    <path d="M43.547 2.665c-2.866 1.215-5.216 3.608-6.79 6.669c-2.06-1.638-4.391-2.868-7.032-3.566c-5.844-1.542-10.89-.34-14.725 3.09c4.779-.95 9.123-.197 12.746 1.266c-5.438 1.1-9.693 3.808-12.314 8.055c3.937-1.394 8.528-1.562 13.33-.493c-5.052 2.27-8.643 5.41-10.49 9.32c3.437-1.475 7.126-2.155 11.185-2.197c-2.278 2.881-3.595 5.887-3.782 9.114c3.375-3.31 6.533-5.138 9.925-6.353c4.565-1.636 7.673-5.916 7.829-10.81c.12-3.717-.804-6.711-2.738-9.16c1.854-3.283 4.172-5.903 7.068-7.882c1.953-1.334 4.14-2.19 6.572-2.184c-2.513-1.29-5.814-1.042-8.784 1.131Z" stroke-width="2.15"/>
+    <path d="M40.366 19.555c2.312.902 4.156 2.59 5.379 4.935c-1.688-.993-3.49-1.478-5.699-1.501c2.365 1.588 3.708 3.845 3.915 6.707c-1.947-2.34-3.842-3.477-6.195-4.262" stroke-width="2.15"/>
+    <path d="M28.615 17.379c2.233-2.361 4.563-3.385 7.312-3.441" stroke-width="1.9"/>
+    <path d="M25.183 23.274c3.014-.952 5.423-.925 7.718-.368" stroke-width="1.9"/>
+    <circle cx="34.451" cy="18.415" r="1.72" fill="#FFF" stroke="none"/>
+  </g>
+</svg>
