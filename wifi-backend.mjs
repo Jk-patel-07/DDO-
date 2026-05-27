@@ -210,6 +210,26 @@ const buildSecurityHeaders = async (origin = '') => {
   };
 };
 
+const buildSecurityStatus = async () => {
+  const env = await readProjectEnv();
+  const allowedOrigins = await getAllowedOrigins();
+  const apiKeyProtected = Boolean(
+    process.env.GEMINI_API_KEY
+    || env.GEMINI_API_KEY
+    || process.env.SPOTIFY_CLIENT_SECRET
+    || env.SPOTIFY_CLIENT_SECRET
+    || process.env.APP_AUTH_SECRET
+    || env.APP_AUTH_SECRET
+  );
+
+  return {
+    fileUploadProtection: Number.isFinite(MAX_JSON_BODY_BYTES) && MAX_JSON_BODY_BYTES > 0,
+    linkProtection: allowedOrigins.size > 0,
+    loginProtection: Boolean(AUTH_STORAGE.email && AUTH_STORAGE.passwordHash && AUTH_STORAGE.secret),
+    apiKeyProtection: apiKeyProtected,
+  };
+};
+
 const sendJson = async (response, statusCode, payload, origin = '') => {
   response.writeHead(statusCode, {
     ...(await buildSecurityHeaders(origin)),
@@ -932,6 +952,11 @@ const server = http.createServer(async (request, response) => {
           displayName: session.displayName,
         },
       }, origin);
+      return;
+    }
+
+    if (requestUrl.pathname === '/api/security/status' && request.method === 'GET') {
+      await sendJson(response, 200, await buildSecurityStatus(), origin);
       return;
     }
 

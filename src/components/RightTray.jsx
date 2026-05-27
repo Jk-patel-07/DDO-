@@ -1,6 +1,6 @@
 import { useState, useEffect, useRef, useCallback } from 'react';
 import { createPortal } from 'react-dom';
-import { Wifi, Bluetooth, Bell, X, User, Phone, Mail, Users, Briefcase, Plus, ChevronDown, Smartphone, MoreVertical, Zap, HeartPulse, Gauge, Clock3, Leaf, Thermometer, Square, Lock, Check, LoaderCircle, RefreshCw, LayoutGrid, Search as SearchIcon, Settings, Music4, Volume, Volume1, Volume2, VolumeX } from 'lucide-react';
+import { Wifi, Bluetooth, Bell, X, User, Phone, Mail, Users, Briefcase, Plus, ChevronDown, Smartphone, MoreVertical, Zap, HeartPulse, Gauge, Clock3, Leaf, Thermometer, Square, Lock, Check, LoaderCircle, RefreshCw, LayoutGrid, Search as SearchIcon, Settings, Music4, Volume, Volume1, Volume2, VolumeX, Shield } from 'lucide-react';
 import { FaWhatsapp, FaSpotify } from 'react-icons/fa';
 import CenterSearch from './CenterSearch';
 import BrandLogo from './BrandLogo';
@@ -362,12 +362,18 @@ const RightTray = ({ onPopupStateChange = () => {} }) => {
   const appLauncherRef = useRef(null);
   const appSettingsPopupRef = useRef(null);
   const appPrivacyPopupRef = useRef(null);
+  const appSecurityPopupRef = useRef(null);
   const [isAppLauncherOpen, setIsAppLauncherOpen] = useState(false);
   const [isAppPickerOpen, setIsAppPickerOpen] = useState(false);
   const [isAppSettingsOpen, setIsAppSettingsOpen] = useState(false);
   const [isAppPrivacyOpen, setIsAppPrivacyOpen] = useState(false);
+  const [isAppSecurityOpen, setIsAppSecurityOpen] = useState(false);
   const [appPrivacyPosition, setAppPrivacyPosition] = useState({ top: 0, left: 0, side: 'right' });
+  const [appSecurityPosition, setAppSecurityPosition] = useState({ top: 0, left: 0, side: 'right' });
   const [isResetAppsConfirmOpen, setIsResetAppsConfirmOpen] = useState(false);
+  const [isSecurityStatusLoading, setIsSecurityStatusLoading] = useState(false);
+  const [securityStatusError, setSecurityStatusError] = useState('');
+  const [securityStatus, setSecurityStatus] = useState(null);
   const [installedApps, setInstalledApps] = useState([]);
   const [isAppsLoading, setIsAppsLoading] = useState(false);
   const [appsError, setAppsError] = useState('');
@@ -1020,6 +1026,10 @@ const RightTray = ({ onPopupStateChange = () => {} }) => {
 
   useEffect(() => {
     const handleAppLauncherClickOutside = (event) => {
+      if (appSecurityPopupRef.current && appSecurityPopupRef.current.contains(event.target)) {
+        return;
+      }
+
       if (appPrivacyPopupRef.current && appPrivacyPopupRef.current.contains(event.target)) {
         return;
       }
@@ -1053,6 +1063,25 @@ const RightTray = ({ onPopupStateChange = () => {} }) => {
       document.removeEventListener('mousedown', handlePrivacyClickOutside);
     };
   }, [isAppPrivacyOpen]);
+
+  useEffect(() => {
+    if (!isAppSecurityOpen) {
+      return undefined;
+    }
+
+    const handleSecurityClickOutside = (event) => {
+      if (appSecurityPopupRef.current && appSecurityPopupRef.current.contains(event.target)) {
+        return;
+      }
+
+      setIsAppSecurityOpen(false);
+    };
+
+    document.addEventListener('mousedown', handleSecurityClickOutside);
+    return () => {
+      document.removeEventListener('mousedown', handleSecurityClickOutside);
+    };
+  }, [isAppSecurityOpen]);
 
   // WhatsApp Popup Click Outside
   useEffect(() => {
@@ -1541,6 +1570,7 @@ const RightTray = ({ onPopupStateChange = () => {} }) => {
         setIsAppPickerOpen(false);
         setIsAppSettingsOpen(false);
         setIsAppPrivacyOpen(false);
+        setIsAppSecurityOpen(false);
         setIsResetAppsConfirmOpen(false);
         setAppPickerQuery('');
       }
@@ -1551,6 +1581,7 @@ const RightTray = ({ onPopupStateChange = () => {} }) => {
   const openAddAppsPanel = () => {
     setIsAppSettingsOpen(false);
     setIsAppPrivacyOpen(false);
+    setIsAppSecurityOpen(false);
     setIsResetAppsConfirmOpen(false);
     setIsAppPickerOpen(true);
     void loadInstalledApps(true);
@@ -1635,6 +1666,34 @@ const RightTray = ({ onPopupStateChange = () => {} }) => {
     });
   };
 
+  const updateAppSecurityPosition = () => {
+    if (!appSettingsPopupRef.current) {
+      return;
+    }
+
+    const settingsRect = appSettingsPopupRef.current.getBoundingClientRect();
+    const panelWidth = 296;
+    const panelHeight = 276;
+    const gap = 14;
+    const viewportPadding = 12;
+    const rightSpace = window.innerWidth - settingsRect.right - viewportPadding;
+    const leftSpace = settingsRect.left - viewportPadding;
+    const shouldOpenRight = rightSpace >= panelWidth || rightSpace >= leftSpace;
+    const left = shouldOpenRight
+      ? Math.min(settingsRect.right + gap, window.innerWidth - panelWidth - viewportPadding)
+      : Math.max(viewportPadding, settingsRect.left - panelWidth - gap);
+    const top = Math.min(
+      Math.max(viewportPadding, settingsRect.top + 88),
+      window.innerHeight - panelHeight - viewportPadding,
+    );
+
+    setAppSecurityPosition({
+      top,
+      left,
+      side: shouldOpenRight ? 'right' : 'left',
+    });
+  };
+
   useEffect(() => {
     if (!isAppPrivacyOpen) {
       return undefined;
@@ -1651,6 +1710,62 @@ const RightTray = ({ onPopupStateChange = () => {} }) => {
       window.removeEventListener('scroll', handleReposition, true);
     };
   }, [isAppPrivacyOpen]);
+
+  useEffect(() => {
+    if (!isAppSecurityOpen) {
+      return undefined;
+    }
+
+    updateAppSecurityPosition();
+
+    const handleReposition = () => updateAppSecurityPosition();
+    window.addEventListener('resize', handleReposition);
+    window.addEventListener('scroll', handleReposition, true);
+
+    return () => {
+      window.removeEventListener('resize', handleReposition);
+      window.removeEventListener('scroll', handleReposition, true);
+    };
+  }, [isAppSecurityOpen]);
+
+  useEffect(() => {
+    if (!isAppSecurityOpen) {
+      return undefined;
+    }
+
+    let isActive = true;
+
+    void requestBackendJson('/api/security/status', { method: 'GET' }, {
+      fallbackMessage: 'Security status unavailable.',
+    })
+      .then((payload) => {
+        if (!isActive) {
+          return;
+        }
+        setSecurityStatus({
+          fileUploadProtection: Boolean(payload.fileUploadProtection),
+          linkProtection: Boolean(payload.linkProtection),
+          loginProtection: Boolean(payload.loginProtection),
+          apiKeyProtection: Boolean(payload.apiKeyProtection),
+        });
+      })
+      .catch(() => {
+        if (!isActive) {
+          return;
+        }
+        setSecurityStatus(null);
+        setSecurityStatusError('Security status unavailable.');
+      })
+      .finally(() => {
+        if (isActive) {
+          setIsSecurityStatusLoading(false);
+        }
+      });
+
+    return () => {
+      isActive = false;
+    };
+  }, [isAppSecurityOpen]);
 
   const openSelectedApp = async (app) => {
     try {
@@ -2904,6 +3019,8 @@ const RightTray = ({ onPopupStateChange = () => {} }) => {
                       event.stopPropagation();
                       setIsAppPickerOpen(false);
                       setIsResetAppsConfirmOpen(false);
+                      setIsAppPrivacyOpen(false);
+                      setIsAppSecurityOpen(false);
                       setIsAppSettingsOpen((open) => !open);
                     }}
                     aria-label="App settings"
@@ -2940,6 +3057,7 @@ const RightTray = ({ onPopupStateChange = () => {} }) => {
                       onClick={() => {
                         setIsAppSettingsOpen(false);
                         setIsAppPrivacyOpen(false);
+                        setIsAppSecurityOpen(false);
                         setIsResetAppsConfirmOpen(false);
                       }}
                       aria-label="Close app settings"
@@ -3005,6 +3123,26 @@ const RightTray = ({ onPopupStateChange = () => {} }) => {
                       className="app-launcher-settings-action"
                       onClick={() => {
                         setIsResetAppsConfirmOpen(false);
+                        setIsAppPrivacyOpen(false);
+                        const nextOpen = !isAppSecurityOpen;
+                        if (nextOpen) {
+                          setIsSecurityStatusLoading(true);
+                          setSecurityStatusError('');
+                          setSecurityStatus(null);
+                          updateAppSecurityPosition();
+                        }
+                        setIsAppSecurityOpen(nextOpen);
+                      }}
+                    >
+                      <Shield size={14} />
+                      <span>Security Check</span>
+                    </button>
+                    <button
+                      type="button"
+                      className="app-launcher-settings-action"
+                      onClick={() => {
+                        setIsResetAppsConfirmOpen(false);
+                        setIsAppSecurityOpen(false);
                         const nextOpen = !isAppPrivacyOpen;
                         if (nextOpen) {
                           updateAppPrivacyPosition();
@@ -3054,6 +3192,61 @@ const RightTray = ({ onPopupStateChange = () => {} }) => {
 
                 </div>
               )}
+
+              {isAppSecurityOpen ? createPortal(
+                <div
+                  ref={appSecurityPopupRef}
+                  className={`app-launcher-security-popup popup-aurora-surface is-side-panel is-${appSecurityPosition.side}`}
+                  style={{
+                    top: `${appSecurityPosition.top}px`,
+                    left: `${appSecurityPosition.left}px`,
+                  }}
+                  onClick={(event) => event.stopPropagation()}
+                >
+                  <div className="app-launcher-settings-header">
+                    <div className="app-launcher-nested-title app-launcher-nested-title--with-icon">
+                      <Shield size={14} />
+                      <span>Security Check</span>
+                    </div>
+                    <button
+                      type="button"
+                      className="app-launcher-picker-close"
+                      onClick={() => setIsAppSecurityOpen(false)}
+                      aria-label="Close security check"
+                    >
+                      <X size={14} />
+                    </button>
+                  </div>
+
+                  {isSecurityStatusLoading ? (
+                    <div className="app-launcher-security-loading">Checking security status...</div>
+                  ) : null}
+
+                  {!isSecurityStatusLoading && securityStatusError ? (
+                    <div className="app-launcher-security-unavailable">{securityStatusError}</div>
+                  ) : null}
+
+                  {!isSecurityStatusLoading && !securityStatusError && securityStatus ? (
+                    <div className="app-launcher-security-status-list">
+                      {[
+                        ['File Upload Protection', securityStatus.fileUploadProtection],
+                        ['Link Protection', securityStatus.linkProtection],
+                        ['Login Protection', securityStatus.loginProtection],
+                        ['API Key Protection', securityStatus.apiKeyProtection],
+                      ].map(([label, isEnabled]) => (
+                        <div key={label} className="app-launcher-security-status-item">
+                          <div className="app-launcher-security-status-copy">
+                            <span className={`app-launcher-security-status-dot ${isEnabled ? 'is-on' : 'is-off'}`} />
+                            <span>{label}</span>
+                          </div>
+                          <strong className={isEnabled ? 'is-on' : 'is-off'}>{isEnabled ? 'ON' : 'OFF'}</strong>
+                        </div>
+                      ))}
+                    </div>
+                  ) : null}
+                </div>,
+                document.body,
+              ) : null}
 
               {isAppPrivacyOpen ? createPortal(
                 <div
