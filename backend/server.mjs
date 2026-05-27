@@ -6,7 +6,7 @@ import {
   scryptSync,
   timingSafeEqual,
 } from 'node:crypto';
-import { readFile, writeFile } from 'node:fs/promises';
+import { mkdir, readFile, writeFile } from 'node:fs/promises';
 import path from 'node:path';
 import XLSX from 'xlsx';
 
@@ -14,8 +14,11 @@ const app = express();
 const HOST = '127.0.0.1';
 const PORT = 5000;
 const PROJECT_ROOT = process.cwd();
-const USERS_JSON_FILE = path.join(PROJECT_ROOT, '.ddo-users.json');
-const USERS_XLSX_FILE = path.join(PROJECT_ROOT, 'users.xlsx');
+const PRIVATE_DATA_DIR = path.join(PROJECT_ROOT, 'backend', 'private');
+const USERS_JSON_FILE = path.join(PRIVATE_DATA_DIR, '.ddo-users.json');
+const USERS_XLSX_FILE = path.join(PRIVATE_DATA_DIR, 'users.xlsx');
+const LEGACY_USERS_JSON_FILE = path.join(PROJECT_ROOT, '.ddo-users.json');
+const LEGACY_USERS_XLSX_FILE = path.join(PROJECT_ROOT, 'users.xlsx');
 const USERS_SHEET_NAME = 'Users';
 const ALLOWED_ORIGINS = new Set([
   'http://127.0.0.1:3000',
@@ -29,6 +32,7 @@ const USERS_XLSX_HEADERS = [
   'Last Name',
   'Phone Number',
   'More Information',
+  'Password Hash',
   'Register Date',
   'Account Status',
 ];
@@ -110,6 +114,10 @@ const hashPassword = (password, salt = randomBytes(16).toString('hex')) => {
   return `scrypt$${salt}$${derived.toString('hex')}`;
 };
 
+const ensurePrivateDataDirectory = async () => {
+  await mkdir(PRIVATE_DATA_DIR, { recursive: true });
+};
+
 const verifyPassword = (password, storedHash) => {
   if (!storedHash?.startsWith('scrypt$')) {
     return false;
@@ -126,20 +134,31 @@ const verifyPassword = (password, storedHash) => {
 };
 
 const readUsers = async () => {
+  await ensurePrivateDataDirectory();
+
   try {
     const raw = await readFile(USERS_JSON_FILE, 'utf8');
     const parsed = JSON.parse(raw);
     return Array.isArray(parsed) ? parsed : [];
   } catch {
-    return [];
+    try {
+      const raw = await readFile(LEGACY_USERS_JSON_FILE, 'utf8');
+      const parsed = JSON.parse(raw);
+      return Array.isArray(parsed) ? parsed : [];
+    } catch {
+      return [];
+    }
   }
 };
 
 const writeUsers = async (users) => {
+  await ensurePrivateDataDirectory();
   await writeFile(USERS_JSON_FILE, JSON.stringify(users, null, 2), 'utf8');
 };
 
 const readExcelRows = async () => {
+  await ensurePrivateDataDirectory();
+
   try {
     const workbookBuffer = await readFile(USERS_XLSX_FILE);
     const workbook = XLSX.read(workbookBuffer, { type: 'buffer' });
@@ -150,7 +169,18 @@ const readExcelRows = async () => {
 
     return XLSX.utils.sheet_to_json(worksheet, { defval: '' });
   } catch {
-    return [];
+    try {
+      const workbookBuffer = await readFile(LEGACY_USERS_XLSX_FILE);
+      const workbook = XLSX.read(workbookBuffer, { type: 'buffer' });
+      const worksheet = workbook.Sheets[USERS_SHEET_NAME] || workbook.Sheets[workbook.SheetNames[0]];
+      if (!worksheet) {
+        return [];
+      }
+
+      return XLSX.utils.sheet_to_json(worksheet, { defval: '' });
+    } catch {
+      return [];
+    }
   }
 };
 
@@ -171,6 +201,7 @@ const saveUserToExcel = async (user) => {
       'Last Name': sanitizeText(user.lastName, 80),
       'Phone Number': sanitizeText(user.phoneNumber, 40),
       'More Information': sanitizeText(user.moreInformation, 500),
+      'Password Hash': String(user.passwordHash || ''),
       'Register Date': user.createdAt,
       'Account Status': user.accountStatus,
     },
@@ -188,6 +219,7 @@ const saveUserToExcel = async (user) => {
     bookType: 'xlsx',
   });
 
+  await ensurePrivateDataDirectory();
   await writeFile(USERS_XLSX_FILE, workbookBuffer);
 };
 
@@ -299,7 +331,11 @@ app.post('/api/auth/register', async (request, response, next) => {
     response.status(201).json({
       ok: true,
       message: 'Registration successful.',
-      user: toPublicUser(user),
+      user: {
+        email: sanitizeEmail(user.email),
+        firstName: sanitizeText(user.firstName, 80),
+        lastName: sanitizeText(user.lastName, 80),
+      },
     });
   } catch (error) {
     next(error);
