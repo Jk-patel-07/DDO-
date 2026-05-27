@@ -1,6 +1,7 @@
 import { useEffect, useRef, useState } from 'react';
 import { createPortal } from 'react-dom';
 import { LogOut, Mic, Plus, Search, Sparkles, X } from 'lucide-react';
+import { createAuthHeaders } from '../utils/appAuth';
 
 const GOOGLE_IDENTITY_SCRIPT_ID = 'google-identity-services';
 const GOOGLE_ACCOUNT_STORAGE_KEY = 'google_search_account';
@@ -352,7 +353,9 @@ const CenterSearch = ({ onPopupStateChange = () => {} }) => {
         const response = await fetch('/api/ai/respond', {
           method: 'POST',
           headers: {
-            'Content-Type': 'application/json',
+            ...createAuthHeaders({
+              'Content-Type': 'application/json',
+            }),
           },
           body: JSON.stringify({
             provider: 'gemini',

@@ -1,15 +1,20 @@
-import { useState, useEffect, useRef } from 'react';
+import { useState, useEffect, useRef, useCallback } from 'react';
 import { createPortal } from 'react-dom';
 import { Wifi, Bluetooth, Bell, X, User, Phone, Mail, Users, Briefcase, Plus, ChevronDown, Smartphone, MoreVertical, Zap, HeartPulse, Gauge, Clock3, Leaf, Thermometer, Square, Lock, Check, LoaderCircle, RefreshCw, LayoutGrid, Search as SearchIcon, Settings, Music4, Volume, Volume1, Volume2, VolumeX } from 'lucide-react';
 import { FaWhatsapp, FaSpotify } from 'react-icons/fa';
 import CenterSearch from './CenterSearch';
 import BrandLogo from './BrandLogo';
+import {
+  clearStoredAuthSession,
+  createAuthHeaders,
+  persistAuthSession,
+  readStoredAuthSession,
+} from '../utils/appAuth';
 
 const SPOTIFY_AUTHORIZE_URL = 'https://accounts.spotify.com/authorize';
 const SPOTIFY_TOKEN_URL = 'https://accounts.spotify.com/api/token';
 const SPOTIFY_PROFILE_URL = 'https://api.spotify.com/v1/me';
 const SPOTIFY_SCOPES = 'user-read-private user-read-email user-top-read playlist-modify-public playlist-modify-private';
-const SPOTIFY_TOP_TRACKS_TOKEN = 'BQCX6vqRbXVFjD99m2bX2wsFknB2aCLYZhfm27pZc9q7GvVAgvi1GDIhstakgBwE1hPtpELZKjU5UFio5XMR7uCb1sqHmktMrVr5bTyFIeGDavZwYSwdmMSviL6veF9RJTo_0YY-nU4DUjFqTl3b6mTvF4tYaTs99jHRRlDMBP_mBN_CsomDEOhGz0wzTVOTTyZbzRJXt_WTcXuQizEEO_aMJwN5qYApzE5xvNUnlQRCNZtL5vfVu22Z2iLgq8BqoryTfSpa5ZYxX8YJvNmtTZCILdTn0HpgM3FsMtvdrMOJG39sNFFus5aVB7whQreN30GBI9zhOA';
 const SPOTIFY_PLAYLIST_ID = '3JiykyOcsQUbfaa6hBydNr';
 const SPOTIFY_PLAYLIST_TRACK_URIS = [
   'spotify:track:0lYBSQXN6rCTvUZvg9S0lU',
@@ -208,7 +213,10 @@ async function fetchWebApi(endpoint, method, body) {
     return res;
   };
 
-  const token = sessionStorage.getItem(SPOTIFY_STORAGE_KEYS.accessToken) || SPOTIFY_TOP_TRACKS_TOKEN;
+  const token = sessionStorage.getItem(SPOTIFY_STORAGE_KEYS.accessToken);
+  if (!token) {
+    throw new Error('Spotify login is required to load this data.');
+  }
   let response = await performRequest(token);
 
   if (response.status === 401 && sessionStorage.getItem(SPOTIFY_STORAGE_KEYS.refreshToken)) {
@@ -300,6 +308,14 @@ const RightTray = ({ onPopupStateChange = () => {} }) => {
   const [isUserLoginOpen, setIsUserLoginOpen] = useState(false);
   const [isUsStatusPopupOpen, setIsUsStatusPopupOpen] = useState(false);
   const [usStatusActiveSection, setUsStatusActiveSection] = useState('none');
+  const [appAuthSession, setAppAuthSession] = useState(() => readStoredAuthSession());
+  const [loginForm, setLoginForm] = useState({
+    email: '',
+    password: '',
+    rememberMe: false,
+  });
+  const [loginError, setLoginError] = useState('');
+  const [isLoginSubmitting, setIsLoginSubmitting] = useState(false);
   const usStatusPopupRef = useRef(null);
   const [studySecondsLeft, setStudySecondsLeft] = useState(25 * 60);
   const [isStudyTimerRunning, setIsStudyTimerRunning] = useState(false);
@@ -380,7 +396,7 @@ const RightTray = ({ onPopupStateChange = () => {} }) => {
   useEffect(() => {
     const timer = setInterval(() => setTime(new Date()), 1000);
     return () => clearInterval(timer);
-  }, []);
+  }, [requestBackendJson]);
 
   // Save history to localStorage
   useEffect(() => {
@@ -399,26 +415,79 @@ const RightTray = ({ onPopupStateChange = () => {} }) => {
     localStorage.setItem(APP_BOX_PRIVACY_STORAGE_KEY, JSON.stringify(appPrivacySettings));
   }, [appPrivacySettings]);
 
+  useEffect(() => {
+    const storedSession = readStoredAuthSession();
+    if (!storedSession?.token) {
+      return;
+    }
+
+    let isActive = true;
+    void requestBackendJson('/api/auth/session', { method: 'GET' }, {
+      requiresAuth: true,
+      fallbackMessage: 'Unable to validate your session.',
+    })
+      .then((payload) => {
+        if (!isActive) {
+          return;
+        }
+        setAppAuthSession((current) => (current ? { ...current, user: payload.user } : storedSession));
+      })
+      .catch(() => {
+        if (!isActive) {
+          return;
+        }
+        clearStoredAuthSession();
+        setAppAuthSession(null);
+      });
+
+    return () => {
+      isActive = false;
+    };
+  }, [requestBackendJson]);
+
   const applyWifiSnapshot = (snapshot) => {
     setWifiNetworks(Array.isArray(snapshot.networks) ? snapshot.networks : []);
     setWifiInterfaceName(snapshot.interfaceName || 'Wi-Fi');
     setIsWifiOnline(Boolean(snapshot.online));
   };
 
-  const requestWifi = async (endpoint, options = {}) => {
+  const handleProtectedRequestFailure = useCallback((message) => {
+    if (/session expired|authentication required|unauthorized|log in/i.test(message)) {
+      clearStoredAuthSession();
+      setAppAuthSession(null);
+      setLoginError(message);
+      setIsUserLoginOpen(true);
+    }
+  }, []);
+
+  const requestBackendJson = useCallback(async (endpoint, options = {}, { requiresAuth = false, fallbackMessage = 'Request failed.' } = {}) => {
+    const headers = {
+      'Content-Type': 'application/json',
+      ...(options.headers || {}),
+    };
+
     const response = await fetch(endpoint, {
-      headers: {
-        'Content-Type': 'application/json',
-      },
       ...options,
+      headers: requiresAuth ? createAuthHeaders(headers) : headers,
     });
 
     const payload = await response.json().catch(() => ({}));
     if (!response.ok) {
-      throw new Error(payload.error || 'Wi-Fi service is unavailable.');
+      const message = payload.error || fallbackMessage;
+      if (response.status === 401) {
+        handleProtectedRequestFailure(message);
+      }
+      throw new Error(message);
     }
 
     return payload;
+  }, [handleProtectedRequestFailure]);
+
+  const requestWifi = async (endpoint, options = {}) => {
+    return requestBackendJson(endpoint, options, {
+      requiresAuth: options.requiresAuth === true,
+      fallbackMessage: 'Wi-Fi service is unavailable.',
+    });
   };
 
   const loadWifiNetworks = async (showLoader = true) => {
@@ -1201,6 +1270,7 @@ const RightTray = ({ onPopupStateChange = () => {} }) => {
       const endpoint = '/api/wifi/connect';
       const payload = await requestWifi(endpoint, {
         method: 'POST',
+        requiresAuth: true,
         body: JSON.stringify({
           name: network.name,
           interfaceName: wifiInterfaceName,
@@ -1227,6 +1297,7 @@ const RightTray = ({ onPopupStateChange = () => {} }) => {
       try {
         const payload = await requestWifi('/api/wifi/disconnect', {
           method: 'POST',
+          requiresAuth: true,
           body: JSON.stringify({ interfaceName: wifiInterfaceName }),
         });
         applyWifiSnapshot(payload);
@@ -1422,12 +1493,9 @@ const RightTray = ({ onPopupStateChange = () => {} }) => {
       }
       setAppsError('');
 
-      const response = await fetch('/api/system/apps');
-      const payload = await response.json().catch(() => ({}));
-
-      if (!response.ok) {
-        throw new Error(payload.error || 'Unable to load installed apps right now.');
-      }
+      const payload = await requestBackendJson('/api/system/apps', { method: 'GET' }, {
+        fallbackMessage: 'Unable to load installed apps right now.',
+      });
 
       const nextInstalledApps = Array.isArray(payload.apps) ? payload.apps : [];
       setInstalledApps(nextInstalledApps);
@@ -1571,18 +1639,13 @@ const RightTray = ({ onPopupStateChange = () => {} }) => {
 
   const openSelectedApp = async (app) => {
     try {
-      const response = await fetch('/api/system/apps/open', {
+      await requestBackendJson('/api/system/apps/open', {
         method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-        },
         body: JSON.stringify({ shortcutPath: app.shortcutPath, appPath: app.appPath }),
+      }, {
+        requiresAuth: true,
+        fallbackMessage: 'App not found or path is invalid.',
       });
-
-      const payload = await response.json().catch(() => ({}));
-      if (!response.ok) {
-        throw new Error(payload.error || 'App not found or path is invalid.');
-      }
     } catch (error) {
       setAppsError(error.message || 'App not found or path is invalid.');
     }
@@ -1610,18 +1673,12 @@ const RightTray = ({ onPopupStateChange = () => {} }) => {
     const fetchIcons = async () => {
       const results = await Promise.allSettled(
         appsToFetch.map(async (app) => {
-          const response = await fetch('/api/system/apps/icon', {
+          const payload = await requestBackendJson('/api/system/apps/icon', {
             method: 'POST',
-            headers: {
-              'Content-Type': 'application/json',
-            },
             body: JSON.stringify({ shortcutPath: app.shortcutPath }),
+          }, {
+            fallbackMessage: 'Unable to load app icon.',
           });
-
-          const payload = await response.json().catch(() => ({}));
-          if (!response.ok) {
-            throw new Error(payload.error || 'Unable to load app icon.');
-          }
 
           return [app.id, {
             iconDataUrl: payload.iconDataUrl || '',
@@ -1669,7 +1726,7 @@ const RightTray = ({ onPopupStateChange = () => {} }) => {
     return () => {
       cancelled = true;
     };
-  }, [appVisuals, isAppPickerOpen, visiblePickerApps, visibleSelectedApps]);
+  }, [appVisuals, isAppPickerOpen, requestBackendJson, visiblePickerApps, visibleSelectedApps]);
 
   const handleWaSend = () => {
     if (!waPhone.trim()) {
@@ -1698,6 +1755,86 @@ const RightTray = ({ onPopupStateChange = () => {} }) => {
     setIsWaSendMsgOpen(false);
     setWaPhone('');
     setWaMessage('');
+  };
+
+  const handleLoginFieldChange = (field, value) => {
+    setLoginForm((current) => ({
+      ...current,
+      [field]: value,
+    }));
+  };
+
+  const handleUserLoginSubmit = async (event) => {
+    event.preventDefault();
+
+    const normalizedEmail = loginForm.email.trim().toLowerCase();
+    const password = loginForm.password;
+
+    if (!normalizedEmail) {
+      setLoginError('Enter your e-mail address.');
+      return;
+    }
+
+    if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(normalizedEmail)) {
+      setLoginError('Enter a valid e-mail address.');
+      return;
+    }
+
+    if (password.trim().length < 8) {
+      setLoginError('Password must be at least 8 characters.');
+      return;
+    }
+
+    setIsLoginSubmitting(true);
+    setLoginError('');
+
+    try {
+      const payload = await requestBackendJson('/api/auth/login', {
+        method: 'POST',
+        body: JSON.stringify({
+          email: normalizedEmail,
+          password,
+          rememberMe: loginForm.rememberMe,
+        }),
+      }, {
+        fallbackMessage: 'Unable to log in right now.',
+      });
+
+      persistAuthSession(payload, loginForm.rememberMe);
+      setAppAuthSession({
+        token: payload.token,
+        user: payload.user,
+        rememberMe: loginForm.rememberMe,
+      });
+      setLoginForm({
+        email: '',
+        password: '',
+        rememberMe: false,
+      });
+      setIsUserLoginOpen(false);
+      setIsUsStatusPopupOpen(true);
+    } catch (error) {
+      setLoginError(error.message || 'Unable to log in right now.');
+    } finally {
+      setIsLoginSubmitting(false);
+    }
+  };
+
+  const handleUserLogout = async () => {
+    try {
+      await requestBackendJson('/api/auth/logout', { method: 'POST' }, {
+        requiresAuth: true,
+        fallbackMessage: 'Unable to log out right now.',
+      });
+    } catch {
+      // Logout should still clear local auth even if the backend call fails.
+    }
+
+    clearStoredAuthSession();
+    setAppAuthSession(null);
+    setLoginError('');
+    setIsUsStatusPopupOpen(false);
+    setUsStatusActiveSection('none');
   };
 
   return (
@@ -3619,8 +3756,21 @@ const RightTray = ({ onPopupStateChange = () => {} }) => {
                     <div className="welcome-avatar">US</div>
                   </div>
                   <h3>US Dashboard</h3>
-                  <p className="welcome-subtext">You are signed in to DDO</p>
+                  <p className="welcome-subtext">
+                    {appAuthSession?.user?.email
+                      ? `Signed in as ${appAuthSession.user.email}`
+                      : 'Sign in to secure local controls and private actions'}
+                  </p>
                   <div className="welcome-info-pill">Status: Online</div>
+                  {appAuthSession ? (
+                    <button
+                      type="button"
+                      className="us-status-btn welcome-logout-button"
+                      onClick={() => void handleUserLogout()}
+                    >
+                      Logout
+                    </button>
+                  ) : null}
                 </div>
               )}
             </div>
@@ -3645,7 +3795,7 @@ const RightTray = ({ onPopupStateChange = () => {} }) => {
                   setIsUserLoginOpen(true);
                 }}
               >
-                US
+                {appAuthSession ? 'Profile' : 'Login'}
               </button>
             </div>
           </div>
@@ -3691,25 +3841,42 @@ const RightTray = ({ onPopupStateChange = () => {} }) => {
 
               <form
                 className="user-login-form"
-                onSubmit={(event) => {
-                  event.preventDefault();
-                  setIsUserLoginOpen(false);
-                  setIsUsStatusPopupOpen(true);
-                }}
+                onSubmit={handleUserLoginSubmit}
               >
                 <label className="user-login-field">
                   <span>E-mail</span>
-                  <input type="email" placeholder="Enter your e-mail" />
+                  <input
+                    type="email"
+                    placeholder="Enter your e-mail"
+                    value={loginForm.email}
+                    onChange={(event) => handleLoginFieldChange('email', event.target.value)}
+                    autoComplete="username"
+                    maxLength={120}
+                    required
+                  />
                 </label>
 
                 <label className="user-login-field">
                   <span>Password</span>
-                  <input type="password" placeholder="********" />
+                  <input
+                    type="password"
+                    placeholder="********"
+                    value={loginForm.password}
+                    onChange={(event) => handleLoginFieldChange('password', event.target.value)}
+                    autoComplete="current-password"
+                    minLength={8}
+                    maxLength={128}
+                    required
+                  />
                 </label>
 
                 <div className="user-login-meta">
                   <label className="user-login-checkbox">
-                    <input type="checkbox" />
+                    <input
+                      type="checkbox"
+                      checked={loginForm.rememberMe}
+                      onChange={(event) => handleLoginFieldChange('rememberMe', event.target.checked)}
+                    />
                     <span>Remember me</span>
                   </label>
                   <button type="button" className="user-login-link">
@@ -3717,8 +3884,10 @@ const RightTray = ({ onPopupStateChange = () => {} }) => {
                   </button>
                 </div>
 
-                <button type="submit" className="user-login-submit">
-                  Log in
+                {loginError ? <div className="spotify-auth-error">{loginError}</div> : null}
+
+                <button type="submit" className="user-login-submit" disabled={isLoginSubmitting}>
+                  {isLoginSubmitting ? 'Logging in...' : 'Log in'}
                 </button>
 
                 <div className="user-login-register">

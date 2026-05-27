@@ -1,5 +1,11 @@
 import http from 'node:http';
 import { execFile } from 'node:child_process';
+import {
+  createHmac,
+  randomBytes,
+  scryptSync,
+  timingSafeEqual,
+} from 'node:crypto';
 import { readdir, readFile, stat, writeFile, unlink } from 'node:fs/promises';
 import os from 'node:os';
 import path from 'node:path';
@@ -10,6 +16,31 @@ const HOST = '127.0.0.1';
 const PORT = 3031;
 const PROJECT_ROOT = process.cwd();
 const GEMINI_MODEL = process.env.GEMINI_MODEL || 'gemini-2.5-flash';
+const MAX_JSON_BODY_BYTES = Number(process.env.MAX_JSON_BODY_BYTES || 16 * 1024);
+const DEFAULT_ALLOWED_ORIGINS = new Set([
+  'http://127.0.0.1:3000',
+  'http://localhost:3000',
+  'http://127.0.0.1:5173',
+  'http://localhost:5173',
+]);
+const AUTH_STORAGE = {
+  email: '',
+  passwordHash: '',
+  secret: '',
+};
+const GLOBAL_RATE_LIMIT_WINDOW_MS = 60_000;
+const GLOBAL_RATE_LIMIT_MAX = 180;
+const LOGIN_RATE_LIMIT_WINDOW_MS = 5 * 60_000;
+const LOGIN_RATE_LIMIT_MAX = 10;
+const rateLimitStore = new Map();
+
+class HttpError extends Error {
+  constructor(statusCode, message, publicMessage = message) {
+    super(message);
+    this.statusCode = statusCode;
+    this.publicMessage = publicMessage;
+  }
+}
 
 const parseEnvFile = (raw) => {
   const env = {};
@@ -47,20 +78,156 @@ const readProjectEnv = async () => {
   return cachedProjectEnv;
 };
 
-const sendJson = (response, statusCode, payload) => {
-  response.writeHead(statusCode, {
-    'Content-Type': 'application/json',
-    'Access-Control-Allow-Origin': '*',
+const toBase64Url = (input) =>
+  Buffer.from(input)
+    .toString('base64')
+    .replace(/\+/g, '-')
+    .replace(/\//g, '_')
+    .replace(/=+$/g, '');
+
+const fromBase64Url = (value) => {
+  const normalized = value.replace(/-/g, '+').replace(/_/g, '/');
+  const padding = normalized.length % 4 === 0 ? '' : '='.repeat(4 - (normalized.length % 4));
+  return Buffer.from(`${normalized}${padding}`, 'base64');
+};
+
+const hashPassword = (password, salt = randomBytes(16).toString('hex')) => {
+  const derived = scryptSync(password, salt, 64);
+  return `scrypt$${salt}$${derived.toString('hex')}`;
+};
+
+const verifyPassword = (password, storedHash) => {
+  if (!storedHash || !storedHash.startsWith('scrypt$')) {
+    return false;
+  }
+
+  const [, salt, expectedHex] = storedHash.split('$');
+  if (!salt || !expectedHex) {
+    return false;
+  }
+
+  const expected = Buffer.from(expectedHex, 'hex');
+  const actual = scryptSync(password, salt, expected.length);
+
+  return timingSafeEqual(expected, actual);
+};
+
+const sanitizeEmail = (value) => String(value || '').trim().toLowerCase();
+const sanitizeDisplayText = (value, max = 140) => String(value || '').trim().replace(/\s+/g, ' ').slice(0, max);
+
+const validateEmail = (value) => {
+  const email = sanitizeEmail(value);
+  if (!email) {
+    throw new HttpError(400, 'Email is required.');
+  }
+
+  if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)) {
+    throw new HttpError(400, 'Enter a valid email address.');
+  }
+
+  return email;
+};
+
+const validatePasswordInput = (value) => {
+  const password = String(value || '');
+  if (!password) {
+    throw new HttpError(400, 'Password is required.');
+  }
+
+  if (password.length < 8) {
+    throw new HttpError(400, 'Password must be at least 8 characters.');
+  }
+
+  return password;
+};
+
+const validatePrompt = (value) => {
+  const prompt = sanitizeDisplayText(value, 1000);
+  if (!prompt) {
+    throw new HttpError(400, 'Prompt is required.');
+  }
+
+  return prompt;
+};
+
+const validateNetworkName = (value) => {
+  const name = sanitizeDisplayText(value, 128);
+  if (!name) {
+    throw new HttpError(400, 'Network name is required.');
+  }
+  return name;
+};
+
+const validateShortcutPath = (value) => {
+  const shortcutPath = String(value || '').trim();
+  if (!shortcutPath) {
+    throw new HttpError(400, 'App not found or path is invalid.');
+  }
+  return shortcutPath;
+};
+
+const validateOpenPath = (value) => {
+  const appPath = String(value || '').trim();
+  if (!appPath) {
+    throw new HttpError(400, 'App not found or path is invalid.');
+  }
+
+  const lower = appPath.toLowerCase();
+  if (!lower.endsWith('.lnk') && !lower.endsWith('.exe') && !lower.endsWith('.bat') && !lower.endsWith('.cmd')) {
+    throw new HttpError(400, 'App not found or path is invalid.');
+  }
+
+  return appPath;
+};
+
+const getAllowedOrigins = async () => {
+  const env = await readProjectEnv();
+  const configured = (process.env.CORS_ORIGINS || env.CORS_ORIGINS || '')
+    .split(',')
+    .map((value) => value.trim())
+    .filter(Boolean);
+
+  return configured.length ? new Set(configured) : DEFAULT_ALLOWED_ORIGINS;
+};
+
+const buildSecurityHeaders = async (origin = '') => {
+  const allowedOrigins = await getAllowedOrigins();
+  const allowOrigin = !origin || allowedOrigins.has(origin) ? origin : '';
+
+  return {
+    'Content-Type': 'application/json; charset=utf-8',
+    'Access-Control-Allow-Origin': allowOrigin || Array.from(allowedOrigins)[0],
     'Access-Control-Allow-Methods': 'GET,POST,OPTIONS',
-    'Access-Control-Allow-Headers': 'Content-Type',
+    'Access-Control-Allow-Headers': 'Content-Type,Authorization',
+    'Vary': 'Origin',
+    'X-Content-Type-Options': 'nosniff',
+    'X-Frame-Options': 'DENY',
+    'Referrer-Policy': 'no-referrer',
+    'Permissions-Policy': 'camera=(), microphone=(), geolocation=()',
+    'Cross-Origin-Resource-Policy': 'same-site',
+    'Cross-Origin-Opener-Policy': 'same-origin',
+    'Cache-Control': 'no-store',
+  };
+};
+
+const sendJson = async (response, statusCode, payload, origin = '') => {
+  response.writeHead(statusCode, {
+    ...(await buildSecurityHeaders(origin)),
   });
   response.end(JSON.stringify(payload));
 };
 
-const readBody = (request) =>
+const readBody = (request, maxBytes = MAX_JSON_BODY_BYTES) =>
   new Promise((resolve, reject) => {
     let body = '';
+    let size = 0;
     request.on('data', (chunk) => {
+      size += chunk.length;
+      if (size > maxBytes) {
+        reject(new HttpError(413, 'Request body is too large.'));
+        request.destroy();
+        return;
+      }
       body += chunk;
     });
     request.on('end', () => {
@@ -72,11 +239,82 @@ const readBody = (request) =>
       try {
         resolve(JSON.parse(body));
       } catch {
-        reject(new Error('Invalid JSON body.'));
+        reject(new HttpError(400, 'Invalid JSON body.'));
       }
     });
     request.on('error', reject);
   });
+
+const createJwt = ({ sub, email, displayName, expSeconds = 12 * 60 * 60 }) => {
+  const header = { alg: 'HS256', typ: 'JWT' };
+  const now = Math.floor(Date.now() / 1000);
+  const payload = {
+    sub,
+    email,
+    displayName,
+    iat: now,
+    exp: now + expSeconds,
+  };
+  const encodedHeader = toBase64Url(JSON.stringify(header));
+  const encodedPayload = toBase64Url(JSON.stringify(payload));
+  const signature = createHmac('sha256', AUTH_STORAGE.secret)
+    .update(`${encodedHeader}.${encodedPayload}`)
+    .digest();
+  return `${encodedHeader}.${encodedPayload}.${toBase64Url(signature)}`;
+};
+
+const verifyJwt = (token) => {
+  if (!token) {
+    throw new HttpError(401, 'Authentication required.');
+  }
+
+  const [encodedHeader, encodedPayload, encodedSignature] = token.split('.');
+  if (!encodedHeader || !encodedPayload || !encodedSignature) {
+    throw new HttpError(401, 'Invalid authentication token.');
+  }
+
+  const expectedSignature = createHmac('sha256', AUTH_STORAGE.secret)
+    .update(`${encodedHeader}.${encodedPayload}`)
+    .digest();
+  const actualSignature = fromBase64Url(encodedSignature);
+
+  if (actualSignature.length !== expectedSignature.length || !timingSafeEqual(actualSignature, expectedSignature)) {
+    throw new HttpError(401, 'Invalid authentication token.');
+  }
+
+  const payload = JSON.parse(fromBase64Url(encodedPayload).toString('utf8'));
+  if (!payload.exp || payload.exp <= Math.floor(Date.now() / 1000)) {
+    throw new HttpError(401, 'Session expired. Please log in again.');
+  }
+
+  return payload;
+};
+
+const getRequestIp = (request) =>
+  request.socket.remoteAddress
+  || request.headers['x-forwarded-for']
+  || 'local';
+
+const enforceRateLimit = (request, key, maxRequests, windowMs) => {
+  const ip = getRequestIp(request);
+  const compositeKey = `${ip}:${key}`;
+  const now = Date.now();
+  const entry = rateLimitStore.get(compositeKey);
+
+  if (!entry || entry.resetAt <= now) {
+    rateLimitStore.set(compositeKey, {
+      count: 1,
+      resetAt: now + windowMs,
+    });
+    return;
+  }
+
+  if (entry.count >= maxRequests) {
+    throw new HttpError(429, 'Too many requests. Please wait and try again.');
+  }
+
+  entry.count += 1;
+};
 
 const sleep = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
 const START_MENU_DIRECTORIES = [
@@ -452,12 +690,12 @@ const buildWifiSnapshot = async () => {
 };
 
 const connectToNetwork = async ({ name, interfaceName, password, secure, authType, cipherType }) => {
-  if (!name) {
-    throw new Error('Network name is required.');
-  }
+  const networkName = validateNetworkName(name);
+  const safeInterfaceName = sanitizeDisplayText(interfaceName, 64);
+  const safePassword = String(password || '');
 
   if (secure) {
-    const profileXml = createWifiProfileXml({ name, password, authType, cipherType });
+    const profileXml = createWifiProfileXml({ name: networkName, password: safePassword, authType, cipherType });
     const profilePath = path.join(os.tmpdir(), `wifi-profile-${Date.now()}.xml`);
 
     try {
@@ -468,9 +706,9 @@ const connectToNetwork = async ({ name, interfaceName, password, secure, authTyp
     }
   }
 
-  const args = ['wlan', 'connect', `name=${name}`, `ssid=${name}`];
-  if (interfaceName) {
-    args.push(`interface=${interfaceName}`);
+  const args = ['wlan', 'connect', `name=${networkName}`, `ssid=${networkName}`];
+  if (safeInterfaceName) {
+    args.push(`interface=${safeInterfaceName}`);
   }
 
   await runNetsh(args);
@@ -479,9 +717,10 @@ const connectToNetwork = async ({ name, interfaceName, password, secure, authTyp
 };
 
 const disconnectFromNetwork = async ({ interfaceName }) => {
+  const safeInterfaceName = sanitizeDisplayText(interfaceName, 64);
   const args = ['wlan', 'disconnect'];
-  if (interfaceName) {
-    args.push(`interface=${interfaceName}`);
+  if (safeInterfaceName) {
+    args.push(`interface=${safeInterfaceName}`);
   }
 
   await runNetsh(args);
@@ -530,16 +769,12 @@ Add-Type -AssemblyName System.Windows.Forms
 };
 
 const openInstalledApp = async ({ shortcutPath, appPath }) => {
-  const launchPath = appPath || shortcutPath;
-
-  if (!launchPath) {
-    throw new Error('App not found or path is invalid.');
-  }
+  const launchPath = validateOpenPath(appPath || shortcutPath);
 
   try {
     await stat(launchPath);
   } catch {
-    throw new Error('App not found or path is invalid.');
+    throw new HttpError(404, 'App not found or path is invalid.');
   }
 
   await execFileAsync('cmd', ['/c', 'start', '', launchPath], {
@@ -594,112 +829,203 @@ const getAiProviderKeys = async () => {
   };
 };
 
+const initializeAuthStorage = async () => {
+  const env = await readProjectEnv();
+  const configuredEmail = sanitizeEmail(process.env.AUTH_EMAIL || env.AUTH_EMAIL || 'admin@ddo.local');
+  const configuredSecret = process.env.APP_AUTH_SECRET || env.APP_AUTH_SECRET || randomBytes(32).toString('hex');
+  const configuredHash = process.env.AUTH_PASSWORD_HASH || env.AUTH_PASSWORD_HASH || '';
+  const configuredPlainPassword = process.env.AUTH_PASSWORD || env.AUTH_PASSWORD || '';
+  const fallbackPassword = randomBytes(18).toString('base64url');
+
+  AUTH_STORAGE.email = configuredEmail;
+  AUTH_STORAGE.secret = configuredSecret;
+  AUTH_STORAGE.passwordHash = configuredHash || (configuredPlainPassword ? hashPassword(configuredPlainPassword) : hashPassword(fallbackPassword));
+
+  if (!configuredHash && !configuredPlainPassword) {
+    console.warn('AUTH_PASSWORD_HASH/AUTH_PASSWORD not set. Generated a one-time local auth password. Configure auth in .env for predictable login.');
+  }
+};
+
+const getBearerToken = (request) => {
+  const authorization = String(request.headers.authorization || '');
+  if (!authorization.startsWith('Bearer ')) {
+    return '';
+  }
+  return authorization.slice(7).trim();
+};
+
+const requireAuth = (request) => verifyJwt(getBearerToken(request));
+
+const loginUser = async ({ email, password, rememberMe }) => {
+  const normalizedEmail = validateEmail(email);
+  const normalizedPassword = validatePasswordInput(password);
+
+  if (normalizedEmail !== AUTH_STORAGE.email || !verifyPassword(normalizedPassword, AUTH_STORAGE.passwordHash)) {
+    throw new HttpError(401, 'Invalid email or password.');
+  }
+
+  const displayName = sanitizeDisplayText(normalizedEmail.split('@')[0], 50) || 'User';
+  const token = createJwt({
+    sub: normalizedEmail,
+    email: normalizedEmail,
+    displayName,
+    expSeconds: rememberMe ? 7 * 24 * 60 * 60 : 12 * 60 * 60,
+  });
+
+  return {
+    token,
+    user: {
+      email: normalizedEmail,
+      displayName,
+    },
+  };
+};
+
 const respondWithAi = async ({ provider, prompt }) => {
   const normalizedProvider = String(provider || '').trim().toLowerCase();
-  const trimmedPrompt = String(prompt || '').trim();
-
-  if (!trimmedPrompt) {
-    throw new Error('Prompt is required.');
-  }
+  const trimmedPrompt = validatePrompt(prompt);
 
   const keys = await getAiProviderKeys();
 
   if (normalizedProvider === 'gemini') {
     if (!keys.gemini) {
-      throw new Error('Add GEMINI_API_KEY to your local environment to use Gemini inside the app.');
+      throw new HttpError(503, 'Gemini is not configured for this app.');
     }
 
     const answer = await requestGeminiAnswer(trimmedPrompt, keys.gemini);
     return { provider: 'gemini', answer };
   }
 
-  throw new Error(`Unsupported AI provider: ${provider || 'unknown'}`);
+  throw new HttpError(400, `Unsupported AI provider: ${provider || 'unknown'}`);
 };
 
 const server = http.createServer(async (request, response) => {
-  if (request.method === 'OPTIONS') {
-    sendJson(response, 204, {});
-    return;
-  }
+  const origin = String(request.headers.origin || '');
+  const requestUrl = new URL(request.url || '/', `http://${HOST}:${PORT}`);
 
   try {
-    if (request.url === '/api/wifi/status' && request.method === 'GET') {
-      sendJson(response, 200, await buildWifiSnapshot());
+    enforceRateLimit(request, 'global', GLOBAL_RATE_LIMIT_MAX, GLOBAL_RATE_LIMIT_WINDOW_MS);
+
+    if (request.method === 'OPTIONS') {
+      await sendJson(response, 204, {}, origin);
       return;
     }
 
-    if (request.url === '/api/wifi/connect' && request.method === 'POST') {
+    if (requestUrl.pathname === '/api/auth/login' && request.method === 'POST') {
+      enforceRateLimit(request, 'auth-login', LOGIN_RATE_LIMIT_MAX, LOGIN_RATE_LIMIT_WINDOW_MS);
       const body = await readBody(request);
-      sendJson(response, 200, await connectToNetwork(body));
+      const session = await loginUser(body);
+      await sendJson(response, 200, session, origin);
       return;
     }
 
-    if (request.url === '/api/wifi/disconnect' && request.method === 'POST') {
+    if (requestUrl.pathname === '/api/auth/logout' && request.method === 'POST') {
+      await sendJson(response, 200, { ok: true }, origin);
+      return;
+    }
+
+    if (requestUrl.pathname === '/api/auth/session' && request.method === 'GET') {
+      const session = requireAuth(request);
+      await sendJson(response, 200, {
+        user: {
+          email: session.email,
+          displayName: session.displayName,
+        },
+      }, origin);
+      return;
+    }
+
+    if (requestUrl.pathname === '/api/wifi/status' && request.method === 'GET') {
+      await sendJson(response, 200, await buildWifiSnapshot(), origin);
+      return;
+    }
+
+    if (requestUrl.pathname === '/api/wifi/connect' && request.method === 'POST') {
+      requireAuth(request);
       const body = await readBody(request);
-      sendJson(response, 200, await disconnectFromNetwork(body));
+      await sendJson(response, 200, await connectToNetwork(body), origin);
       return;
     }
 
-    if (request.url === '/api/system/settings' && request.method === 'POST') {
-      sendJson(response, 200, await openWindowsSettings());
-      return;
-    }
-
-    if (request.url === '/api/system/control-panel' && request.method === 'POST') {
-      sendJson(response, 200, await openControlPanel());
-      return;
-    }
-
-    if (request.url === '/api/system/task-manager' && request.method === 'POST') {
-      sendJson(response, 200, await openTaskManager());
-      return;
-    }
-
-    if (request.url === '/api/system/power-off' && request.method === 'POST') {
-      sendJson(response, 200, await powerOffComputer());
-      return;
-    }
-
-    if (request.url === '/api/system/sleep' && request.method === 'POST') {
-      sendJson(response, 200, await sleepComputer());
-      return;
-    }
-
-    if (request.url === '/api/system/apps' && request.method === 'GET') {
-      sendJson(response, 200, { apps: await buildInstalledAppsSnapshot() });
-      return;
-    }
-
-    if (request.url === '/api/system/apps/open' && request.method === 'POST') {
+    if (requestUrl.pathname === '/api/wifi/disconnect' && request.method === 'POST') {
+      requireAuth(request);
       const body = await readBody(request);
-      sendJson(response, 200, await openInstalledApp(body));
+      await sendJson(response, 200, await disconnectFromNetwork(body), origin);
       return;
     }
 
-    if (request.url === '/api/system/apps/icon' && request.method === 'POST') {
+    if (requestUrl.pathname === '/api/system/settings' && request.method === 'POST') {
+      requireAuth(request);
+      await sendJson(response, 200, await openWindowsSettings(), origin);
+      return;
+    }
+
+    if (requestUrl.pathname === '/api/system/control-panel' && request.method === 'POST') {
+      requireAuth(request);
+      await sendJson(response, 200, await openControlPanel(), origin);
+      return;
+    }
+
+    if (requestUrl.pathname === '/api/system/task-manager' && request.method === 'POST') {
+      requireAuth(request);
+      await sendJson(response, 200, await openTaskManager(), origin);
+      return;
+    }
+
+    if (requestUrl.pathname === '/api/system/power-off' && request.method === 'POST') {
+      requireAuth(request);
+      await sendJson(response, 200, await powerOffComputer(), origin);
+      return;
+    }
+
+    if (requestUrl.pathname === '/api/system/sleep' && request.method === 'POST') {
+      requireAuth(request);
+      await sendJson(response, 200, await sleepComputer(), origin);
+      return;
+    }
+
+    if (requestUrl.pathname === '/api/system/apps' && request.method === 'GET') {
+      await sendJson(response, 200, { apps: await buildInstalledAppsSnapshot() }, origin);
+      return;
+    }
+
+    if (requestUrl.pathname === '/api/system/apps/open' && request.method === 'POST') {
+      requireAuth(request);
       const body = await readBody(request);
-      const visual = await resolveShortcutVisual(body.shortcutPath);
-      sendJson(response, 200, {
+      await sendJson(response, 200, await openInstalledApp(body), origin);
+      return;
+    }
+
+    if (requestUrl.pathname === '/api/system/apps/icon' && request.method === 'POST') {
+      const body = await readBody(request);
+      const shortcutPath = validateShortcutPath(body.shortcutPath);
+      const visual = await resolveShortcutVisual(shortcutPath);
+      await sendJson(response, 200, {
         targetPath: visual.targetPath || '',
         iconDataUrl: visual.iconData ? `data:image/png;base64,${visual.iconData}` : '',
-      });
+      }, origin);
       return;
     }
 
-    if (request.url === '/api/ai/respond' && request.method === 'POST') {
+    if (requestUrl.pathname === '/api/ai/respond' && request.method === 'POST') {
+      requireAuth(request);
       const body = await readBody(request);
-      sendJson(response, 200, await respondWithAi(body));
+      await sendJson(response, 200, await respondWithAi(body), origin);
       return;
     }
 
-    sendJson(response, 404, { error: 'Not found.' });
+    await sendJson(response, 404, { error: 'Not found.' }, origin);
   } catch (error) {
-    sendJson(response, 500, {
-      error: error.message || 'Wi-Fi request failed.',
-    });
+    const statusCode = error instanceof HttpError ? error.statusCode : 500;
+    const publicMessage = error instanceof HttpError
+      ? error.publicMessage
+      : 'Request failed. Please try again.';
+    await sendJson(response, statusCode, { error: publicMessage }, origin);
   }
 });
 
+await initializeAuthStorage();
+
 server.listen(PORT, HOST, () => {
-  console.log(`Wi-Fi backend listening at http://${HOST}:${PORT}`);
+  console.log(`Secure local backend listening at http://${HOST}:${PORT}`);
 });

@@ -13,6 +13,7 @@ import {
   SquareTerminal,
   Undo2,
 } from 'lucide-react';
+import { createAuthHeaders } from '../utils/appAuth';
 
 const YOUTUBE_SHORTS_URL = 'https://www.youtube.com/shorts';
 const BACKGROUND_ANIMATION_STORAGE_KEY = 'background_animation_mode';
@@ -36,7 +37,9 @@ const requestSleepMode = async () => {
   const response = await fetch('/api/system/sleep', {
     method: 'POST',
     headers: {
-      'Content-Type': 'application/json',
+      ...createAuthHeaders({
+        'Content-Type': 'application/json',
+      }),
     },
   });
 
@@ -219,7 +222,9 @@ const LeftMenu = ({ onPopupStateChange = () => {} }) => {
       const response = await fetch(option.endpoint, {
         method: 'POST',
         headers: {
-          'Content-Type': 'application/json',
+          ...createAuthHeaders({
+            'Content-Type': 'application/json',
+          }),
         },
       });
 
@@ -242,7 +247,9 @@ const LeftMenu = ({ onPopupStateChange = () => {} }) => {
       const response = await fetch(confirmAction.endpoint, {
         method: 'POST',
         headers: {
-          'Content-Type': 'application/json',
+          ...createAuthHeaders({
+            'Content-Type': 'application/json',
+          }),
         },
       });
 
