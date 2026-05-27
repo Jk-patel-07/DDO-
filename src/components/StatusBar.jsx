@@ -1,10 +1,11 @@
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useRef } from 'react';
 import LeftMenu from './LeftMenu';
 import RightTray from './RightTray';
 
 const StatusBar = () => {
   const [isVisible, setIsVisible] = useState(true);
   const [isBackdropActive, setIsBackdropActive] = useState(false);
+  const hasPointerLeftTopZoneRef = useRef(false);
 
   useEffect(() => {
     let timeout;
@@ -14,9 +15,13 @@ const StatusBar = () => {
         setIsVisible(true);
         clearTimeout(timeout);
       } else {
+        hasPointerLeftTopZoneRef.current = true;
         // Hide after 1.5 seconds of leaving the top area
         clearTimeout(timeout);
         timeout = setTimeout(() => {
+          if (!hasPointerLeftTopZoneRef.current) {
+            return;
+          }
           if (document.activeElement && document.activeElement.tagName === 'INPUT') {
             return; // Do not hide if user is typing in search
           }

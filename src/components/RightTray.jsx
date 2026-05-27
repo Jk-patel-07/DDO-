@@ -260,6 +260,42 @@ async function createPlaylist(name = 'My top tracks playlist', tracksUri = SPOTI
   return playlist;
 }
 
+async function requestBackendJson(
+  endpoint,
+  options = {},
+  {
+    requiresAuth = false,
+    fallbackMessage = 'Request failed.',
+    onUnauthorized,
+  } = {},
+) {
+  try {
+    const headers = {
+      'Content-Type': 'application/json',
+      ...(options.headers || {}),
+    };
+
+    const response = await fetch(endpoint, {
+      ...options,
+      headers: requiresAuth ? createAuthHeaders(headers) : headers,
+    });
+
+    const payload = await response.json().catch(() => ({}));
+    if (!response.ok) {
+      const message = payload.error || fallbackMessage;
+      if (response.status === 401) {
+        onUnauthorized?.(message);
+      }
+      throw new Error(message);
+    }
+
+    return payload;
+  } catch (error) {
+    console.error('Backend request failed:', error);
+    throw error instanceof Error ? error : new Error(fallbackMessage);
+  }
+}
+
 const RightTray = ({ onPopupStateChange = () => {} }) => {
   const [time, setTime] = useState(new Date());
   
@@ -396,7 +432,7 @@ const RightTray = ({ onPopupStateChange = () => {} }) => {
   useEffect(() => {
     const timer = setInterval(() => setTime(new Date()), 1000);
     return () => clearInterval(timer);
-  }, [requestBackendJson]);
+  }, []);
 
   // Save history to localStorage
   useEffect(() => {
@@ -415,6 +451,29 @@ const RightTray = ({ onPopupStateChange = () => {} }) => {
     localStorage.setItem(APP_BOX_PRIVACY_STORAGE_KEY, JSON.stringify(appPrivacySettings));
   }, [appPrivacySettings]);
 
+  const applyWifiSnapshot = (snapshot) => {
+    setWifiNetworks(Array.isArray(snapshot.networks) ? snapshot.networks : []);
+    setWifiInterfaceName(snapshot.interfaceName || 'Wi-Fi');
+    setIsWifiOnline(Boolean(snapshot.online));
+  };
+
+  const handleProtectedRequestFailure = useCallback((message) => {
+    if (/session expired|authentication required|unauthorized|log in/i.test(message)) {
+      clearStoredAuthSession();
+      setAppAuthSession(null);
+      setLoginError(message);
+      setIsUserLoginOpen(true);
+    }
+  }, []);
+
+  const requestWifi = async (endpoint, options = {}) => {
+    return requestBackendJson(endpoint, options, {
+      requiresAuth: options.requiresAuth === true,
+      fallbackMessage: 'Wi-Fi service is unavailable.',
+      onUnauthorized: handleProtectedRequestFailure,
+    });
+  };
+
   useEffect(() => {
     const storedSession = readStoredAuthSession();
     if (!storedSession?.token) {
@@ -425,6 +484,7 @@ const RightTray = ({ onPopupStateChange = () => {} }) => {
     void requestBackendJson('/api/auth/session', { method: 'GET' }, {
       requiresAuth: true,
       fallbackMessage: 'Unable to validate your session.',
+      onUnauthorized: handleProtectedRequestFailure,
     })
       .then((payload) => {
         if (!isActive) {
@@ -443,52 +503,7 @@ const RightTray = ({ onPopupStateChange = () => {} }) => {
     return () => {
       isActive = false;
     };
-  }, [requestBackendJson]);
-
-  const applyWifiSnapshot = (snapshot) => {
-    setWifiNetworks(Array.isArray(snapshot.networks) ? snapshot.networks : []);
-    setWifiInterfaceName(snapshot.interfaceName || 'Wi-Fi');
-    setIsWifiOnline(Boolean(snapshot.online));
-  };
-
-  const handleProtectedRequestFailure = useCallback((message) => {
-    if (/session expired|authentication required|unauthorized|log in/i.test(message)) {
-      clearStoredAuthSession();
-      setAppAuthSession(null);
-      setLoginError(message);
-      setIsUserLoginOpen(true);
-    }
-  }, []);
-
-  const requestBackendJson = useCallback(async (endpoint, options = {}, { requiresAuth = false, fallbackMessage = 'Request failed.' } = {}) => {
-    const headers = {
-      'Content-Type': 'application/json',
-      ...(options.headers || {}),
-    };
-
-    const response = await fetch(endpoint, {
-      ...options,
-      headers: requiresAuth ? createAuthHeaders(headers) : headers,
-    });
-
-    const payload = await response.json().catch(() => ({}));
-    if (!response.ok) {
-      const message = payload.error || fallbackMessage;
-      if (response.status === 401) {
-        handleProtectedRequestFailure(message);
-      }
-      throw new Error(message);
-    }
-
-    return payload;
   }, [handleProtectedRequestFailure]);
-
-  const requestWifi = async (endpoint, options = {}) => {
-    return requestBackendJson(endpoint, options, {
-      requiresAuth: options.requiresAuth === true,
-      fallbackMessage: 'Wi-Fi service is unavailable.',
-    });
-  };
 
   const loadWifiNetworks = async (showLoader = true) => {
     try {
@@ -1645,6 +1660,7 @@ const RightTray = ({ onPopupStateChange = () => {} }) => {
       }, {
         requiresAuth: true,
         fallbackMessage: 'App not found or path is invalid.',
+        onUnauthorized: handleProtectedRequestFailure,
       });
     } catch (error) {
       setAppsError(error.message || 'App not found or path is invalid.');
@@ -1726,7 +1742,7 @@ const RightTray = ({ onPopupStateChange = () => {} }) => {
     return () => {
       cancelled = true;
     };
-  }, [appVisuals, isAppPickerOpen, requestBackendJson, visiblePickerApps, visibleSelectedApps]);
+  }, [appVisuals, isAppPickerOpen, visiblePickerApps, visibleSelectedApps]);
 
   const handleWaSend = () => {
     if (!waPhone.trim()) {
