@@ -28,8 +28,12 @@ body {
 
 body {
   /* High quality macOS Sonoma style background */
-  background: url('https://images.unsplash.com/photo-1693240461623-e59c1c504265?q=80&w=2560&auto=format&fit=crop') no-repeat center center fixed;
+  background:
+    radial-gradient(circle at top, rgba(74, 117, 112, 0.28), transparent 38%),
+    linear-gradient(180deg, #0d1117 0%, #121821 52%, #0b1016 100%),
+    url('https://images.unsplash.com/photo-1693240461623-e59c1c504265?q=80&w=2560&auto=format&fit=crop') no-repeat center center fixed;
   background-size: cover;
+  background-color: #0d1117;
   color: var(--text-color);
   min-height: 100vh;
   overflow: hidden;
@@ -38,6 +42,53 @@ body {
 #root {
   width: 100%;
   height: 100vh;
+}
+
+.app-runtime-fallback {
+  min-height: 100vh;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 24px;
+  background:
+    radial-gradient(circle at 18% 22%, rgba(88, 166, 160, 0.24), transparent 26%),
+    radial-gradient(circle at 82% 16%, rgba(111, 153, 255, 0.16), transparent 24%),
+    linear-gradient(180deg, rgba(8, 11, 16, 0.96), rgba(11, 16, 24, 0.98));
+}
+
+.app-runtime-fallback-card {
+  width: min(420px, 100%);
+  padding: 28px 24px;
+  border-radius: 24px;
+  background: linear-gradient(180deg, rgba(23, 27, 35, 0.9), rgba(13, 16, 24, 0.9));
+  border: 1px solid rgba(255, 255, 255, 0.08);
+  box-shadow: 0 24px 60px rgba(0, 0, 0, 0.34);
+  backdrop-filter: blur(22px);
+  -webkit-backdrop-filter: blur(22px);
+  text-align: center;
+}
+
+.app-runtime-fallback-card h1 {
+  font-size: 26px;
+  font-weight: 700;
+  margin-bottom: 10px;
+}
+
+.app-runtime-fallback-card p {
+  color: rgba(255, 255, 255, 0.76);
+  line-height: 1.55;
+}
+
+.app-runtime-fallback-button {
+  margin-top: 18px;
+  border: none;
+  border-radius: 999px;
+  padding: 10px 18px;
+  background: linear-gradient(135deg, #4db996, #62cfac);
+  color: #04120d;
+  font-weight: 700;
+  cursor: pointer;
+  box-shadow: 0 10px 24px rgba(77, 185, 150, 0.28);
 }
 
 /* Utilities */
@@ -4077,6 +4128,65 @@ button:active::after,
   gap: 10px;
 }
 
+.us-delete-account-trigger {
+  width: 100%;
+  min-height: 40px;
+  margin-top: 14px;
+  border: 1px solid rgba(255, 116, 116, 0.18);
+  border-radius: 14px;
+  background: rgba(255, 116, 116, 0.08);
+  color: #ffd0d0;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+  font-size: 12px;
+  font-weight: 700;
+  cursor: pointer;
+  transition: transform 0.18s ease, background 0.18s ease, border-color 0.18s ease;
+}
+
+.us-delete-account-trigger:hover {
+  transform: translateY(-1px);
+  background: rgba(255, 116, 116, 0.12);
+  border-color: rgba(255, 116, 116, 0.26);
+}
+
+.delete-account-card {
+  width: min(420px, calc(100vw - 24px));
+  padding: 22px;
+  border-radius: 24px;
+  border: 1px solid rgba(185, 222, 198, 0.08);
+  background: linear-gradient(180deg, rgba(9, 19, 15, 0.96), rgba(6, 12, 10, 0.98));
+  box-shadow: 0 30px 80px rgba(0,0,0,0.42);
+  animation: user-login-card-in 0.28s cubic-bezier(0.16, 1, 0.3, 1);
+}
+
+.delete-account-warning {
+  margin-top: 16px;
+  padding: 12px 14px;
+  border-radius: 14px;
+  border: 1px solid rgba(255, 208, 208, 0.12);
+  background: rgba(255, 116, 116, 0.08);
+  color: #ffd7d7;
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  font-size: 12px;
+  line-height: 1.5;
+}
+
+.delete-account-field {
+  margin: 18px 0 0;
+}
+
+.delete-account-actions {
+  margin-top: 18px;
+  display: flex;
+  justify-content: flex-end;
+  gap: 10px;
+}
+
 @keyframes spotify-start-in {
   from { opacity: 0; transform: translateY(-8px) scale(0.96); }
   to { opacity: 1; transform: translateY(0) scale(1); }
@@ -4530,6 +4640,7 @@ button:active::after,
   top: calc(100% + 12px);
   right: 0;
   width: min(320px, calc(100vw - 24px));
+  overflow: visible;
   padding: 18px;
   border-radius: 20px;
   border: 1px solid rgba(255, 255, 255, 0.1);
@@ -4576,6 +4687,29 @@ button:active::after,
 
 .us-status-close-btn:active {
   transform: scale(0.95);
+}
+
+.us-status-settings-icon {
+  position: absolute;
+  top: 14px;
+  left: 14px;
+  width: 26px;
+  height: 26px;
+  border: none;
+  border-radius: 50%;
+  background: rgba(255, 255, 255, 0.08);
+  color: rgba(255, 255, 255, 0.82);
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  cursor: pointer;
+  transition: background 0.2s, transform 0.2s;
+}
+
+.us-status-settings-icon:hover,
+.us-status-settings-icon.open {
+  background: rgba(255, 255, 255, 0.15);
+  transform: scale(1.05);
 }
 
 .us-status-content {
@@ -4852,6 +4986,165 @@ button:active::after,
 .us-status-btn.us-option:hover {
   background: linear-gradient(180deg, rgba(126, 165, 135, 0.3), rgba(126, 165, 135, 0.1));
   border-color: rgba(126, 165, 135, 0.4);
+}
+
+.us-side-settings-panel {
+  position: absolute;
+  top: 14px;
+  left: calc(-248px - 12px);
+  width: min(248px, calc(100vw - 24px));
+  padding: 12px;
+  border-radius: 18px;
+  border: 1px solid rgba(255, 255, 255, 0.1);
+  background: rgba(18, 20, 26, 0.9);
+  backdrop-filter: blur(28px);
+  -webkit-backdrop-filter: blur(28px);
+  box-shadow: 0 18px 45px rgba(0, 0, 0, 0.38);
+  animation: us-side-settings-in 0.22s cubic-bezier(0.16, 1, 0.3, 1) forwards;
+  z-index: 132;
+}
+
+@keyframes us-side-settings-in {
+  from {
+    opacity: 0;
+    transform: translateX(-14px) scale(0.98);
+  }
+  to {
+    opacity: 1;
+    transform: translateX(0) scale(1);
+  }
+}
+
+.us-side-settings-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+}
+
+.us-side-settings-title {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  color: #ffffff;
+  font-size: 13px;
+  font-weight: 700;
+}
+
+.us-side-settings-close {
+  width: 22px;
+  height: 22px;
+  border: none;
+  border-radius: 50%;
+  background: rgba(255,255,255,0.08);
+  color: rgba(255,255,255,0.82);
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  cursor: pointer;
+  transition: background 0.18s ease, transform 0.18s ease;
+}
+
+.us-side-settings-close:hover {
+  background: rgba(255,255,255,0.14);
+  transform: scale(1.05);
+}
+
+.us-side-settings-actions {
+  margin-top: 12px;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.us-side-settings-action {
+  width: 100%;
+  min-height: 34px;
+  border: 1px solid rgba(255,255,255,0.08);
+  border-radius: 12px;
+  background: rgba(255,255,255,0.05);
+  color: rgba(255,255,255,0.82);
+  font-size: 12px;
+  font-weight: 600;
+  text-align: left;
+  padding: 0 12px;
+  cursor: pointer;
+  transition: background 0.18s ease, border-color 0.18s ease, transform 0.18s ease, color 0.18s ease;
+}
+
+.us-side-settings-action:hover,
+.us-side-settings-action.active {
+  background: rgba(255,255,255,0.09);
+  border-color: rgba(255,255,255,0.14);
+  color: #ffffff;
+  transform: translateY(-1px);
+}
+
+.us-side-settings-action.is-danger {
+  background: rgba(255, 116, 116, 0.08);
+  color: #ffd0d0;
+  border-color: rgba(255, 116, 116, 0.16);
+}
+
+.us-side-settings-body {
+  margin-top: 12px;
+}
+
+.us-side-settings-profile-pill {
+  display: inline-flex;
+  align-items: center;
+  min-height: 24px;
+  padding: 0 10px;
+  border-radius: 999px;
+  background: rgba(126, 165, 135, 0.15);
+  color: #a3cbb0;
+  border: 1px solid rgba(126, 165, 135, 0.2);
+  font-size: 11px;
+  font-weight: 700;
+  letter-spacing: 0.03em;
+}
+
+.us-side-settings-profile-list {
+  margin-top: 12px;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.us-side-settings-profile-row {
+  min-height: 38px;
+  padding: 0 12px;
+  border-radius: 12px;
+  border: 1px solid rgba(255,255,255,0.08);
+  background: rgba(255,255,255,0.05);
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+}
+
+.us-side-settings-profile-row span {
+  color: rgba(255,255,255,0.66);
+  font-size: 11px;
+}
+
+.us-side-settings-profile-row strong {
+  min-width: 0;
+  color: #ffffff;
+  font-size: 11px;
+  font-weight: 700;
+  text-align: right;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+@media (max-width: 760px) {
+  .us-side-settings-panel {
+    top: calc(100% + 10px);
+    left: 0;
+    width: 100%;
+  }
 }
 
 /* Upgraded Volume Section Styles */

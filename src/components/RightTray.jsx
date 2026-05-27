@@ -1,6 +1,6 @@
 import { useState, useEffect, useRef, useCallback } from 'react';
 import { createPortal } from 'react-dom';
-import { Wifi, Bluetooth, Bell, X, User, Phone, Mail, Users, Briefcase, Plus, ChevronDown, Smartphone, MoreVertical, Zap, HeartPulse, Gauge, Clock3, Leaf, Thermometer, Square, Lock, Check, LoaderCircle, RefreshCw, LayoutGrid, Search as SearchIcon, Settings, Music4, Volume, Volume1, Volume2, VolumeX, Shield } from 'lucide-react';
+import { Wifi, Bluetooth, Bell, X, User, Phone, Mail, Users, Briefcase, Plus, ChevronDown, Smartphone, MoreVertical, Zap, HeartPulse, Gauge, Clock3, Leaf, Thermometer, Square, Lock, Check, LoaderCircle, RefreshCw, LayoutGrid, Search as SearchIcon, Settings, Music4, Volume, Volume1, Volume2, VolumeX, Shield, TriangleAlert } from 'lucide-react';
 import { FaWhatsapp, FaSpotify } from 'react-icons/fa';
 import CenterSearch from './CenterSearch';
 import BrandLogo from './BrandLogo';
@@ -355,6 +355,8 @@ const RightTray = ({ onPopupStateChange = () => {} }) => {
   const [isRegisterOpen, setIsRegisterOpen] = useState(false);
   const [isUsStatusPopupOpen, setIsUsStatusPopupOpen] = useState(false);
   const [usStatusActiveSection, setUsStatusActiveSection] = useState('none');
+  const [isUsSideSettingsOpen, setIsUsSideSettingsOpen] = useState(false);
+  const [usSideSettingsSection, setUsSideSettingsSection] = useState('profile');
   const [appAuthSession, setAppAuthSession] = useState(() => readStoredAuthSession());
   const [loginForm, setLoginForm] = useState({
     email: '',
@@ -363,6 +365,11 @@ const RightTray = ({ onPopupStateChange = () => {} }) => {
   });
   const [loginError, setLoginError] = useState('');
   const [isLoginSubmitting, setIsLoginSubmitting] = useState(false);
+  const [isDeleteAccountOpen, setIsDeleteAccountOpen] = useState(false);
+  const [deleteAccountPassword, setDeleteAccountPassword] = useState('');
+  const [deleteAccountError, setDeleteAccountError] = useState('');
+  const [deleteAccountStatus, setDeleteAccountStatus] = useState('');
+  const [isDeleteAccountSubmitting, setIsDeleteAccountSubmitting] = useState(false);
   const [isGoogleSubmitting, setIsGoogleSubmitting] = useState(false);
   const [registerForm, setRegisterForm] = useState({
     email: '',
@@ -379,6 +386,7 @@ const RightTray = ({ onPopupStateChange = () => {} }) => {
   const [isRegisterSubmitting, setIsRegisterSubmitting] = useState(false);
   const googleTokenClientRef = useRef(null);
   const usStatusPopupRef = useRef(null);
+  const usSideSettingsRef = useRef(null);
   const [studySecondsLeft, setStudySecondsLeft] = useState(25 * 60);
   const [isStudyTimerRunning, setIsStudyTimerRunning] = useState(false);
   const [usVolume, setUsVolume] = useState(65);
@@ -493,6 +501,11 @@ const RightTray = ({ onPopupStateChange = () => {} }) => {
     if (/session expired|authentication required|unauthorized|log in/i.test(message)) {
       clearStoredAuthSession();
       setAppAuthSession(null);
+      setIsUsStatusPopupOpen(false);
+      setIsUsSideSettingsOpen(false);
+      setUsSideSettingsSection('profile');
+      setUsStatusActiveSection('none');
+      setIsRegisterOpen(false);
       setLoginError(message);
       setIsUserLoginOpen(true);
     }
@@ -505,6 +518,30 @@ const RightTray = ({ onPopupStateChange = () => {} }) => {
       onUnauthorized: handleProtectedRequestFailure,
     });
   };
+
+  const loadSecurityStatus = useCallback(async () => {
+    setIsSecurityStatusLoading(true);
+    setSecurityStatusError('');
+    setSecurityStatus(null);
+
+    try {
+      const payload = await requestBackendJson('/api/security/status', { method: 'GET' }, {
+        fallbackMessage: 'Security status unavailable.',
+      });
+
+      setSecurityStatus({
+        fileUploadProtection: Boolean(payload.fileUploadProtection),
+        linkProtection: Boolean(payload.linkProtection),
+        loginProtection: Boolean(payload.loginProtection),
+        apiKeyProtection: Boolean(payload.apiKeyProtection),
+      });
+    } catch {
+      setSecurityStatus(null);
+      setSecurityStatusError('Security status unavailable.');
+    } finally {
+      setIsSecurityStatusLoading(false);
+    }
+  }, []);
 
   useEffect(() => {
     const storedSession = readStoredAuthSession();
@@ -1129,15 +1166,25 @@ const RightTray = ({ onPopupStateChange = () => {} }) => {
   // US Status Popup Click Outside
   useEffect(() => {
     const handleUsStatusClickOutside = (event) => {
+      if (usSideSettingsRef.current && usSideSettingsRef.current.contains(event.target)) {
+        return;
+      }
+      if (isUsSideSettingsOpen) {
+        setIsUsSideSettingsOpen(false);
+        setUsSideSettingsSection('profile');
+        return;
+      }
       if (usStatusPopupRef.current && !usStatusPopupRef.current.contains(event.target)) {
         setIsUsStatusPopupOpen(false);
+        setIsUsSideSettingsOpen(false);
+        setUsSideSettingsSection('profile');
       }
     };
     document.addEventListener('mousedown', handleUsStatusClickOutside);
     return () => {
       document.removeEventListener('mousedown', handleUsStatusClickOutside);
     };
-  }, []);
+  }, [isUsSideSettingsOpen]);
 
   // Study Timer logic
   useEffect(() => {
@@ -1754,45 +1801,6 @@ const RightTray = ({ onPopupStateChange = () => {} }) => {
     };
   }, [isAppSecurityOpen]);
 
-  useEffect(() => {
-    if (!isAppSecurityOpen) {
-      return undefined;
-    }
-
-    let isActive = true;
-
-    void requestBackendJson('/api/security/status', { method: 'GET' }, {
-      fallbackMessage: 'Security status unavailable.',
-    })
-      .then((payload) => {
-        if (!isActive) {
-          return;
-        }
-        setSecurityStatus({
-          fileUploadProtection: Boolean(payload.fileUploadProtection),
-          linkProtection: Boolean(payload.linkProtection),
-          loginProtection: Boolean(payload.loginProtection),
-          apiKeyProtection: Boolean(payload.apiKeyProtection),
-        });
-      })
-      .catch(() => {
-        if (!isActive) {
-          return;
-        }
-        setSecurityStatus(null);
-        setSecurityStatusError('Security status unavailable.');
-      })
-      .finally(() => {
-        if (isActive) {
-          setIsSecurityStatusLoading(false);
-        }
-      });
-
-    return () => {
-      isActive = false;
-    };
-  }, [isAppSecurityOpen]);
-
   const openSelectedApp = async (app) => {
     try {
       await requestBackendJson('/api/system/apps/open', {
@@ -2193,6 +2201,10 @@ const RightTray = ({ onPopupStateChange = () => {} }) => {
         password: '',
         rememberMe: false,
       });
+      setIsRegisterOpen(false);
+      setIsUsSideSettingsOpen(false);
+      setUsSideSettingsSection('profile');
+      setUsStatusActiveSection('none');
       setIsUserLoginOpen(false);
       setIsUsStatusPopupOpen(true);
     } catch (error) {
@@ -2215,8 +2227,55 @@ const RightTray = ({ onPopupStateChange = () => {} }) => {
     clearStoredAuthSession();
     setAppAuthSession(null);
     setLoginError('');
+    setIsRegisterOpen(false);
+    setIsUsSideSettingsOpen(false);
+    setUsSideSettingsSection('profile');
     setIsUsStatusPopupOpen(false);
     setUsStatusActiveSection('none');
+    setIsUserLoginOpen(true);
+  };
+
+  const handleDeleteAccount = async () => {
+    if (!deleteAccountPassword.trim()) {
+      setDeleteAccountError('Enter your password to continue.');
+      return;
+    }
+
+    setIsDeleteAccountSubmitting(true);
+    setDeleteAccountError('');
+    setDeleteAccountStatus('');
+
+    try {
+      const payload = await requestBackendJson('/api/auth/delete-account', {
+        method: 'POST',
+        body: JSON.stringify({
+          email: appAuthSession?.user?.email || '',
+          password: deleteAccountPassword,
+        }),
+      }, {
+        requiresAuth: true,
+        fallbackMessage: 'Unable to delete account right now.',
+        onUnauthorized: handleProtectedRequestFailure,
+      });
+
+      setDeleteAccountStatus(payload.message || 'Account deleted successfully.');
+      clearStoredAuthSession();
+      setAppAuthSession(null);
+      setDeleteAccountPassword('');
+
+      window.setTimeout(() => {
+        setIsDeleteAccountOpen(false);
+        setIsUsSideSettingsOpen(false);
+        setUsSideSettingsSection('profile');
+        setIsUsStatusPopupOpen(false);
+        setUsStatusActiveSection('none');
+        setIsUserLoginOpen(true);
+      }, 500);
+    } catch (error) {
+      setDeleteAccountError(error.message || 'Unable to delete account right now.');
+    } finally {
+      setIsDeleteAccountSubmitting(false);
+    }
   };
 
   return (
@@ -3381,6 +3440,7 @@ const RightTray = ({ onPopupStateChange = () => {} }) => {
                           setSecurityStatusError('');
                           setSecurityStatus(null);
                           updateAppSecurityPosition();
+                          void loadSecurityStatus();
                         }
                         setIsAppSecurityOpen(nextOpen);
                       }}
@@ -4064,7 +4124,18 @@ const RightTray = ({ onPopupStateChange = () => {} }) => {
           onClick={() => {
             if (isUsStatusPopupOpen) {
               setIsUsStatusPopupOpen(false);
+              setIsUsSideSettingsOpen(false);
+              setUsSideSettingsSection('profile');
+              setUsStatusActiveSection('none');
+            } else if (appAuthSession?.token && appAuthSession?.user) {
+              setIsRegisterOpen(false);
+              setIsUserLoginOpen(false);
+              setIsUsSideSettingsOpen(false);
+              setUsSideSettingsSection('profile');
+              setUsStatusActiveSection('none');
+              setIsUsStatusPopupOpen(true);
             } else {
+              setIsRegisterOpen(false);
               setIsUserLoginOpen(true);
             }
           }}
@@ -4077,8 +4148,27 @@ const RightTray = ({ onPopupStateChange = () => {} }) => {
           <div className="us-status-popup popup-aurora-surface" onClick={(event) => event.stopPropagation()}>
             <button
               type="button"
+              className={`us-status-settings-icon ${isUsSideSettingsOpen ? 'open' : ''}`}
+              onClick={() => {
+                console.log('Setting clicked');
+                if (!isUsSideSettingsOpen) {
+                  setUsSideSettingsSection('profile');
+                }
+                setIsUsSideSettingsOpen((open) => !open);
+              }}
+              aria-label="Open settings"
+            >
+              <Settings size={13} />
+            </button>
+
+            <button
+              type="button"
               className="us-status-close-btn"
-              onClick={() => setIsUsStatusPopupOpen(false)}
+              onClick={() => {
+                setIsUsStatusPopupOpen(false);
+                setIsUsSideSettingsOpen(false);
+                setUsSideSettingsSection('profile');
+              }}
               aria-label="Close status panel"
             >
               <X size={13} />
@@ -4237,12 +4327,6 @@ const RightTray = ({ onPopupStateChange = () => {} }) => {
 
             <div className="us-status-btn-group">
               <button
-                className={`us-status-btn ${usStatusActiveSection === 'setting' ? 'active' : ''}`}
-                onClick={() => setUsStatusActiveSection(usStatusActiveSection === 'setting' ? 'none' : 'setting')}
-              >
-                Setting
-              </button>
-              <button
                 className={`us-status-btn ${usStatusActiveSection === 'study' ? 'active' : ''}`}
                 onClick={() => setUsStatusActiveSection(usStatusActiveSection === 'study' ? 'none' : 'study')}
               >
@@ -4251,13 +4335,134 @@ const RightTray = ({ onPopupStateChange = () => {} }) => {
               <button
                 className="us-status-btn us-option"
                 onClick={() => {
-                  setIsUsStatusPopupOpen(false);
-                  setIsUserLoginOpen(true);
+                  if (appAuthSession?.token && appAuthSession?.user) {
+                    setUsStatusActiveSection('none');
+                    setIsUsSideSettingsOpen(false);
+                    setUsSideSettingsSection('profile');
+                  } else {
+                    setIsUsStatusPopupOpen(false);
+                    setIsUserLoginOpen(true);
+                  }
                 }}
               >
                 {appAuthSession ? 'Profile' : 'Login'}
               </button>
             </div>
+
+            {isUsSideSettingsOpen && (
+              <div
+                ref={usSideSettingsRef}
+                className="us-side-settings-panel popup-aurora-surface"
+                onClick={(event) => event.stopPropagation()}
+              >
+                <div className="us-side-settings-header">
+                  <div className="us-side-settings-title">
+                    <Settings size={13} />
+                    <span>Settings</span>
+                  </div>
+                  <button
+                    type="button"
+                    className="us-side-settings-close"
+                    onClick={() => {
+                      setIsUsSideSettingsOpen(false);
+                      setUsSideSettingsSection('profile');
+                    }}
+                    aria-label="Close side settings"
+                  >
+                    <X size={12} />
+                  </button>
+                </div>
+
+                <div className="us-side-settings-actions">
+                  <button
+                    type="button"
+                    className={`us-side-settings-action ${usSideSettingsSection === 'profile' ? 'active' : ''}`}
+                    onClick={() => setUsSideSettingsSection('profile')}
+                  >
+                    Profile Details
+                  </button>
+                  <button
+                    type="button"
+                    className={`us-side-settings-action ${usSideSettingsSection === 'security' ? 'active' : ''}`}
+                    onClick={() => {
+                      setUsSideSettingsSection('security');
+                      void loadSecurityStatus();
+                    }}
+                  >
+                    Security Check
+                  </button>
+                  <button
+                    type="button"
+                    className="us-side-settings-action is-danger"
+                    onClick={() => {
+                      setDeleteAccountError('');
+                      setDeleteAccountStatus('');
+                      setDeleteAccountPassword('');
+                      setIsDeleteAccountOpen(true);
+                    }}
+                  >
+                    Delete Account
+                  </button>
+                  <button
+                    type="button"
+                    className="us-side-settings-action"
+                    onClick={() => void handleUserLogout()}
+                  >
+                    Logout
+                  </button>
+                </div>
+
+                <div className="us-side-settings-body">
+                  {usSideSettingsSection === 'profile' ? (
+                    <div className="us-side-settings-profile">
+                      <div className="us-side-settings-profile-pill">Profile Details</div>
+                      <div className="us-side-settings-profile-list">
+                        <div className="us-side-settings-profile-row">
+                          <span>Email</span>
+                          <strong>{appAuthSession?.user?.email || 'Not signed in'}</strong>
+                        </div>
+                        <div className="us-side-settings-profile-row">
+                          <span>Name</span>
+                          <strong>{appAuthSession?.user?.displayName || 'US User'}</strong>
+                        </div>
+                        <div className="us-side-settings-profile-row">
+                          <span>Status</span>
+                          <strong>Online</strong>
+                        </div>
+                      </div>
+                    </div>
+                  ) : (
+                    <div className="us-side-settings-security">
+                      <div className="us-side-settings-profile-pill">Security Check</div>
+                      {isSecurityStatusLoading ? (
+                        <div className="app-launcher-security-loading">Checking security status...</div>
+                      ) : null}
+                      {!isSecurityStatusLoading && securityStatusError ? (
+                        <div className="app-launcher-security-unavailable">{securityStatusError}</div>
+                      ) : null}
+                      {!isSecurityStatusLoading && !securityStatusError && securityStatus ? (
+                        <div className="app-launcher-security-status-list">
+                          {[
+                            ['File Upload Protection', securityStatus.fileUploadProtection],
+                            ['Link Protection', securityStatus.linkProtection],
+                            ['Login Protection', securityStatus.loginProtection],
+                            ['API Key Protection', securityStatus.apiKeyProtection],
+                          ].map(([label, isEnabled]) => (
+                            <div key={label} className="app-launcher-security-status-item">
+                              <div className="app-launcher-security-status-copy">
+                                <span className={`app-launcher-security-status-dot ${isEnabled ? 'is-on' : 'is-off'}`} />
+                                <span>{label}</span>
+                              </div>
+                              <strong className={isEnabled ? 'is-on' : 'is-off'}>{isEnabled ? 'ON' : 'OFF'}</strong>
+                            </div>
+                          ))}
+                        </div>
+                      ) : null}
+                    </div>
+                  )}
+                </div>
+              </div>
+            )}
           </div>
         )}
       </div>
@@ -4518,6 +4723,69 @@ const RightTray = ({ onPopupStateChange = () => {} }) => {
             </div>
           </div>
         )}
+      </div>
+    )}
+
+    {isDeleteAccountOpen && (
+      <div className="user-register-modal" role="dialog" aria-modal="true" onClick={() => setIsDeleteAccountOpen(false)}>
+        <div className="delete-account-card popup-aurora-surface" onClick={(event) => event.stopPropagation()}>
+          <div className="user-register-header">
+            <div>
+              <h2>Delete Account</h2>
+              <p>Are you sure you want to delete your account?</p>
+            </div>
+            <button
+              type="button"
+              className="user-login-window-button close"
+              onClick={() => setIsDeleteAccountOpen(false)}
+              aria-label="Close delete account popup"
+            >
+              <X size={14} />
+            </button>
+          </div>
+
+          <div className="delete-account-warning">
+            <TriangleAlert size={16} />
+            <span>This will remove your account from active company records.</span>
+          </div>
+
+          <label className="user-login-field delete-account-field">
+            <span>Confirm Password</span>
+            <input
+              type="password"
+              placeholder="Enter your password"
+              value={deleteAccountPassword}
+              onChange={(event) => {
+                setDeleteAccountPassword(event.target.value);
+                if (deleteAccountError) {
+                  setDeleteAccountError('');
+                }
+              }}
+              autoComplete="current-password"
+            />
+          </label>
+
+          {deleteAccountError ? <div className="spotify-auth-error">{deleteAccountError}</div> : null}
+          {deleteAccountStatus ? <div className="user-register-success">{deleteAccountStatus}</div> : null}
+
+          <div className="delete-account-actions">
+            <button
+              type="button"
+              className="app-launcher-settings-pill"
+              onClick={() => setIsDeleteAccountOpen(false)}
+            >
+              Cancel
+            </button>
+            <button
+              type="button"
+              className="window-confirm-button window-confirm-accept is-danger"
+              onClick={() => void handleDeleteAccount()}
+              disabled={isDeleteAccountSubmitting}
+            >
+              {isDeleteAccountSubmitting ? 'Deleting...' : 'Yes, Delete Account'}
+            </button>
+          </div>
+        </div>
       </div>
     )}
     </>

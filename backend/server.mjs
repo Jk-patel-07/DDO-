@@ -1,5 +1,6 @@
 import cors from 'cors';
 import express from 'express';
+import { execFile } from 'node:child_process';
 import {
   createHmac,
   randomBytes,
@@ -8,18 +9,22 @@ import {
 } from 'node:crypto';
 import { mkdir, readFile, writeFile } from 'node:fs/promises';
 import path from 'node:path';
+import { promisify } from 'node:util';
 import XLSX from 'xlsx';
 
 const app = express();
+const execFileAsync = promisify(execFile);
 const HOST = '127.0.0.1';
 const PORT = 5000;
 const PROJECT_ROOT = process.cwd();
 const PRIVATE_DATA_DIR = path.join(PROJECT_ROOT, 'backend', 'private');
 const USERS_JSON_FILE = path.join(PRIVATE_DATA_DIR, '.ddo-users.json');
 const USERS_XLSX_FILE = path.join(PRIVATE_DATA_DIR, 'users.xlsx');
+const DELETED_USERS_XLSX_FILE = path.join(PRIVATE_DATA_DIR, 'deleted-users.xlsx');
 const LEGACY_USERS_JSON_FILE = path.join(PROJECT_ROOT, '.ddo-users.json');
 const LEGACY_USERS_XLSX_FILE = path.join(PROJECT_ROOT, 'users.xlsx');
 const USERS_SHEET_NAME = 'Users';
+const DELETED_USERS_SHEET_NAME = 'Deleted Users';
 const ALLOWED_ORIGINS = new Set([
   'http://127.0.0.1:3000',
   'http://localhost:3000',
@@ -34,6 +39,16 @@ const USERS_XLSX_HEADERS = [
   'More Information',
   'Password Hash',
   'Register Date',
+  'Account Status',
+];
+const DELETED_USERS_XLSX_HEADERS = [
+  'Email ID',
+  'First Name',
+  'Middle Name',
+  'Last Name',
+  'Phone Number',
+  'More Information',
+  'Delete Date',
   'Account Status',
 ];
 
@@ -184,6 +199,23 @@ const readExcelRows = async () => {
   }
 };
 
+const readDeletedExcelRows = async () => {
+  await ensurePrivateDataDirectory();
+
+  try {
+    const workbookBuffer = await readFile(DELETED_USERS_XLSX_FILE);
+    const workbook = XLSX.read(workbookBuffer, { type: 'buffer' });
+    const worksheet = workbook.Sheets[DELETED_USERS_SHEET_NAME] || workbook.Sheets[workbook.SheetNames[0]];
+    if (!worksheet) {
+      return [];
+    }
+
+    return XLSX.utils.sheet_to_json(worksheet, { defval: '' });
+  } catch {
+    return [];
+  }
+};
+
 const saveUserToExcel = async (user) => {
   const normalizedEmail = sanitizeEmail(user.email);
   const existingRows = await readExcelRows();
@@ -223,6 +255,67 @@ const saveUserToExcel = async (user) => {
   await writeFile(USERS_XLSX_FILE, workbookBuffer);
 };
 
+const writeActiveUsersToExcel = async (users) => {
+  const nextRows = users.map((user) => ({
+    'Email ID': sanitizeEmail(user.email),
+    'First Name': sanitizeText(user.firstName, 80),
+    'Middle Name': sanitizeText(user.middleName, 80),
+    'Last Name': sanitizeText(user.lastName, 80),
+    'Phone Number': sanitizeText(user.phoneNumber, 40),
+    'More Information': sanitizeText(user.moreInformation, 500),
+    'Password Hash': String(user.passwordHash || ''),
+    'Register Date': user.createdAt,
+    'Account Status': user.accountStatus || 'Active',
+  }));
+
+  const workbook = XLSX.utils.book_new();
+  const worksheet = XLSX.utils.json_to_sheet(nextRows, {
+    header: USERS_XLSX_HEADERS,
+  });
+
+  XLSX.utils.book_append_sheet(workbook, worksheet, USERS_SHEET_NAME);
+
+  const workbookBuffer = XLSX.write(workbook, {
+    type: 'buffer',
+    bookType: 'xlsx',
+  });
+
+  await ensurePrivateDataDirectory();
+  await writeFile(USERS_XLSX_FILE, workbookBuffer);
+};
+
+const saveDeletedUserToExcel = async (user) => {
+  const existingRows = await readDeletedExcelRows();
+  const nextRows = [
+    ...existingRows,
+    {
+      'Email ID': sanitizeEmail(user.email),
+      'First Name': sanitizeText(user.firstName, 80),
+      'Middle Name': sanitizeText(user.middleName, 80),
+      'Last Name': sanitizeText(user.lastName, 80),
+      'Phone Number': sanitizeText(user.phoneNumber, 40),
+      'More Information': sanitizeText(user.moreInformation, 500),
+      'Delete Date': new Date().toISOString(),
+      'Account Status': 'Deleted',
+    },
+  ];
+
+  const workbook = XLSX.utils.book_new();
+  const worksheet = XLSX.utils.json_to_sheet(nextRows, {
+    header: DELETED_USERS_XLSX_HEADERS,
+  });
+
+  XLSX.utils.book_append_sheet(workbook, worksheet, DELETED_USERS_SHEET_NAME);
+
+  const workbookBuffer = XLSX.write(workbook, {
+    type: 'buffer',
+    bookType: 'xlsx',
+  });
+
+  await ensurePrivateDataDirectory();
+  await writeFile(DELETED_USERS_XLSX_FILE, workbookBuffer);
+};
+
 const createToken = (user) => {
   const header = Buffer.from(JSON.stringify({ alg: 'HS256', typ: 'JWT' })).toString('base64url');
   const payload = Buffer.from(JSON.stringify({
@@ -238,6 +331,42 @@ const createToken = (user) => {
   return `${header}.${payload}.${signature}`;
 };
 
+const verifyToken = (token) => {
+  if (!token) {
+    throw new HttpError(401, 'Authentication required.');
+  }
+
+  const [header, payload, signature] = String(token).split('.');
+  if (!header || !payload || !signature) {
+    throw new HttpError(401, 'Invalid authentication token.');
+  }
+
+  const expectedSignature = createHmac('sha256', AUTH_SECRET)
+    .update(`${header}.${payload}`)
+    .digest('base64url');
+
+  if (expectedSignature.length !== signature.length || !timingSafeEqual(Buffer.from(signature), Buffer.from(expectedSignature))) {
+    throw new HttpError(401, 'Invalid authentication token.');
+  }
+
+  try {
+    return JSON.parse(Buffer.from(payload, 'base64url').toString('utf8'));
+  } catch {
+    throw new HttpError(401, 'Invalid authentication token.');
+  }
+};
+
+const getBearerToken = (request) => {
+  const authorization = String(request.headers.authorization || '');
+  if (!authorization.startsWith('Bearer ')) {
+    return '';
+  }
+
+  return authorization.slice(7).trim();
+};
+
+const requireAuth = (request) => verifyToken(getBearerToken(request));
+
 const toPublicUser = (user) => ({
   email: sanitizeEmail(user.email),
   displayName: `${sanitizeText(user.firstName, 80)} ${sanitizeText(user.lastName, 80)}`.trim(),
@@ -248,6 +377,43 @@ const toPublicUser = (user) => ({
   moreInformation: sanitizeText(user.moreInformation, 240),
   provider: user.provider || 'local',
 });
+
+const openWindowsSettings = async () => {
+  await execFileAsync('cmd', ['/c', 'start', '', 'ms-settings:'], {
+    windowsHide: true,
+  });
+};
+
+const openControlPanel = async () => {
+  await execFileAsync('cmd', ['/c', 'start', '', 'control'], {
+    windowsHide: true,
+  });
+};
+
+const openTaskManager = async () => {
+  await execFileAsync('cmd', ['/c', 'start', '', 'taskmgr'], {
+    windowsHide: true,
+  });
+};
+
+const powerOffComputer = async () => {
+  await execFileAsync('shutdown', ['/s', '/t', '0'], {
+    windowsHide: true,
+  });
+};
+
+const sleepComputer = async () => {
+  const script = `
+Add-Type -AssemblyName System.Windows.Forms
+[System.Windows.Forms.Application]::SetSuspendState('Suspend', $false, $false)
+`;
+
+  await execFileAsync(
+    'powershell.exe',
+    ['-NoProfile', '-ExecutionPolicy', 'Bypass', '-Command', script],
+    { windowsHide: true },
+  );
+};
 
 app.get('/api/security/status', (_request, response) => {
   response.json({
@@ -267,6 +433,11 @@ app.get('/', (_request, response) => {
       wifi: '/api/wifi/status',
       register: 'POST /api/auth/register',
       login: 'POST /api/auth/login',
+      settings: 'POST /api/system/settings',
+      controlPanel: 'POST /api/system/control-panel',
+      taskManager: 'POST /api/system/task-manager',
+      powerOff: 'POST /api/system/power-off',
+      sleep: 'POST /api/system/sleep',
     },
   });
 });
@@ -368,12 +539,117 @@ app.post('/api/auth/login', async (request, response, next) => {
   }
 });
 
-app.get('/api/auth/session', (_request, response) => {
-  response.status(401).json({ error: 'Authentication required.' });
+app.get('/api/auth/session', async (request, response, next) => {
+  try {
+    const session = requireAuth(request);
+    const users = await readUsers();
+    const user = users.find((entry) => sanitizeEmail(entry.email) === sanitizeEmail(session.email));
+
+    if (!user) {
+      throw new HttpError(404, 'Account not found.');
+    }
+
+    response.json({
+      ok: true,
+      user: toPublicUser(user),
+    });
+  } catch (error) {
+    next(error);
+  }
 });
 
 app.post('/api/auth/logout', (_request, response) => {
   response.json({ ok: true });
+});
+
+app.post('/api/auth/delete-account', async (request, response, next) => {
+  try {
+    const session = requireAuth(request);
+    const email = validateEmail(request.body?.email || '');
+    const password = String(request.body?.password || '');
+
+    if (!password) {
+      throw new HttpError(400, 'Password is required.');
+    }
+
+    if (sanitizeEmail(session.email) !== email) {
+      throw new HttpError(403, 'Authenticated user does not match the requested account.');
+    }
+
+    const users = await readUsers();
+    const userIndex = users.findIndex((entry) => sanitizeEmail(entry.email) === sanitizeEmail(session.email));
+
+    if (userIndex === -1) {
+      throw new HttpError(404, 'Account not found.');
+    }
+
+    const user = users[userIndex];
+    if (!verifyPassword(password, user.passwordHash)) {
+      throw new HttpError(401, 'Incorrect password. Account not deleted.');
+    }
+
+    const remainingUsers = users.filter((_, index) => index !== userIndex);
+    await writeUsers(remainingUsers);
+    await writeActiveUsersToExcel(remainingUsers);
+    await saveDeletedUserToExcel(user);
+
+    response.json({
+      ok: true,
+      message: 'Account deleted successfully.',
+    });
+  } catch (error) {
+    next(error);
+  }
+});
+
+app.post('/api/system/settings', async (request, response, next) => {
+  try {
+    requireAuth(request);
+    await openWindowsSettings();
+    response.json({ ok: true });
+  } catch (error) {
+    next(error);
+  }
+});
+
+app.post('/api/system/control-panel', async (request, response, next) => {
+  try {
+    requireAuth(request);
+    await openControlPanel();
+    response.json({ ok: true });
+  } catch (error) {
+    next(error);
+  }
+});
+
+app.post('/api/system/task-manager', async (request, response, next) => {
+  try {
+    requireAuth(request);
+    await openTaskManager();
+    response.json({ ok: true });
+  } catch (error) {
+    next(error);
+  }
+});
+
+app.post('/api/system/power-off', async (request, response, next) => {
+  try {
+    requireAuth(request);
+    await powerOffComputer();
+    response.json({ ok: true });
+  } catch (error) {
+    next(error);
+  }
+});
+
+app.post('/api/system/sleep', async (request, response, next) => {
+  try {
+    requireAuth(request);
+    await sleepComputer();
+    response.json({ ok: true });
+  } catch (error) {
+    next(error);
+  }
 });
 
 app.use((error, _request, response, _next) => {
