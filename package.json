@@ -6,8 +6,8 @@
   "scripts": {
     "dev": "vite",
     "dev:full": "node tools/dev-with-backend.mjs",
-    "backend": "node backend/server.mjs",
-    "wifi-backend": "node backend/server.mjs",
+    "backend": "node server.mjs",
+    "wifi-backend": "node server.mjs",
     "build": "vite build",
     "lint": "eslint .",
     "preview": "vite preview"

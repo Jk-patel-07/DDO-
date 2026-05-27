@@ -28,6 +28,7 @@ const APP_BOX_SELECTED_APPS_STORAGE_KEY = 'app_box_selected_apps';
 const APP_BOX_SETTINGS_STORAGE_KEY = 'app_box_settings';
 const APP_BOX_PRIVACY_STORAGE_KEY = 'app_box_privacy_settings';
 const GOOGLE_IDENTITY_SCRIPT_ID = 'ddo-google-identity-services';
+const REGISTER_API_URL = 'http://127.0.0.1:5000/api/auth/register';
 const SPOTIFY_STORAGE_KEYS = {
   codeVerifier: 'spotify_code_verifier',
   state: 'spotify_auth_state',
@@ -298,10 +299,10 @@ async function requestBackendJson(
       || /failed to fetch|networkerror|load failed/i.test(String(error?.message || ''));
 
     if (isNetworkFailure) {
-      throw new Error(`Backend not running at ${API_BASE_URL}. Start \`npm run backend\` and try again.`);
+      throw new Error(`Backend not running at ${API_BASE_URL}. Start \`node server.mjs\` and try again.`, { cause: error });
     }
 
-    throw error instanceof Error ? error : new Error(fallbackMessage);
+    throw error instanceof Error ? error : new Error(fallbackMessage, { cause: error });
   }
 }
 
@@ -372,7 +373,6 @@ const RightTray = ({ onPopupStateChange = () => {} }) => {
     phoneNumber: '',
     password: '',
     confirmPassword: '',
-    robotVerified: false,
   });
   const [registerErrors, setRegisterErrors] = useState({});
   const [registerStatus, setRegisterStatus] = useState('');
@@ -2075,10 +2075,6 @@ const RightTray = ({ onPopupStateChange = () => {} }) => {
       nextErrors.phoneNumber = 'Enter a valid phone number.';
     }
 
-    if (!registerForm.robotVerified) {
-      nextErrors.robotVerified = 'Please verify that you are not a robot.';
-    }
-
     return nextErrors;
   };
 
@@ -2096,12 +2092,27 @@ const RightTray = ({ onPopupStateChange = () => {} }) => {
     setRegisterStatus('');
 
     try {
-      const payload = await requestBackendJson('/api/auth/register', {
+      const response = await fetch(REGISTER_API_URL, {
         method: 'POST',
-        body: JSON.stringify(registerForm),
-      }, {
-        fallbackMessage: 'Invalid details. Please check the form and try again.',
+        headers: {
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({
+          email: registerForm.email.trim().toLowerCase(),
+          firstName: registerForm.firstName.trim(),
+          middleName: registerForm.middleName.trim(),
+          lastName: registerForm.lastName.trim(),
+          phoneNumber: registerForm.phoneNumber.trim(),
+          moreInformation: registerForm.moreInformation.trim(),
+          password: registerForm.password,
+          confirmPassword: registerForm.confirmPassword,
+        }),
       });
+      const payload = await response.json().catch(() => ({}));
+
+      if (!response.ok) {
+        throw new Error(payload.error || payload.message || 'Invalid details. Please check the form and try again.');
+      }
 
       setRegisterStatus(payload.message || 'Registration successful.');
       setLoginForm((current) => ({
@@ -2118,16 +2129,17 @@ const RightTray = ({ onPopupStateChange = () => {} }) => {
         phoneNumber: '',
         password: '',
         confirmPassword: '',
-        robotVerified: false,
       });
-      window.setTimeout(() => {
-        setIsUserLoginOpen(true);
-        setIsRegisterOpen(false);
-        setLoginError('');
-      }, 600);
+      setIsUserLoginOpen(true);
+      setIsRegisterOpen(false);
+      setLoginError('');
     } catch (error) {
+      const isNetworkFailure = error instanceof TypeError
+        || /failed to fetch|networkerror|load failed/i.test(String(error?.message || ''));
       setRegisterErrors({
-        form: error.message || 'Unable to register right now.',
+        form: isNetworkFailure
+          ? 'Backend server is not running. Please start backend.'
+          : (error.message || 'Unable to register right now.'),
       });
     } finally {
       setIsRegisterSubmitting(false);
@@ -4484,16 +4496,6 @@ const RightTray = ({ onPopupStateChange = () => {} }) => {
                     {registerErrors.confirmPassword ? <small className="user-register-error">{registerErrors.confirmPassword}</small> : null}
                   </label>
                 </div>
-
-                <label className="user-login-checkbox">
-                  <input
-                    type="checkbox"
-                    checked={registerForm.robotVerified}
-                    onChange={(event) => handleRegisterFieldChange('robotVerified', event.target.checked)}
-                  />
-                  <span>I am not a robot</span>
-                </label>
-                {registerErrors.robotVerified ? <small className="user-register-error">{registerErrors.robotVerified}</small> : null}
 
                 {registerErrors.form ? <div className="spotify-auth-error">{registerErrors.form}</div> : null}
                 {registerStatus ? <div className="user-register-success">{registerStatus}</div> : null}

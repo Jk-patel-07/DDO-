@@ -42,14 +42,8 @@ class HttpError extends Error {
 
 app.use(express.json({ limit: '1mb' }));
 app.use(cors({
-  origin(origin, callback) {
-    if (!origin || origin === 'http://127.0.0.1:3000' || ALLOWED_ORIGINS.has(origin)) {
-      callback(null, true);
-      return;
-    }
-
-    callback(new Error('Origin not allowed by CORS.'));
-  },
+  origin: ['http://127.0.0.1:3000', 'http://localhost:3000'],
+  credentials: true,
   methods: ['GET', 'POST', 'OPTIONS'],
   allowedHeaders: ['Content-Type', 'Authorization'],
 }));
@@ -232,6 +226,19 @@ app.get('/api/security/status', (_request, response) => {
   });
 });
 
+app.get('/', (_request, response) => {
+  response.json({
+    ok: true,
+    message: 'DDO backend is running',
+    routes: {
+      security: '/api/security/status',
+      wifi: '/api/wifi/status',
+      register: 'POST /api/auth/register',
+      login: 'POST /api/auth/login',
+    },
+  });
+});
+
 app.get('/api/wifi/status', (_request, response) => {
   response.json({
     interfaceName: 'Wi-Fi',
@@ -253,17 +260,12 @@ app.post('/api/auth/register', async (request, response, next) => {
       phoneNumber = '',
       password,
       confirmPassword,
-      robotVerified,
     } = request.body || {};
 
     const normalizedEmail = validateEmail(email);
     const normalizedFirstName = validateRequiredName('First Name', firstName);
     const normalizedLastName = validateRequiredName('Last Name', lastName);
     const normalizedPassword = validateStrongPassword(password);
-
-    if (robotVerified !== true) {
-      throw new HttpError(400, 'Invalid details: please verify that you are not a robot.');
-    }
 
     if (normalizedPassword !== String(confirmPassword || '')) {
       throw new HttpError(400, 'Invalid details: password and confirm password must match.');

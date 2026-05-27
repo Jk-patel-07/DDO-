@@ -45,5 +45,5 @@ process.on('SIGINT', shutdown);
 process.on('SIGTERM', shutdown);
 
 console.log('Starting DDO frontend and backend...');
-spawnProcess('backend', 'node', ['backend/server.mjs']);
+spawnProcess('backend', 'node', ['server.mjs']);
 spawnProcess('frontend', 'npm.cmd', ['run', 'dev']);
