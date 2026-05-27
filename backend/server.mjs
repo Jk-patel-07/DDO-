@@ -1,0 +1,354 @@
+import cors from 'cors';
+import express from 'express';
+import {
+  createHmac,
+  randomBytes,
+  scryptSync,
+  timingSafeEqual,
+} from 'node:crypto';
+import { readFile, writeFile } from 'node:fs/promises';
+import path from 'node:path';
+import XLSX from 'xlsx';
+
+const app = express();
+const HOST = '127.0.0.1';
+const PORT = 5000;
+const PROJECT_ROOT = process.cwd();
+const USERS_JSON_FILE = path.join(PROJECT_ROOT, '.ddo-users.json');
+const USERS_XLSX_FILE = path.join(PROJECT_ROOT, 'users.xlsx');
+const USERS_SHEET_NAME = 'Users';
+const ALLOWED_ORIGINS = new Set([
+  'http://127.0.0.1:3000',
+  'http://localhost:3000',
+]);
+const AUTH_SECRET = process.env.APP_AUTH_SECRET || 'ddo-local-auth-secret-change-me';
+const USERS_XLSX_HEADERS = [
+  'Email ID',
+  'First Name',
+  'Middle Name',
+  'Last Name',
+  'Phone Number',
+  'More Information',
+  'Register Date',
+  'Account Status',
+];
+
+class HttpError extends Error {
+  constructor(statusCode, message) {
+    super(message);
+    this.statusCode = statusCode;
+  }
+}
+
+app.use(express.json({ limit: '1mb' }));
+app.use(cors({
+  origin(origin, callback) {
+    if (!origin || origin === 'http://127.0.0.1:3000' || ALLOWED_ORIGINS.has(origin)) {
+      callback(null, true);
+      return;
+    }
+
+    callback(new Error('Origin not allowed by CORS.'));
+  },
+  methods: ['GET', 'POST', 'OPTIONS'],
+  allowedHeaders: ['Content-Type', 'Authorization'],
+}));
+
+const sanitizeEmail = (value) => String(value || '').trim().toLowerCase();
+const sanitizeText = (value, max = 240) => String(value || '').trim().replace(/\s+/g, ' ').slice(0, max);
+
+const validateEmail = (value) => {
+  const email = sanitizeEmail(value);
+  if (!email) {
+    throw new HttpError(400, 'Email ID is required.');
+  }
+
+  if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)) {
+    throw new HttpError(400, 'Invalid details: enter a valid email address.');
+  }
+
+  return email;
+};
+
+const validateRequiredName = (label, value) => {
+  const normalized = sanitizeText(value, 80);
+  if (!normalized) {
+    throw new HttpError(400, `${label} is required.`);
+  }
+
+  return normalized;
+};
+
+const validatePhoneNumber = (value) => {
+  const normalized = String(value || '').trim();
+  if (!normalized) {
+    return '';
+  }
+
+  if (!/^\+?[0-9()\-\s]{7,20}$/.test(normalized)) {
+    throw new HttpError(400, 'Invalid details: enter a valid phone number.');
+  }
+
+  return normalized;
+};
+
+const validateStrongPassword = (value) => {
+  const password = String(value || '');
+  if (!password) {
+    throw new HttpError(400, 'Password is required.');
+  }
+
+  if (
+    password.length < 8
+    || !/[a-z]/.test(password)
+    || !/[A-Z]/.test(password)
+    || !/[0-9]/.test(password)
+    || !/[^A-Za-z0-9]/.test(password)
+  ) {
+    throw new HttpError(400, 'Invalid details: password must use 8+ chars with upper, lower, number, and symbol.');
+  }
+
+  return password;
+};
+
+const hashPassword = (password, salt = randomBytes(16).toString('hex')) => {
+  const derived = scryptSync(password, salt, 64);
+  return `scrypt$${salt}$${derived.toString('hex')}`;
+};
+
+const verifyPassword = (password, storedHash) => {
+  if (!storedHash?.startsWith('scrypt$')) {
+    return false;
+  }
+
+  const [, salt, expectedHex] = storedHash.split('$');
+  if (!salt || !expectedHex) {
+    return false;
+  }
+
+  const expected = Buffer.from(expectedHex, 'hex');
+  const actual = scryptSync(password, salt, expected.length);
+  return timingSafeEqual(expected, actual);
+};
+
+const readUsers = async () => {
+  try {
+    const raw = await readFile(USERS_JSON_FILE, 'utf8');
+    const parsed = JSON.parse(raw);
+    return Array.isArray(parsed) ? parsed : [];
+  } catch {
+    return [];
+  }
+};
+
+const writeUsers = async (users) => {
+  await writeFile(USERS_JSON_FILE, JSON.stringify(users, null, 2), 'utf8');
+};
+
+const readExcelRows = async () => {
+  try {
+    const workbookBuffer = await readFile(USERS_XLSX_FILE);
+    const workbook = XLSX.read(workbookBuffer, { type: 'buffer' });
+    const worksheet = workbook.Sheets[USERS_SHEET_NAME] || workbook.Sheets[workbook.SheetNames[0]];
+    if (!worksheet) {
+      return [];
+    }
+
+    return XLSX.utils.sheet_to_json(worksheet, { defval: '' });
+  } catch {
+    return [];
+  }
+};
+
+const saveUserToExcel = async (user) => {
+  const normalizedEmail = sanitizeEmail(user.email);
+  const existingRows = await readExcelRows();
+
+  if (existingRows.some((row) => sanitizeEmail(row['Email ID']) === normalizedEmail)) {
+    throw new HttpError(409, 'Email already registered.');
+  }
+
+  const nextRows = [
+    ...existingRows,
+    {
+      'Email ID': normalizedEmail,
+      'First Name': sanitizeText(user.firstName, 80),
+      'Middle Name': sanitizeText(user.middleName, 80),
+      'Last Name': sanitizeText(user.lastName, 80),
+      'Phone Number': sanitizeText(user.phoneNumber, 40),
+      'More Information': sanitizeText(user.moreInformation, 500),
+      'Register Date': user.createdAt,
+      'Account Status': user.accountStatus,
+    },
+  ];
+
+  const workbook = XLSX.utils.book_new();
+  const worksheet = XLSX.utils.json_to_sheet(nextRows, {
+    header: USERS_XLSX_HEADERS,
+  });
+
+  XLSX.utils.book_append_sheet(workbook, worksheet, USERS_SHEET_NAME);
+
+  const workbookBuffer = XLSX.write(workbook, {
+    type: 'buffer',
+    bookType: 'xlsx',
+  });
+
+  await writeFile(USERS_XLSX_FILE, workbookBuffer);
+};
+
+const createToken = (user) => {
+  const header = Buffer.from(JSON.stringify({ alg: 'HS256', typ: 'JWT' })).toString('base64url');
+  const payload = Buffer.from(JSON.stringify({
+    sub: user.email,
+    email: user.email,
+    displayName: `${user.firstName} ${user.lastName}`.trim(),
+    iat: Math.floor(Date.now() / 1000),
+  })).toString('base64url');
+  const signature = createHmac('sha256', AUTH_SECRET)
+    .update(`${header}.${payload}`)
+    .digest('base64url');
+
+  return `${header}.${payload}.${signature}`;
+};
+
+const toPublicUser = (user) => ({
+  email: sanitizeEmail(user.email),
+  displayName: `${sanitizeText(user.firstName, 80)} ${sanitizeText(user.lastName, 80)}`.trim(),
+  firstName: sanitizeText(user.firstName, 80),
+  middleName: sanitizeText(user.middleName, 80),
+  lastName: sanitizeText(user.lastName, 80),
+  phoneNumber: sanitizeText(user.phoneNumber, 40),
+  moreInformation: sanitizeText(user.moreInformation, 240),
+  provider: user.provider || 'local',
+});
+
+app.get('/api/security/status', (_request, response) => {
+  response.json({
+    fileUploadProtection: true,
+    linkProtection: true,
+    loginProtection: true,
+    apiKeyProtection: true,
+  });
+});
+
+app.get('/api/wifi/status', (_request, response) => {
+  response.json({
+    interfaceName: 'Wi-Fi',
+    online: false,
+    connectedSsid: null,
+    networks: [],
+    scannedAt: new Date().toISOString(),
+  });
+});
+
+app.post('/api/auth/register', async (request, response, next) => {
+  try {
+    const {
+      email,
+      firstName,
+      middleName = '',
+      lastName,
+      moreInformation = '',
+      phoneNumber = '',
+      password,
+      confirmPassword,
+      robotVerified,
+    } = request.body || {};
+
+    const normalizedEmail = validateEmail(email);
+    const normalizedFirstName = validateRequiredName('First Name', firstName);
+    const normalizedLastName = validateRequiredName('Last Name', lastName);
+    const normalizedPassword = validateStrongPassword(password);
+
+    if (robotVerified !== true) {
+      throw new HttpError(400, 'Invalid details: please verify that you are not a robot.');
+    }
+
+    if (normalizedPassword !== String(confirmPassword || '')) {
+      throw new HttpError(400, 'Invalid details: password and confirm password must match.');
+    }
+
+    const users = await readUsers();
+    if (users.some((user) => sanitizeEmail(user.email) === normalizedEmail)) {
+      throw new HttpError(409, 'Email already registered.');
+    }
+
+    const createdAt = new Date().toISOString();
+    const user = {
+      id: randomBytes(12).toString('hex'),
+      email: normalizedEmail,
+      firstName: normalizedFirstName,
+      middleName: sanitizeText(middleName, 80),
+      lastName: normalizedLastName,
+      phoneNumber: validatePhoneNumber(phoneNumber),
+      moreInformation: sanitizeText(moreInformation, 500),
+      passwordHash: hashPassword(normalizedPassword),
+      provider: 'local',
+      createdAt,
+      updatedAt: createdAt,
+      accountStatus: 'Active',
+    };
+
+    await saveUserToExcel(user);
+    users.push(user);
+    await writeUsers(users);
+
+    response.status(201).json({
+      ok: true,
+      message: 'Registration successful.',
+      user: toPublicUser(user),
+    });
+  } catch (error) {
+    next(error);
+  }
+});
+
+app.post('/api/auth/login', async (request, response, next) => {
+  try {
+    const { email, password } = request.body || {};
+    const normalizedEmail = validateEmail(email);
+    const normalizedPassword = String(password || '');
+
+    if (!normalizedPassword) {
+      throw new HttpError(400, 'Invalid details: password is required.');
+    }
+
+    const users = await readUsers();
+    const user = users.find((entry) => sanitizeEmail(entry.email) === normalizedEmail);
+
+    if (!user || !verifyPassword(normalizedPassword, user.passwordHash)) {
+      throw new HttpError(401, 'Invalid details: email or password is incorrect.');
+    }
+
+    response.json({
+      token: createToken(user),
+      user: toPublicUser(user),
+    });
+  } catch (error) {
+    next(error);
+  }
+});
+
+app.get('/api/auth/session', (_request, response) => {
+  response.status(401).json({ error: 'Authentication required.' });
+});
+
+app.post('/api/auth/logout', (_request, response) => {
+  response.json({ ok: true });
+});
+
+app.use((error, _request, response, _next) => {
+  if (error?.message === 'Origin not allowed by CORS.') {
+    response.status(403).json({ error: 'CORS blocked this request.' });
+    return;
+  }
+
+  const statusCode = error instanceof HttpError ? error.statusCode : 500;
+  const message = error instanceof Error ? error.message : 'Backend request failed.';
+  response.status(statusCode).json({ error: message });
+});
+
+app.listen(PORT, HOST, () => {
+  console.log(`DDO backend listening at http://${HOST}:${PORT}`);
+});

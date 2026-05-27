@@ -7,19 +7,19 @@ export default defineConfig({
   server: {
     proxy: {
       '/api/wifi': {
-        target: 'http://127.0.0.1:3031',
+        target: 'http://127.0.0.1:5000',
         changeOrigin: true,
       },
       '/api/system': {
-        target: 'http://127.0.0.1:3031',
+        target: 'http://127.0.0.1:5000',
         changeOrigin: true,
       },
       '/api/ai': {
-        target: 'http://127.0.0.1:3031',
+        target: 'http://127.0.0.1:5000',
         changeOrigin: true,
       },
       '/api/auth': {
-        target: 'http://127.0.0.1:3031',
+        target: 'http://127.0.0.1:5000',
         changeOrigin: true,
       },
     },

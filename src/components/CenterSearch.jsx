@@ -2,6 +2,7 @@ import { useEffect, useRef, useState } from 'react';
 import { createPortal } from 'react-dom';
 import { LogOut, Mic, Plus, Search, Sparkles, X } from 'lucide-react';
 import { createAuthHeaders } from '../utils/appAuth';
+import { buildApiUrl } from '../utils/api';
 
 const GOOGLE_IDENTITY_SCRIPT_ID = 'google-identity-services';
 const GOOGLE_ACCOUNT_STORAGE_KEY = 'google_search_account';
@@ -350,7 +351,7 @@ const CenterSearch = ({ onPopupStateChange = () => {} }) => {
       });
 
       try {
-        const response = await fetch('/api/ai/respond', {
+        const response = await fetch(buildApiUrl('/api/ai/respond'), {
           method: 'POST',
           headers: {
             ...createAuthHeaders({

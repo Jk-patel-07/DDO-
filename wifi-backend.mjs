@@ -10,10 +10,11 @@ import { readdir, readFile, stat, writeFile, unlink } from 'node:fs/promises';
 import os from 'node:os';
 import path from 'node:path';
 import { promisify } from 'node:util';
+import XLSX from 'xlsx';
 
 const execFileAsync = promisify(execFile);
 const HOST = '127.0.0.1';
-const PORT = 3031;
+const PORT = 5000;
 const PROJECT_ROOT = process.cwd();
 const GEMINI_MODEL = process.env.GEMINI_MODEL || 'gemini-2.5-flash';
 const MAX_JSON_BODY_BYTES = Number(process.env.MAX_JSON_BODY_BYTES || 16 * 1024);
@@ -22,12 +23,31 @@ const DEFAULT_ALLOWED_ORIGINS = new Set([
   'http://localhost:3000',
   'http://127.0.0.1:5173',
   'http://localhost:5173',
+  'http://127.0.0.1:4173',
+  'http://localhost:4173',
+  'http://127.0.0.1:4174',
+  'http://localhost:4174',
+  'http://127.0.0.1:4175',
+  'http://localhost:4175',
 ]);
 const AUTH_STORAGE = {
   email: '',
   passwordHash: '',
   secret: '',
 };
+const REGISTERED_USERS_FILE = path.join(PROJECT_ROOT, '.ddo-users.json');
+const USERS_EXCEL_FILE = path.join(PROJECT_ROOT, 'users.xlsx');
+const USERS_EXCEL_SHEET_NAME = 'Users';
+const USERS_EXCEL_HEADERS = [
+  'Email ID',
+  'First Name',
+  'Middle Name',
+  'Last Name',
+  'Phone Number',
+  'More Information',
+  'Register Date',
+  'Account Status',
+];
 const GLOBAL_RATE_LIMIT_WINDOW_MS = 60_000;
 const GLOBAL_RATE_LIMIT_MAX = 180;
 const LOGIN_RATE_LIMIT_WINDOW_MS = 5 * 60_000;
@@ -114,6 +134,7 @@ const verifyPassword = (password, storedHash) => {
 
 const sanitizeEmail = (value) => String(value || '').trim().toLowerCase();
 const sanitizeDisplayText = (value, max = 140) => String(value || '').trim().replace(/\s+/g, ' ').slice(0, max);
+const sanitizeOptionalText = (value, max = 240) => sanitizeDisplayText(value, max);
 
 const validateEmail = (value) => {
   const email = sanitizeEmail(value);
@@ -139,6 +160,62 @@ const validatePasswordInput = (value) => {
   }
 
   return password;
+};
+
+const validateStrongPassword = (value) => {
+  const password = validatePasswordInput(value);
+  if (!/[a-z]/.test(password) || !/[A-Z]/.test(password) || !/[0-9]/.test(password) || !/[^A-Za-z0-9]/.test(password)) {
+    throw new HttpError(400, 'Password must include uppercase, lowercase, number, and special character.');
+  }
+
+  return password;
+};
+
+const validateRequiredName = (label, value) => {
+  const normalized = sanitizeDisplayText(value, 80);
+  if (!normalized) {
+    throw new HttpError(400, `${label} is required.`);
+  }
+
+  if (!/^[A-Za-z][A-Za-z\s'.-]*$/.test(normalized)) {
+    throw new HttpError(400, `${label} must contain only letters and simple punctuation.`);
+  }
+
+  return normalized;
+};
+
+const validateOptionalName = (value) => {
+  const normalized = sanitizeDisplayText(value, 80);
+  if (!normalized) {
+    return '';
+  }
+
+  if (!/^[A-Za-z][A-Za-z\s'.-]*$/.test(normalized)) {
+    throw new HttpError(400, 'Middle Name must contain only letters and simple punctuation.');
+  }
+
+  return normalized;
+};
+
+const validatePhoneNumber = (value) => {
+  const normalized = String(value || '').trim();
+  if (!normalized) {
+    return '';
+  }
+
+  if (!/^\+?[0-9()\-\s]{7,20}$/.test(normalized)) {
+    throw new HttpError(400, 'Enter a valid phone number.');
+  }
+
+  return normalized;
+};
+
+const validateRobotCheck = (value) => {
+  if (value !== true) {
+    throw new HttpError(400, 'Please verify that you are not a robot.');
+  }
+
+  return true;
 };
 
 const validatePrompt = (value) => {
@@ -190,9 +267,21 @@ const getAllowedOrigins = async () => {
   return configured.length ? new Set(configured) : DEFAULT_ALLOWED_ORIGINS;
 };
 
+const isAllowedLoopbackOrigin = (origin) => {
+  try {
+    const parsed = new URL(origin);
+    return (
+      (parsed.protocol === 'http:' || parsed.protocol === 'https:')
+      && ['127.0.0.1', 'localhost', '::1', '[::1]'].includes(parsed.hostname)
+    );
+  } catch {
+    return false;
+  }
+};
+
 const buildSecurityHeaders = async (origin = '') => {
   const allowedOrigins = await getAllowedOrigins();
-  const allowOrigin = !origin || allowedOrigins.has(origin) ? origin : '';
+  const allowOrigin = !origin || allowedOrigins.has(origin) || isAllowedLoopbackOrigin(origin) ? origin : '';
 
   return {
     'Content-Type': 'application/json; charset=utf-8',
@@ -208,6 +297,104 @@ const buildSecurityHeaders = async (origin = '') => {
     'Cross-Origin-Opener-Policy': 'same-origin',
     'Cache-Control': 'no-store',
   };
+};
+
+const readRegisteredUsers = async () => {
+  try {
+    const raw = await readFile(REGISTERED_USERS_FILE, 'utf8');
+    const parsed = JSON.parse(raw);
+    return Array.isArray(parsed) ? parsed : [];
+  } catch {
+    return [];
+  }
+};
+
+const writeRegisteredUsers = async (users) => {
+  await writeFile(REGISTERED_USERS_FILE, JSON.stringify(users, null, 2), 'utf8');
+};
+
+const readExcelRows = async () => {
+  try {
+    const workbookBuffer = await readFile(USERS_EXCEL_FILE);
+    const workbook = XLSX.read(workbookBuffer, { type: 'buffer' });
+    const worksheet = workbook.Sheets[USERS_EXCEL_SHEET_NAME] || workbook.Sheets[workbook.SheetNames[0]];
+
+    if (!worksheet) {
+      return [];
+    }
+
+    return XLSX.utils.sheet_to_json(worksheet, { defval: '' });
+  } catch (error) {
+    if (error?.code === 'ENOENT') {
+      return [];
+    }
+
+    throw error;
+  }
+};
+
+const toExcelUserRow = (userData) => ({
+  'Email ID': sanitizeEmail(userData.email),
+  'First Name': sanitizeOptionalText(userData.firstName, 80),
+  'Middle Name': sanitizeOptionalText(userData.middleName, 80),
+  'Last Name': sanitizeOptionalText(userData.lastName, 80),
+  'Phone Number': sanitizeOptionalText(userData.phoneNumber, 40),
+  'More Information': sanitizeOptionalText(userData.moreInformation, 500),
+  'Register Date': userData.createdAt || new Date().toISOString(),
+  'Account Status': sanitizeOptionalText(userData.accountStatus, 40) || 'Active',
+});
+
+const saveUserToExcel = async (userData) => {
+  const normalizedEmail = sanitizeEmail(userData.email);
+  const existingRows = await readExcelRows();
+
+  if (existingRows.some((row) => sanitizeEmail(row['Email ID']) === normalizedEmail)) {
+    throw new HttpError(409, 'Email already registered.');
+  }
+
+  const workbook = XLSX.utils.book_new();
+  const nextRows = [...existingRows, toExcelUserRow(userData)];
+  const worksheet = XLSX.utils.json_to_sheet(nextRows, {
+    header: USERS_EXCEL_HEADERS,
+  });
+
+  XLSX.utils.book_append_sheet(workbook, worksheet, USERS_EXCEL_SHEET_NAME);
+
+  const workbookBuffer = XLSX.write(workbook, {
+    type: 'buffer',
+    bookType: 'xlsx',
+  });
+
+  await writeFile(USERS_EXCEL_FILE, workbookBuffer);
+};
+
+const getUserDisplayName = (user) => {
+  if (user.displayName) {
+    return sanitizeDisplayText(user.displayName, 80);
+  }
+
+  return [user.firstName, user.middleName, user.lastName]
+    .map((part) => sanitizeOptionalText(part, 80))
+    .filter(Boolean)
+    .join(' ')
+    .trim() || sanitizeDisplayText(String(user.email || '').split('@')[0], 80) || 'User';
+};
+
+const toPublicUser = (user) => ({
+  email: sanitizeEmail(user.email),
+  displayName: getUserDisplayName(user),
+  firstName: sanitizeOptionalText(user.firstName, 80),
+  middleName: sanitizeOptionalText(user.middleName, 80),
+  lastName: sanitizeOptionalText(user.lastName, 80),
+  phoneNumber: sanitizeOptionalText(user.phoneNumber, 40),
+  moreInformation: sanitizeOptionalText(user.moreInformation, 240),
+  provider: user.provider || 'local',
+  picture: sanitizeOptionalText(user.picture, 400),
+});
+
+const findRegisteredUserByEmail = async (email) => {
+  const users = await readRegisteredUsers();
+  return users.find((entry) => sanitizeEmail(entry.email) === sanitizeEmail(email)) || null;
 };
 
 const buildSecurityStatus = async () => {
@@ -876,29 +1063,140 @@ const getBearerToken = (request) => {
 
 const requireAuth = (request) => verifyJwt(getBearerToken(request));
 
-const loginUser = async ({ email, password, rememberMe }) => {
-  const normalizedEmail = validateEmail(email);
-  const normalizedPassword = validatePasswordInput(password);
-
-  if (normalizedEmail !== AUTH_STORAGE.email || !verifyPassword(normalizedPassword, AUTH_STORAGE.passwordHash)) {
-    throw new HttpError(401, 'Invalid email or password.');
-  }
-
-  const displayName = sanitizeDisplayText(normalizedEmail.split('@')[0], 50) || 'User';
+const createSessionForUser = (user, rememberMe = false) => {
+  const publicUser = toPublicUser(user);
   const token = createJwt({
-    sub: normalizedEmail,
-    email: normalizedEmail,
-    displayName,
+    sub: publicUser.email,
+    email: publicUser.email,
+    displayName: publicUser.displayName,
     expSeconds: rememberMe ? 7 * 24 * 60 * 60 : 12 * 60 * 60,
   });
 
   return {
     token,
-    user: {
-      email: normalizedEmail,
-      displayName,
-    },
+    user: publicUser,
   };
+};
+
+const registerUser = async ({
+  email,
+  firstName,
+  middleName,
+  lastName,
+  moreInformation,
+  phoneNumber,
+  password,
+  confirmPassword,
+  robotVerified,
+}) => {
+  const normalizedEmail = validateEmail(email);
+  const normalizedFirstName = validateRequiredName('First Name', firstName);
+  const normalizedMiddleName = validateOptionalName(middleName);
+  const normalizedLastName = validateRequiredName('Last Name', lastName);
+  const normalizedMoreInformation = sanitizeOptionalText(moreInformation, 500);
+  const normalizedPhoneNumber = validatePhoneNumber(phoneNumber);
+  const normalizedPassword = validateStrongPassword(password);
+  const normalizedConfirmPassword = String(confirmPassword || '');
+  validateRobotCheck(robotVerified);
+
+  if (normalizedPassword !== normalizedConfirmPassword) {
+    throw new HttpError(400, 'Password and confirm password must match.');
+  }
+
+  if (normalizedEmail === AUTH_STORAGE.email) {
+    throw new HttpError(409, 'Email already registered.');
+  }
+
+  const users = await readRegisteredUsers();
+  if (users.some((user) => sanitizeEmail(user.email) === normalizedEmail)) {
+    throw new HttpError(409, 'Email already registered.');
+  }
+
+  const createdAt = new Date().toISOString();
+  const user = {
+    id: randomBytes(12).toString('hex'),
+    email: normalizedEmail,
+    firstName: normalizedFirstName,
+    middleName: normalizedMiddleName,
+    lastName: normalizedLastName,
+    moreInformation: normalizedMoreInformation,
+    phoneNumber: normalizedPhoneNumber,
+    provider: 'local',
+    passwordHash: hashPassword(normalizedPassword),
+    createdAt,
+    updatedAt: createdAt,
+    accountStatus: 'Active',
+  };
+
+  await saveUserToExcel(user);
+  users.push(user);
+  await writeRegisteredUsers(users);
+
+  return {
+    ok: true,
+    message: 'Registration successful.',
+    user: toPublicUser(user),
+  };
+};
+
+const loginWithGoogle = async ({ email, name, picture, rememberMe }) => {
+  const normalizedEmail = validateEmail(email);
+  const normalizedName = sanitizeDisplayText(name, 120);
+  const normalizedPicture = sanitizeOptionalText(picture, 400);
+
+  const users = await readRegisteredUsers();
+  const existingIndex = users.findIndex((entry) => sanitizeEmail(entry.email) === normalizedEmail);
+  const nameParts = normalizedName.split(' ').filter(Boolean);
+  const nextUser = existingIndex >= 0
+    ? {
+        ...users[existingIndex],
+        provider: 'google',
+        picture: normalizedPicture || users[existingIndex].picture || '',
+        updatedAt: new Date().toISOString(),
+      }
+    : {
+        id: randomBytes(12).toString('hex'),
+        email: normalizedEmail,
+        firstName: nameParts[0] || 'Google',
+        middleName: nameParts.length > 2 ? nameParts.slice(1, -1).join(' ') : '',
+        lastName: nameParts.length > 1 ? nameParts[nameParts.length - 1] : 'User',
+        moreInformation: '',
+        phoneNumber: '',
+        provider: 'google',
+        picture: normalizedPicture,
+        createdAt: new Date().toISOString(),
+        updatedAt: new Date().toISOString(),
+      };
+
+  if (existingIndex >= 0) {
+    users[existingIndex] = nextUser;
+  } else {
+    users.push(nextUser);
+  }
+
+  await writeRegisteredUsers(users);
+
+  return createSessionForUser(nextUser, rememberMe);
+};
+
+const loginUser = async ({ email, password, rememberMe }) => {
+  const normalizedEmail = validateEmail(email);
+  const normalizedPassword = validatePasswordInput(password);
+
+  if (normalizedEmail === AUTH_STORAGE.email && verifyPassword(normalizedPassword, AUTH_STORAGE.passwordHash)) {
+    return createSessionForUser({
+      email: normalizedEmail,
+      displayName: sanitizeDisplayText(normalizedEmail.split('@')[0], 50) || 'User',
+      provider: 'local',
+    }, rememberMe);
+  }
+
+  const registeredUser = await findRegisteredUserByEmail(normalizedEmail);
+  if (!registeredUser || !registeredUser.passwordHash || !verifyPassword(normalizedPassword, registeredUser.passwordHash)) {
+    throw new HttpError(401, 'Invalid email or password.');
+  }
+
+  return createSessionForUser(registeredUser, rememberMe);
 };
 
 const respondWithAi = async ({ provider, prompt }) => {
@@ -939,6 +1237,22 @@ const server = http.createServer(async (request, response) => {
       return;
     }
 
+    if (requestUrl.pathname === '/api/auth/register' && request.method === 'POST') {
+      enforceRateLimit(request, 'auth-register', LOGIN_RATE_LIMIT_MAX, LOGIN_RATE_LIMIT_WINDOW_MS);
+      const body = await readBody(request);
+      const payload = await registerUser(body);
+      await sendJson(response, 201, payload, origin);
+      return;
+    }
+
+    if (requestUrl.pathname === '/api/auth/google' && request.method === 'POST') {
+      enforceRateLimit(request, 'auth-google', LOGIN_RATE_LIMIT_MAX, LOGIN_RATE_LIMIT_WINDOW_MS);
+      const body = await readBody(request);
+      const session = await loginWithGoogle(body);
+      await sendJson(response, 200, session, origin);
+      return;
+    }
+
     if (requestUrl.pathname === '/api/auth/logout' && request.method === 'POST') {
       await sendJson(response, 200, { ok: true }, origin);
       return;
@@ -946,11 +1260,22 @@ const server = http.createServer(async (request, response) => {
 
     if (requestUrl.pathname === '/api/auth/session' && request.method === 'GET') {
       const session = requireAuth(request);
+      const registeredUser = await findRegisteredUserByEmail(session.email);
+      const publicUser = registeredUser
+        ? toPublicUser(registeredUser)
+        : {
+            email: session.email,
+            displayName: session.displayName,
+            firstName: '',
+            middleName: '',
+            lastName: '',
+            phoneNumber: '',
+            moreInformation: '',
+            provider: 'local',
+            picture: '',
+          };
       await sendJson(response, 200, {
-        user: {
-          email: session.email,
-          displayName: session.displayName,
-        },
+        user: publicUser,
       }, origin);
       return;
     }

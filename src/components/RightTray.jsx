@@ -10,6 +10,7 @@ import {
   persistAuthSession,
   readStoredAuthSession,
 } from '../utils/appAuth';
+import { API_BASE_URL, buildApiUrl } from '../utils/api';
 
 const SPOTIFY_AUTHORIZE_URL = 'https://accounts.spotify.com/authorize';
 const SPOTIFY_TOKEN_URL = 'https://accounts.spotify.com/api/token';
@@ -26,6 +27,7 @@ const SPOTIFY_PLAYLIST_TRACK_URIS = [
 const APP_BOX_SELECTED_APPS_STORAGE_KEY = 'app_box_selected_apps';
 const APP_BOX_SETTINGS_STORAGE_KEY = 'app_box_settings';
 const APP_BOX_PRIVACY_STORAGE_KEY = 'app_box_privacy_settings';
+const GOOGLE_IDENTITY_SCRIPT_ID = 'ddo-google-identity-services';
 const SPOTIFY_STORAGE_KEYS = {
   codeVerifier: 'spotify_code_verifier',
   state: 'spotify_auth_state',
@@ -275,7 +277,7 @@ async function requestBackendJson(
       ...(options.headers || {}),
     };
 
-    const response = await fetch(endpoint, {
+    const response = await fetch(buildApiUrl(endpoint), {
       ...options,
       headers: requiresAuth ? createAuthHeaders(headers) : headers,
     });
@@ -292,6 +294,13 @@ async function requestBackendJson(
     return payload;
   } catch (error) {
     console.error('Backend request failed:', error);
+    const isNetworkFailure = error instanceof TypeError
+      || /failed to fetch|networkerror|load failed/i.test(String(error?.message || ''));
+
+    if (isNetworkFailure) {
+      throw new Error(`Backend not running at ${API_BASE_URL}. Start \`npm run backend\` and try again.`);
+    }
+
     throw error instanceof Error ? error : new Error(fallbackMessage);
   }
 }
@@ -342,6 +351,7 @@ const RightTray = ({ onPopupStateChange = () => {} }) => {
   const [hasSpotifyBackgroundSession, setHasSpotifyBackgroundSession] = useState(false);
   const [spotifyVolume, setSpotifyVolume] = useState(70);
   const [isUserLoginOpen, setIsUserLoginOpen] = useState(false);
+  const [isRegisterOpen, setIsRegisterOpen] = useState(false);
   const [isUsStatusPopupOpen, setIsUsStatusPopupOpen] = useState(false);
   const [usStatusActiveSection, setUsStatusActiveSection] = useState('none');
   const [appAuthSession, setAppAuthSession] = useState(() => readStoredAuthSession());
@@ -352,6 +362,22 @@ const RightTray = ({ onPopupStateChange = () => {} }) => {
   });
   const [loginError, setLoginError] = useState('');
   const [isLoginSubmitting, setIsLoginSubmitting] = useState(false);
+  const [isGoogleSubmitting, setIsGoogleSubmitting] = useState(false);
+  const [registerForm, setRegisterForm] = useState({
+    email: '',
+    firstName: '',
+    middleName: '',
+    lastName: '',
+    moreInformation: '',
+    phoneNumber: '',
+    password: '',
+    confirmPassword: '',
+    robotVerified: false,
+  });
+  const [registerErrors, setRegisterErrors] = useState({});
+  const [registerStatus, setRegisterStatus] = useState('');
+  const [isRegisterSubmitting, setIsRegisterSubmitting] = useState(false);
+  const googleTokenClientRef = useRef(null);
   const usStatusPopupRef = useRef(null);
   const [studySecondsLeft, setStudySecondsLeft] = useState(25 * 60);
   const [isStudyTimerRunning, setIsStudyTimerRunning] = useState(false);
@@ -1893,6 +1919,219 @@ const RightTray = ({ onPopupStateChange = () => {} }) => {
       ...current,
       [field]: value,
     }));
+  };
+
+  const handleRegisterFieldChange = (field, value) => {
+    setRegisterForm((current) => ({
+      ...current,
+      [field]: value,
+    }));
+    setRegisterErrors((current) => {
+      if (!current[field]) {
+        return current;
+      }
+
+      const next = { ...current };
+      delete next[field];
+      return next;
+    });
+  };
+
+  useEffect(() => {
+    const googleClientId = import.meta.env.VITE_GOOGLE_CLIENT_ID;
+    if (!googleClientId) {
+      return undefined;
+    }
+
+    const initializeGoogleAuth = () => {
+      if (!window.google?.accounts?.oauth2) {
+        return;
+      }
+
+      googleTokenClientRef.current = window.google.accounts.oauth2.initTokenClient({
+        client_id: googleClientId,
+        scope: 'openid email profile',
+        callback: async (response) => {
+          if (!response.access_token) {
+            setLoginError('Google sign-in could not be completed.');
+            setIsGoogleSubmitting(false);
+            return;
+          }
+
+          try {
+            const userInfoResponse = await fetch('https://openidconnect.googleapis.com/v1/userinfo', {
+              headers: {
+                Authorization: `Bearer ${response.access_token}`,
+              },
+            });
+
+            if (!userInfoResponse.ok) {
+              throw new Error('Unable to load Google profile.');
+            }
+
+            const profile = await userInfoResponse.json();
+            const payload = await requestBackendJson('/api/auth/google', {
+              method: 'POST',
+              body: JSON.stringify({
+                email: profile.email,
+                name: profile.name || '',
+                picture: profile.picture || '',
+                rememberMe: loginForm.rememberMe,
+              }),
+            }, {
+              fallbackMessage: 'Google sign-in could not be completed.',
+            });
+
+            persistAuthSession(payload, loginForm.rememberMe);
+            setAppAuthSession({
+              token: payload.token,
+              user: payload.user,
+              rememberMe: loginForm.rememberMe,
+            });
+            setLoginError('');
+            setRegisterStatus('');
+            setIsRegisterOpen(false);
+            setIsUserLoginOpen(false);
+            setIsUsStatusPopupOpen(true);
+          } catch (error) {
+            setLoginError(error.message || 'Google sign-in could not be completed.');
+          } finally {
+            setIsGoogleSubmitting(false);
+          }
+        },
+      });
+    };
+
+    const existingScript = document.getElementById(GOOGLE_IDENTITY_SCRIPT_ID);
+    if (existingScript) {
+      initializeGoogleAuth();
+      return undefined;
+    }
+
+    const script = document.createElement('script');
+    script.id = GOOGLE_IDENTITY_SCRIPT_ID;
+    script.src = 'https://accounts.google.com/gsi/client';
+    script.async = true;
+    script.defer = true;
+    script.onload = initializeGoogleAuth;
+    document.body.appendChild(script);
+
+    return () => {
+      script.onload = null;
+    };
+  }, [loginForm.rememberMe]);
+
+  const handleGoogleLogin = () => {
+    const googleClientId = import.meta.env.VITE_GOOGLE_CLIENT_ID;
+    if (!googleClientId) {
+      setLoginError('Add VITE_GOOGLE_CLIENT_ID to use Google sign-in.');
+      return;
+    }
+
+    if (!window.google?.accounts?.oauth2 || !googleTokenClientRef.current) {
+      setLoginError('Google sign-in is still loading. Try again.');
+      return;
+    }
+
+    setIsGoogleSubmitting(true);
+    setLoginError('');
+    googleTokenClientRef.current.requestAccessToken({ prompt: 'consent' });
+  };
+
+  const validateRegisterForm = () => {
+    const nextErrors = {};
+    const normalizedEmail = registerForm.email.trim().toLowerCase();
+    const normalizedFirstName = registerForm.firstName.trim();
+    const normalizedLastName = registerForm.lastName.trim();
+    const normalizedPhone = registerForm.phoneNumber.trim();
+
+    if (!normalizedEmail) {
+      nextErrors.email = 'Email ID is required.';
+    } else if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(normalizedEmail)) {
+      nextErrors.email = 'Enter a valid email address.';
+    }
+
+    if (!normalizedFirstName) {
+      nextErrors.firstName = 'First Name is required.';
+    }
+
+    if (!normalizedLastName) {
+      nextErrors.lastName = 'Last Name is required.';
+    }
+
+    if (!registerForm.password) {
+      nextErrors.password = 'Password is required.';
+    } else if (registerForm.password.length < 8 || !/[a-z]/.test(registerForm.password) || !/[A-Z]/.test(registerForm.password) || !/[0-9]/.test(registerForm.password) || !/[^A-Za-z0-9]/.test(registerForm.password)) {
+      nextErrors.password = 'Use 8+ chars with upper, lower, number, and symbol.';
+    }
+
+    if (!registerForm.confirmPassword) {
+      nextErrors.confirmPassword = 'Confirm your password.';
+    } else if (registerForm.password !== registerForm.confirmPassword) {
+      nextErrors.confirmPassword = 'Passwords do not match.';
+    }
+
+    if (normalizedPhone && !/^\+?[0-9()\-\s]{7,20}$/.test(normalizedPhone)) {
+      nextErrors.phoneNumber = 'Enter a valid phone number.';
+    }
+
+    if (!registerForm.robotVerified) {
+      nextErrors.robotVerified = 'Please verify that you are not a robot.';
+    }
+
+    return nextErrors;
+  };
+
+  const handleRegisterSubmit = async (event) => {
+    event.preventDefault();
+
+    const nextErrors = validateRegisterForm();
+    if (Object.keys(nextErrors).length) {
+      setRegisterErrors(nextErrors);
+      return;
+    }
+
+    setIsRegisterSubmitting(true);
+    setRegisterErrors({});
+    setRegisterStatus('');
+
+    try {
+      const payload = await requestBackendJson('/api/auth/register', {
+        method: 'POST',
+        body: JSON.stringify(registerForm),
+      }, {
+        fallbackMessage: 'Invalid details. Please check the form and try again.',
+      });
+
+      setRegisterStatus(payload.message || 'Registration successful.');
+      setLoginForm((current) => ({
+        ...current,
+        email: registerForm.email.trim().toLowerCase(),
+        password: '',
+      }));
+      setRegisterForm({
+        email: '',
+        firstName: '',
+        middleName: '',
+        lastName: '',
+        moreInformation: '',
+        phoneNumber: '',
+        password: '',
+        confirmPassword: '',
+        robotVerified: false,
+      });
+      window.setTimeout(() => {
+        setIsUserLoginOpen(true);
+        setIsRegisterOpen(false);
+        setLoginError('');
+      }, 600);
+    } catch (error) {
+      setRegisterErrors({
+        form: error.message || 'Unable to register right now.',
+      });
+    } finally {
+      setIsRegisterSubmitting(false);
+    }
   };
 
   const handleUserLoginSubmit = async (event) => {
@@ -4099,9 +4338,27 @@ const RightTray = ({ onPopupStateChange = () => {} }) => {
                   {isLoginSubmitting ? 'Logging in...' : 'Log in'}
                 </button>
 
+                <button
+                  type="button"
+                  className="user-login-google"
+                  onClick={handleGoogleLogin}
+                  disabled={isGoogleSubmitting}
+                >
+                  <span className="user-login-google-icon" aria-hidden="true">G</span>
+                  <span>{isGoogleSubmitting ? 'Connecting Google...' : 'Continue with Google'}</span>
+                </button>
+
                 <div className="user-login-register">
                   <span>Don&apos;t have an account?</span>
-                  <button type="button" className="user-login-link register">
+                  <button
+                    type="button"
+                    className="user-login-link register"
+                    onClick={() => {
+                      setRegisterStatus('');
+                      setRegisterErrors({});
+                      setIsRegisterOpen(true);
+                    }}
+                  >
                     Register here
                   </button>
                 </div>
@@ -4109,6 +4366,156 @@ const RightTray = ({ onPopupStateChange = () => {} }) => {
             </div>
           </div>
         </div>
+
+        {isRegisterOpen && (
+          <div className="user-register-modal" onClick={() => setIsRegisterOpen(false)}>
+            <div className="user-register-card popup-aurora-surface" onClick={(event) => event.stopPropagation()}>
+              <div className="user-register-header">
+                <div>
+                  <h2>Create account</h2>
+                  <p>Register securely to continue using DDO.</p>
+                </div>
+                <button
+                  type="button"
+                  className="user-login-window-button close"
+                  onClick={() => setIsRegisterOpen(false)}
+                  aria-label="Close registration popup"
+                >
+                  <X size={14} />
+                </button>
+              </div>
+
+              <form className="user-register-form" onSubmit={handleRegisterSubmit}>
+                <label className="user-login-field">
+                  <span>Email ID</span>
+                  <input
+                    type="email"
+                    placeholder="Enter your e-mail"
+                    value={registerForm.email}
+                    onChange={(event) => handleRegisterFieldChange('email', event.target.value)}
+                    autoComplete="email"
+                    required
+                  />
+                  {registerErrors.email ? <small className="user-register-error">{registerErrors.email}</small> : null}
+                </label>
+
+                <div className="user-register-grid">
+                  <label className="user-login-field">
+                    <span>First Name</span>
+                    <input
+                      type="text"
+                      placeholder="First name"
+                      value={registerForm.firstName}
+                      onChange={(event) => handleRegisterFieldChange('firstName', event.target.value)}
+                      required
+                    />
+                    {registerErrors.firstName ? <small className="user-register-error">{registerErrors.firstName}</small> : null}
+                  </label>
+
+                  <label className="user-login-field">
+                    <span>Middle Name</span>
+                    <input
+                      type="text"
+                      placeholder="Middle name"
+                      value={registerForm.middleName}
+                      onChange={(event) => handleRegisterFieldChange('middleName', event.target.value)}
+                    />
+                  </label>
+                </div>
+
+                <label className="user-login-field">
+                  <span>Last Name</span>
+                  <input
+                    type="text"
+                    placeholder="Last name"
+                    value={registerForm.lastName}
+                    onChange={(event) => handleRegisterFieldChange('lastName', event.target.value)}
+                    required
+                  />
+                  {registerErrors.lastName ? <small className="user-register-error">{registerErrors.lastName}</small> : null}
+                </label>
+
+                <label className="user-login-field">
+                  <span>More Information</span>
+                  <textarea
+                    className="user-register-textarea"
+                    placeholder="Tell us more about yourself"
+                    value={registerForm.moreInformation}
+                    onChange={(event) => handleRegisterFieldChange('moreInformation', event.target.value)}
+                    rows={3}
+                  />
+                </label>
+
+                <label className="user-login-field">
+                  <span>Phone Number</span>
+                  <input
+                    type="tel"
+                    placeholder="Optional phone number"
+                    value={registerForm.phoneNumber}
+                    onChange={(event) => handleRegisterFieldChange('phoneNumber', event.target.value)}
+                  />
+                  {registerErrors.phoneNumber ? <small className="user-register-error">{registerErrors.phoneNumber}</small> : null}
+                </label>
+
+                <div className="user-register-grid">
+                  <label className="user-login-field">
+                    <span>Password</span>
+                    <input
+                      type="password"
+                      placeholder="Create password"
+                      value={registerForm.password}
+                      onChange={(event) => handleRegisterFieldChange('password', event.target.value)}
+                      autoComplete="new-password"
+                      required
+                    />
+                    {registerErrors.password ? <small className="user-register-error">{registerErrors.password}</small> : null}
+                  </label>
+
+                  <label className="user-login-field">
+                    <span>Confirm Password</span>
+                    <input
+                      type="password"
+                      placeholder="Confirm password"
+                      value={registerForm.confirmPassword}
+                      onChange={(event) => handleRegisterFieldChange('confirmPassword', event.target.value)}
+                      autoComplete="new-password"
+                      required
+                    />
+                    {registerErrors.confirmPassword ? <small className="user-register-error">{registerErrors.confirmPassword}</small> : null}
+                  </label>
+                </div>
+
+                <label className="user-login-checkbox">
+                  <input
+                    type="checkbox"
+                    checked={registerForm.robotVerified}
+                    onChange={(event) => handleRegisterFieldChange('robotVerified', event.target.checked)}
+                  />
+                  <span>I am not a robot</span>
+                </label>
+                {registerErrors.robotVerified ? <small className="user-register-error">{registerErrors.robotVerified}</small> : null}
+
+                {registerErrors.form ? <div className="spotify-auth-error">{registerErrors.form}</div> : null}
+                {registerStatus ? <div className="user-register-success">{registerStatus}</div> : null}
+
+                <div className="user-register-actions">
+                  <button type="submit" className="user-login-submit" disabled={isRegisterSubmitting}>
+                    {isRegisterSubmitting ? 'Creating account...' : 'Register'}
+                  </button>
+                  <button
+                    type="button"
+                    className="user-login-google"
+                    onClick={handleGoogleLogin}
+                    disabled={isGoogleSubmitting}
+                  >
+                    <span className="user-login-google-icon" aria-hidden="true">G</span>
+                    <span>{isGoogleSubmitting ? 'Connecting Google...' : 'Continue with Google'}</span>
+                  </button>
+                </div>
+              </form>
+            </div>
+          </div>
+        )}
       </div>
     )}
     </>

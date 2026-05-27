@@ -14,6 +14,7 @@ import {
   Undo2,
 } from 'lucide-react';
 import { createAuthHeaders } from '../utils/appAuth';
+import { buildApiUrl } from '../utils/api';
 
 const YOUTUBE_SHORTS_URL = 'https://www.youtube.com/shorts';
 const BACKGROUND_ANIMATION_STORAGE_KEY = 'background_animation_mode';
@@ -34,7 +35,7 @@ const WindowsStatusIcon = () => (
 );
 
 const requestSleepMode = async () => {
-  const response = await fetch('/api/system/sleep', {
+  const response = await fetch(buildApiUrl('/api/system/sleep'), {
     method: 'POST',
     headers: {
       ...createAuthHeaders({
@@ -219,7 +220,7 @@ const LeftMenu = ({ onPopupStateChange = () => {} }) => {
     }
 
     try {
-      const response = await fetch(option.endpoint, {
+      const response = await fetch(buildApiUrl(option.endpoint), {
         method: 'POST',
         headers: {
           ...createAuthHeaders({
@@ -244,7 +245,7 @@ const LeftMenu = ({ onPopupStateChange = () => {} }) => {
     }
 
     try {
-      const response = await fetch(confirmAction.endpoint, {
+      const response = await fetch(buildApiUrl(confirmAction.endpoint), {
         method: 'POST',
         headers: {
           ...createAuthHeaders({
