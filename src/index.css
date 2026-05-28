@@ -2680,6 +2680,325 @@ button:active::after,
   z-index: 140;
 }
 
+.bluetooth-control-button.enabled,
+.bluetooth-control-button.disabled {
+  border: 0;
+  background: transparent;
+  color: white;
+  box-shadow: none;
+  filter: none;
+  padding: 0;
+}
+
+.bluetooth-control-button:hover,
+.bluetooth-control-button.open {
+  color: white;
+  box-shadow: none;
+  filter: none;
+}
+
+.bluetooth-control-button:active {
+  box-shadow: none;
+}
+
+.bluetooth-dropdown-panel {
+  position: absolute;
+  top: calc(100% + 12px);
+  right: -18px;
+  width: min(336px, calc(100vw - 22px));
+  max-height: min(430px, calc(100vh - 72px));
+  overflow: hidden;
+  border-radius: 26px;
+  border: 1px solid rgba(255,255,255,0.1);
+  background: linear-gradient(180deg, rgba(22, 24, 28, 0.84), rgba(13, 15, 18, 0.8));
+  backdrop-filter: blur(26px);
+  -webkit-backdrop-filter: blur(26px);
+  box-shadow: 0 22px 52px rgba(0,0,0,0.28);
+  animation: wifi-dropdown-in 0.24s cubic-bezier(0.16, 1, 0.3, 1);
+  z-index: 140;
+}
+
+.bluetooth-dropdown-header {
+  padding: 18px 18px 14px;
+  border-bottom: 1px solid rgba(255,255,255,0.06);
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+}
+
+.bluetooth-dropdown-title {
+  color: #ffffff;
+  font-size: 17px;
+  font-weight: 700;
+  letter-spacing: -0.02em;
+}
+
+.bluetooth-dropdown-subtitle {
+  margin-top: 4px;
+  color: rgba(255,255,255,0.6);
+  font-size: 12px;
+}
+
+.bluetooth-dropdown-header-actions {
+  display: inline-flex;
+  align-items: center;
+  gap: 10px;
+}
+
+.bluetooth-refresh-button {
+  width: 30px;
+  height: 30px;
+  border: 0;
+  border-radius: 50%;
+  background: rgba(255,255,255,0.07);
+  color: rgba(255,255,255,0.86);
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  cursor: pointer;
+  transition: background 0.18s ease, transform 0.18s ease, box-shadow 0.18s ease;
+}
+
+.bluetooth-refresh-button:hover {
+  background: rgba(255,255,255,0.12);
+  transform: translateY(-1px);
+  box-shadow: 0 8px 16px rgba(0,0,0,0.16);
+}
+
+.bluetooth-refresh-button:disabled {
+  cursor: wait;
+  opacity: 0.72;
+}
+
+.bluetooth-status-pill {
+  flex-shrink: 0;
+  min-height: 26px;
+  padding: 0 10px;
+  border-radius: 999px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 10px;
+  font-weight: 600;
+  letter-spacing: 0.04em;
+}
+
+.bluetooth-status-pill.connected {
+  background: rgba(255,255,255,0.09);
+  color: #ffffff;
+}
+
+.bluetooth-status-pill.disconnected {
+  background: rgba(255,255,255,0.08);
+  color: rgba(255,255,255,0.72);
+}
+
+.bluetooth-toggle-row {
+  margin: 12px;
+  padding: 12px 14px;
+  border-radius: 18px;
+  border: 1px solid rgba(255,255,255,0.08);
+  background: rgba(255,255,255,0.05);
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+}
+
+.bluetooth-toggle-copy {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+
+.bluetooth-toggle-copy strong {
+  color: #ffffff;
+  font-size: 13px;
+}
+
+.bluetooth-toggle-copy span {
+  color: rgba(255,255,255,0.58);
+  font-size: 12px;
+}
+
+.bluetooth-toggle-switch {
+  width: 40px;
+  height: 22px;
+  border: 0;
+  border-radius: 999px;
+  background: rgba(255,255,255,0.12);
+  padding: 2px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: flex-start;
+  cursor: pointer;
+  transition: background 0.18s ease, transform 0.18s ease;
+}
+
+.bluetooth-toggle-switch.is-on {
+  background: rgba(126, 165, 135, 0.42);
+}
+
+.bluetooth-toggle-thumb {
+  width: 18px;
+  height: 18px;
+  border-radius: 50%;
+  background: #ffffff;
+  transition: transform 0.18s ease;
+}
+
+.bluetooth-toggle-switch.is-on .bluetooth-toggle-thumb {
+  transform: translateX(18px);
+}
+
+.bluetooth-error-banner,
+.bluetooth-empty-state {
+  margin: 0 12px 12px;
+  border-radius: 16px;
+  padding: 12px 13px;
+  font-size: 12px;
+}
+
+.bluetooth-error-banner {
+  background: rgba(255, 91, 91, 0.12);
+  border: 1px solid rgba(255, 91, 91, 0.18);
+  color: #ffd7d7;
+}
+
+.bluetooth-empty-state {
+  background: rgba(255,255,255,0.05);
+  border: 1px solid rgba(255,255,255,0.08);
+  color: rgba(255,255,255,0.74);
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+
+.bluetooth-connected-card {
+  margin: 0 12px 12px;
+  padding: 14px;
+  border-radius: 18px;
+  border: 1px solid rgba(126, 165, 135, 0.18);
+  background: rgba(126, 165, 135, 0.08);
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+}
+
+.bluetooth-connected-title {
+  color: #ffffff;
+  font-size: 13px;
+  font-weight: 600;
+}
+
+.bluetooth-connected-subtitle {
+  margin-top: 4px;
+  color: rgba(255,255,255,0.62);
+  font-size: 12px;
+}
+
+.bluetooth-device-list {
+  max-height: 300px;
+  overflow-y: auto;
+  padding: 0 12px 12px;
+  scrollbar-width: none;
+  -ms-overflow-style: none;
+}
+
+.bluetooth-device-list::-webkit-scrollbar {
+  display: none;
+}
+
+.bluetooth-device-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  min-height: 72px;
+  padding: 0 14px;
+  border-radius: 18px;
+  background: rgba(255,255,255,0.04);
+  border: 1px solid rgba(255,255,255,0.06);
+}
+
+.bluetooth-device-row + .bluetooth-device-row {
+  margin-top: 10px;
+}
+
+.bluetooth-device-row.is-connected {
+  border-color: rgba(126, 165, 135, 0.2);
+  background: rgba(126, 165, 135, 0.06);
+}
+
+.bluetooth-device-copy {
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.bluetooth-device-topline {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  min-width: 0;
+  flex-wrap: wrap;
+}
+
+.bluetooth-device-name {
+  color: #ffffff;
+  font-size: 13px;
+  font-weight: 600;
+  line-height: 1.2;
+}
+
+.bluetooth-device-bottomline {
+  color: rgba(255,255,255,0.6);
+  font-size: 12px;
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  flex-wrap: wrap;
+}
+
+.bluetooth-network-action {
+  min-width: 96px;
+  min-height: 34px;
+  border: 0;
+  border-radius: 999px;
+  padding: 0 14px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+  font-size: 12px;
+  font-weight: 600;
+  cursor: pointer;
+  transition: transform 0.18s ease, box-shadow 0.18s ease, background 0.18s ease;
+}
+
+.bluetooth-network-action.connect {
+  background: rgba(255,255,255,0.1);
+  color: #ffffff;
+}
+
+.bluetooth-network-action.disconnect {
+  background: rgba(255, 91, 91, 0.14);
+  color: #ffd8d8;
+}
+
+.bluetooth-network-action:hover {
+  transform: translateY(-1px);
+  box-shadow: 0 10px 18px rgba(0,0,0,0.18);
+}
+
+.bluetooth-network-action:disabled {
+  cursor: wait;
+  opacity: 0.78;
+}
+
 .wifi-dropdown-header {
   padding: 18px 18px 14px;
   border-bottom: 1px solid rgba(255,255,255,0.06);

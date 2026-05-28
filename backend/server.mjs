@@ -415,6 +415,62 @@ Add-Type -AssemblyName System.Windows.Forms
   );
 };
 
+const BLUETOOTH_MOCK_DEVICES = [
+  {
+    id: 'buds-pro',
+    name: 'DDO Buds Pro',
+    type: 'Audio',
+    signal: 'Strong',
+  },
+  {
+    id: 'mx-keyboard',
+    name: 'MX Keyboard Mini',
+    type: 'Keyboard',
+    signal: 'Medium',
+  },
+  {
+    id: 'arc-mouse',
+    name: 'Arc Mouse',
+    type: 'Mouse',
+    signal: 'Medium',
+  },
+];
+
+const bluetoothState = {
+  supported: true,
+  enabled: true,
+  connectedDeviceId: '',
+  devices: BLUETOOTH_MOCK_DEVICES.map((device) => ({ ...device })),
+  scannedAt: new Date().toISOString(),
+};
+
+const buildBluetoothSnapshot = () => {
+  const connectedDevice = bluetoothState.devices.find((device) => device.id === bluetoothState.connectedDeviceId) || null;
+  const devices = bluetoothState.enabled
+    ? bluetoothState.devices.map((device) => ({
+      ...device,
+      status: device.id === bluetoothState.connectedDeviceId ? 'connected' : 'available',
+    }))
+    : [];
+
+  return {
+    ok: true,
+    supported: bluetoothState.supported,
+    enabled: bluetoothState.enabled,
+    connectedDevice: connectedDevice
+      ? {
+        id: connectedDevice.id,
+        name: connectedDevice.name,
+        type: connectedDevice.type,
+        signal: connectedDevice.signal,
+      }
+      : null,
+    devices,
+    scannedAt: bluetoothState.scannedAt,
+    mode: 'mock',
+  };
+};
+
 app.get('/api/security/status', (_request, response) => {
   response.json({
     fileUploadProtection: true,
@@ -430,6 +486,8 @@ app.get('/', (_request, response) => {
     message: 'DDO backend is running',
     routes: {
       security: '/api/security/status',
+      bluetoothStatus: '/api/bluetooth/status',
+      bluetoothDevices: '/api/bluetooth/devices',
       wifi: '/api/wifi/status',
       register: 'POST /api/auth/register',
       login: 'POST /api/auth/login',
@@ -440,6 +498,73 @@ app.get('/', (_request, response) => {
       sleep: 'POST /api/system/sleep',
     },
   });
+});
+
+app.get('/api/bluetooth/status', (_request, response) => {
+  response.json(buildBluetoothSnapshot());
+});
+
+app.get('/api/bluetooth/devices', (_request, response) => {
+  bluetoothState.scannedAt = new Date().toISOString();
+  response.json(buildBluetoothSnapshot());
+});
+
+app.post('/api/bluetooth/toggle', (request, response, next) => {
+  try {
+    const requestedEnabled = request.body?.enabled;
+    bluetoothState.enabled = typeof requestedEnabled === 'boolean'
+      ? requestedEnabled
+      : !bluetoothState.enabled;
+
+    if (!bluetoothState.enabled) {
+      bluetoothState.connectedDeviceId = '';
+    }
+
+    bluetoothState.scannedAt = new Date().toISOString();
+    response.json(buildBluetoothSnapshot());
+  } catch (error) {
+    next(error);
+  }
+});
+
+app.post('/api/bluetooth/connect', (request, response, next) => {
+  try {
+    if (!bluetoothState.enabled) {
+      throw new HttpError(400, 'Bluetooth is turned off.');
+    }
+
+    const deviceId = sanitizeText(request.body?.deviceId || '', 80);
+    if (!deviceId) {
+      throw new HttpError(400, 'Bluetooth device is required.');
+    }
+
+    const targetDevice = bluetoothState.devices.find((device) => device.id === deviceId);
+    if (!targetDevice) {
+      throw new HttpError(404, 'Bluetooth device not found.');
+    }
+
+    bluetoothState.connectedDeviceId = targetDevice.id;
+    bluetoothState.scannedAt = new Date().toISOString();
+    response.json(buildBluetoothSnapshot());
+  } catch (error) {
+    next(error);
+  }
+});
+
+app.post('/api/bluetooth/disconnect', (request, response, next) => {
+  try {
+    const deviceId = sanitizeText(request.body?.deviceId || '', 80);
+
+    if (deviceId && bluetoothState.connectedDeviceId && bluetoothState.connectedDeviceId !== deviceId) {
+      throw new HttpError(400, 'That Bluetooth device is not currently connected.');
+    }
+
+    bluetoothState.connectedDeviceId = '';
+    bluetoothState.scannedAt = new Date().toISOString();
+    response.json(buildBluetoothSnapshot());
+  } catch (error) {
+    next(error);
+  }
 });
 
 app.get('/api/wifi/status', (_request, response) => {

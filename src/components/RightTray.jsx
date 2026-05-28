@@ -316,6 +316,8 @@ const RightTray = ({ onPopupStateChange = () => {} }) => {
   const batteryPopupRef = useRef(null);
   const wifiPopupRef = useRef(null);
   const loadWifiNetworksRef = useRef(async () => {});
+  const bluetoothPopupRef = useRef(null);
+  const loadBluetoothSnapshotRef = useRef(async () => {});
   const [isWifiDropdownOpen, setIsWifiDropdownOpen] = useState(false);
   const [wifiNetworks, setWifiNetworks] = useState([]);
   const [wifiBusyNetworkId, setWifiBusyNetworkId] = useState(null);
@@ -326,6 +328,15 @@ const RightTray = ({ onPopupStateChange = () => {} }) => {
   const [wifiPasswordPrompt, setWifiPasswordPrompt] = useState(null);
   const [wifiPasswordInput, setWifiPasswordInput] = useState('');
   const [wifiPasswordError, setWifiPasswordError] = useState('');
+  const [isBluetoothPopupOpen, setIsBluetoothPopupOpen] = useState(false);
+  const [bluetoothDevices, setBluetoothDevices] = useState([]);
+  const [isBluetoothEnabled, setIsBluetoothEnabled] = useState(false);
+  const [bluetoothConnectedDevice, setBluetoothConnectedDevice] = useState(null);
+  const [isBluetoothLoading, setIsBluetoothLoading] = useState(false);
+  const [bluetoothBusyDeviceId, setBluetoothBusyDeviceId] = useState('');
+  const [bluetoothError, setBluetoothError] = useState('');
+  const [bluetoothScannedAt, setBluetoothScannedAt] = useState('');
+  const [isBluetoothSupported, setIsBluetoothSupported] = useState(true);
   const spotifyPopupRef = useRef(null);
   const spotifyNowPlayingRef = useRef(null);
   const spotifyPlayerHostRef = useRef(null);
@@ -519,6 +530,39 @@ const RightTray = ({ onPopupStateChange = () => {} }) => {
     });
   };
 
+  const applyBluetoothSnapshot = useCallback((snapshot) => {
+    setIsBluetoothSupported(snapshot.supported !== false);
+    setIsBluetoothEnabled(Boolean(snapshot.enabled));
+    setBluetoothConnectedDevice(snapshot.connectedDevice || null);
+    setBluetoothDevices(Array.isArray(snapshot.devices) ? snapshot.devices : []);
+    setBluetoothScannedAt(String(snapshot.scannedAt || ''));
+  }, []);
+
+  const requestBluetooth = async (endpoint, options = {}) => {
+    return requestBackendJson(endpoint, options, {
+      fallbackMessage: 'Bluetooth service unavailable',
+    });
+  };
+
+  const loadBluetoothSnapshot = useCallback(async (mode = 'status', showLoader = true) => {
+    try {
+      if (showLoader) {
+        setIsBluetoothLoading(true);
+      }
+      setBluetoothError('');
+
+      const endpoint = mode === 'scan' ? '/api/bluetooth/devices' : '/api/bluetooth/status';
+      const payload = await requestBluetooth(endpoint, { method: 'GET' });
+      applyBluetoothSnapshot(payload);
+    } catch (error) {
+      setBluetoothError(error.message || 'Bluetooth service unavailable');
+    } finally {
+      if (showLoader) {
+        setIsBluetoothLoading(false);
+      }
+    }
+  }, [applyBluetoothSnapshot]);
+
   const loadSecurityStatus = useCallback(async () => {
     setIsSecurityStatusLoading(true);
     setSecurityStatusError('');
@@ -595,6 +639,10 @@ const RightTray = ({ onPopupStateChange = () => {} }) => {
   useEffect(() => {
     loadWifiNetworksRef.current = loadWifiNetworks;
   });
+
+  useEffect(() => {
+    loadBluetoothSnapshotRef.current = loadBluetoothSnapshot;
+  }, [loadBluetoothSnapshot]);
 
   useEffect(() => {
     const kickoffTimer = window.setTimeout(() => {
@@ -917,6 +965,19 @@ const RightTray = ({ onPopupStateChange = () => {} }) => {
   }, []);
 
   useEffect(() => {
+    const handleBluetoothClickOutside = (event) => {
+      if (bluetoothPopupRef.current && !bluetoothPopupRef.current.contains(event.target)) {
+        setIsBluetoothPopupOpen(false);
+      }
+    };
+
+    document.addEventListener('mousedown', handleBluetoothClickOutside);
+    return () => {
+      document.removeEventListener('mousedown', handleBluetoothClickOutside);
+    };
+  }, []);
+
+  useEffect(() => {
     const handleSpotifyClickOutside = (event) => {
       if (spotifyNowPlayingRef.current && spotifyNowPlayingRef.current.contains(event.target)) {
         return;
@@ -1226,6 +1287,7 @@ const RightTray = ({ onPopupStateChange = () => {} }) => {
       || isTimePopupOpen
       || isBatteryPopupOpen
       || isWifiDropdownOpen
+      || isBluetoothPopupOpen
       || isAppLauncherOpen
       || showSpotifyPopup
       || isUserLoginOpen
@@ -1238,6 +1300,7 @@ const RightTray = ({ onPopupStateChange = () => {} }) => {
     detailsContact,
     isAddContactOpen,
     isBatteryPopupOpen,
+    isBluetoothPopupOpen,
     isContactSelectOpen,
     isSearchPopupOpen,
     isTimePopupOpen,
@@ -1377,6 +1440,80 @@ const RightTray = ({ onPopupStateChange = () => {} }) => {
 
   const handleWifiRefresh = () => {
     loadWifiNetworks(true);
+  };
+
+  const handleBluetoothToggle = () => {
+    setIsBluetoothPopupOpen((open) => {
+      const nextOpen = !open;
+      if (nextOpen) {
+        void loadBluetoothSnapshotRef.current('status', true);
+      }
+      return nextOpen;
+    });
+  };
+
+  const handleBluetoothScan = () => {
+    void loadBluetoothSnapshot('scan', true);
+  };
+
+  const handleBluetoothPowerToggle = async () => {
+    try {
+      setIsBluetoothLoading(true);
+      setBluetoothError('');
+      const payload = await requestBluetooth('/api/bluetooth/toggle', {
+        method: 'POST',
+        body: JSON.stringify({
+          enabled: !isBluetoothEnabled,
+        }),
+      });
+      applyBluetoothSnapshot(payload);
+    } catch (error) {
+      setBluetoothError(error.message || 'Bluetooth service unavailable');
+    } finally {
+      setIsBluetoothLoading(false);
+    }
+  };
+
+  const handleBluetoothConnect = async (device) => {
+    const confirmed = window.confirm(`Connect to ${device.name}?`);
+    if (!confirmed) {
+      return;
+    }
+
+    try {
+      setBluetoothBusyDeviceId(device.id);
+      setBluetoothError('');
+      const payload = await requestBluetooth('/api/bluetooth/connect', {
+        method: 'POST',
+        body: JSON.stringify({
+          deviceId: device.id,
+          deviceName: device.name,
+        }),
+      });
+      applyBluetoothSnapshot(payload);
+    } catch (error) {
+      setBluetoothError(error.message || 'Bluetooth service unavailable');
+    } finally {
+      setBluetoothBusyDeviceId('');
+    }
+  };
+
+  const handleBluetoothDisconnect = async (deviceId = '') => {
+    try {
+      setBluetoothBusyDeviceId(deviceId || bluetoothConnectedDevice?.id || '');
+      setBluetoothError('');
+      const payload = await requestBluetooth('/api/bluetooth/disconnect', {
+        method: 'POST',
+        body: JSON.stringify({
+          deviceId: deviceId || bluetoothConnectedDevice?.id || '',
+        }),
+      });
+      applyBluetoothSnapshot(payload);
+    } catch (error) {
+      setBluetoothError(error.message || 'Bluetooth service unavailable');
+    } finally {
+      setBluetoothBusyDeviceId('');
+    }
   };
 
   const connectWifiNetwork = async (network, password = '') => {
@@ -3984,7 +4121,151 @@ const RightTray = ({ onPopupStateChange = () => {} }) => {
             </div>
           )}
         </div>
-        <div className="flex-center icon-item"><Bluetooth size={14} /></div>
+        <div ref={bluetoothPopupRef} style={{ position: 'relative' }}>
+          <button
+            type="button"
+            className={`flex-center icon-item bluetooth-control-button ${isBluetoothEnabled ? 'enabled' : 'disabled'} ${isBluetoothPopupOpen ? 'open' : ''}`}
+            onClick={handleBluetoothToggle}
+            aria-label="Open Bluetooth controls"
+            style={{ background: isBluetoothPopupOpen ? 'var(--hover-bg)' : 'transparent' }}
+          >
+            <Bluetooth size={14} />
+          </button>
+
+          {isBluetoothPopupOpen ? (
+            <div className="bluetooth-dropdown-panel popup-aurora-surface" onClick={(event) => event.stopPropagation()}>
+              <div className="bluetooth-dropdown-header">
+                <div>
+                  <div className="bluetooth-dropdown-title">Bluetooth</div>
+                  <div className="bluetooth-dropdown-subtitle">
+                    {isBluetoothEnabled
+                      ? (bluetoothScannedAt ? `Last updated ${new Date(bluetoothScannedAt).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}` : 'Nearby devices ready')
+                      : 'Bluetooth is turned off'}
+                  </div>
+                </div>
+
+                <div className="bluetooth-dropdown-header-actions">
+                  <button
+                    type="button"
+                    className="bluetooth-refresh-button"
+                    onClick={handleBluetoothScan}
+                    disabled={isBluetoothLoading || !isBluetoothEnabled}
+                    aria-label="Scan Bluetooth devices"
+                  >
+                    <RefreshCw size={14} className={isBluetoothLoading ? 'wifi-action-spinner' : ''} />
+                  </button>
+                  <div className={`bluetooth-status-pill ${isBluetoothEnabled ? 'connected' : 'disconnected'}`}>
+                    {isBluetoothEnabled ? 'ON' : 'OFF'}
+                  </div>
+                </div>
+              </div>
+
+              <div className="bluetooth-toggle-row">
+                <div className="bluetooth-toggle-copy">
+                  <strong>Bluetooth Status</strong>
+                  <span>{isBluetoothEnabled ? 'Nearby devices visible' : 'Bluetooth is turned off'}</span>
+                </div>
+                <button
+                  type="button"
+                  className={`bluetooth-toggle-switch ${isBluetoothEnabled ? 'is-on' : ''}`}
+                  onClick={() => void handleBluetoothPowerToggle()}
+                  disabled={isBluetoothLoading}
+                  aria-label="Toggle Bluetooth"
+                >
+                  <span className="bluetooth-toggle-thumb" />
+                </button>
+              </div>
+
+              {!isBluetoothSupported ? (
+                <div className="bluetooth-error-banner">
+                  <span>Bluetooth service unavailable</span>
+                </div>
+              ) : null}
+
+              {bluetoothError ? (
+                <div className="bluetooth-error-banner">
+                  <span>{bluetoothError}</span>
+                </div>
+              ) : null}
+
+              {isBluetoothEnabled && bluetoothConnectedDevice ? (
+                <div className="bluetooth-connected-card">
+                  <div>
+                    <div className="bluetooth-connected-title">Connected to: {bluetoothConnectedDevice.name}</div>
+                    <div className="bluetooth-connected-subtitle">
+                      {bluetoothConnectedDevice.type} • {bluetoothConnectedDevice.signal} signal
+                    </div>
+                  </div>
+                  <button
+                    type="button"
+                    className="bluetooth-network-action disconnect"
+                    onClick={() => void handleBluetoothDisconnect(bluetoothConnectedDevice.id)}
+                    disabled={bluetoothBusyDeviceId === bluetoothConnectedDevice.id}
+                  >
+                    {bluetoothBusyDeviceId === bluetoothConnectedDevice.id ? <LoaderCircle size={13} className="wifi-action-spinner" /> : null}
+                    <span>{bluetoothBusyDeviceId === bluetoothConnectedDevice.id ? 'Working...' : 'Disconnect'}</span>
+                  </button>
+                </div>
+              ) : null}
+
+              <div className="bluetooth-device-list">
+                {!isBluetoothEnabled ? (
+                  <div className="bluetooth-empty-state">
+                    <span>Bluetooth is turned off</span>
+                  </div>
+                ) : null}
+
+                {isBluetoothEnabled && isBluetoothLoading && !bluetoothDevices.length ? (
+                  <div className="bluetooth-empty-state">
+                    <LoaderCircle size={16} className="wifi-action-spinner" />
+                    <span>Scanning nearby devices...</span>
+                  </div>
+                ) : null}
+
+                {isBluetoothEnabled && !isBluetoothLoading && !bluetoothDevices.length ? (
+                  <div className="bluetooth-empty-state">
+                    <span>No Bluetooth devices found</span>
+                  </div>
+                ) : null}
+
+                {isBluetoothEnabled ? bluetoothDevices.map((device) => {
+                  const isConnected = device.status === 'connected';
+                  const isBusy = bluetoothBusyDeviceId === device.id;
+
+                  return (
+                    <div key={device.id} className={`bluetooth-device-row ${isConnected ? 'is-connected' : ''}`}>
+                      <div className="bluetooth-device-copy">
+                        <div className="bluetooth-device-topline">
+                          <span className="bluetooth-device-name">{device.name}</span>
+                          {isConnected ? (
+                            <span className="wifi-connected-badge">
+                              <Check size={11} />
+                              Connected
+                            </span>
+                          ) : null}
+                        </div>
+                        <div className="bluetooth-device-bottomline">
+                          <span>{device.type}</span>
+                          <span>{device.signal} signal</span>
+                        </div>
+                      </div>
+
+                      <button
+                        type="button"
+                        className={`bluetooth-network-action ${isConnected ? 'disconnect' : 'connect'}`}
+                        onClick={() => (isConnected ? void handleBluetoothDisconnect(device.id) : void handleBluetoothConnect(device))}
+                        disabled={isBusy}
+                      >
+                        {isBusy ? <LoaderCircle size={13} className="wifi-action-spinner" /> : null}
+                        <span>{isBusy ? 'Working...' : isConnected ? 'Disconnect' : 'Connect'}</span>
+                      </button>
+                    </div>
+                  );
+                }) : null}
+              </div>
+            </div>
+          ) : null}
+        </div>
         <div
           ref={batteryPopupRef}
           className={`battery-widget battery-${batteryTone} ${batteryInfo.charging ? 'is-charging' : ''} ${isBatteryPopupOpen ? 'is-open' : ''}`}
