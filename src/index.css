@@ -2663,6 +2663,244 @@ button:active::after,
   color: white;
 }
 
+.notifications-button {
+  border: 0;
+  background: transparent;
+  color: white;
+  box-shadow: none;
+  filter: none;
+  padding: 0;
+}
+
+.notifications-button:hover,
+.notifications-button.open {
+  color: white;
+  box-shadow: none;
+  filter: none;
+}
+
+.notifications-badge {
+  position: absolute;
+  top: -3px;
+  right: -4px;
+  min-width: 15px;
+  height: 15px;
+  padding: 0 4px;
+  border-radius: 999px;
+  background: linear-gradient(135deg, #ff6f91, #ff8f5f);
+  color: #fff;
+  font-size: 9px;
+  font-weight: 700;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  box-shadow: 0 8px 18px rgba(255, 111, 145, 0.28);
+  pointer-events: none;
+}
+
+.notifications-popup {
+  position: absolute;
+  top: calc(100% + 12px);
+  right: -18px;
+  width: min(360px, calc(100vw - 22px));
+  max-height: min(440px, calc(100vh - 72px));
+  overflow: hidden;
+  border-radius: 24px;
+  border: 1px solid rgba(255,255,255,0.1);
+  background: linear-gradient(180deg, rgba(22, 24, 28, 0.84), rgba(13, 15, 18, 0.8));
+  backdrop-filter: blur(26px);
+  -webkit-backdrop-filter: blur(26px);
+  box-shadow: 0 22px 52px rgba(0,0,0,0.28);
+  animation: wifi-dropdown-in 0.24s cubic-bezier(0.16, 1, 0.3, 1);
+  z-index: 142;
+}
+
+.notifications-popup-header {
+  padding: 18px 18px 14px;
+  border-bottom: 1px solid rgba(255,255,255,0.06);
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+}
+
+.notifications-popup-title {
+  color: #ffffff;
+  font-size: 17px;
+  font-weight: 700;
+  letter-spacing: -0.02em;
+}
+
+.notifications-popup-subtitle {
+  margin-top: 4px;
+  color: rgba(255,255,255,0.6);
+  font-size: 12px;
+}
+
+.notifications-popup-close {
+  width: 28px;
+  height: 28px;
+  border: 0;
+  border-radius: 50%;
+  background: rgba(255,255,255,0.08);
+  color: rgba(255,255,255,0.82);
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  cursor: pointer;
+}
+
+.notifications-popup-actions {
+  padding: 12px;
+  display: flex;
+  align-items: center;
+  justify-content: flex-end;
+  gap: 8px;
+}
+
+.notifications-popup-action {
+  min-height: 30px;
+  border: 0;
+  border-radius: 999px;
+  padding: 0 12px;
+  background: rgba(255,255,255,0.08);
+  color: #ffffff;
+  font-size: 11px;
+  font-weight: 600;
+  cursor: pointer;
+}
+
+.notifications-popup-action.danger {
+  background: rgba(255, 91, 91, 0.14);
+  color: #ffd8d8;
+}
+
+.notifications-loading-state,
+.notifications-unavailable-state,
+.notifications-empty-state {
+  margin: 0 12px 12px;
+  border-radius: 16px;
+  padding: 12px 13px;
+  font-size: 12px;
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+
+.notifications-loading-state,
+.notifications-empty-state {
+  background: rgba(255,255,255,0.05);
+  border: 1px solid rgba(255,255,255,0.08);
+  color: rgba(255,255,255,0.74);
+}
+
+.notifications-unavailable-state {
+  background: rgba(255, 91, 91, 0.12);
+  border: 1px solid rgba(255, 91, 91, 0.18);
+  color: #ffd7d7;
+}
+
+.notifications-list {
+  max-height: 312px;
+  overflow-y: auto;
+  padding: 0 12px 12px;
+  scrollbar-width: none;
+  -ms-overflow-style: none;
+}
+
+.notifications-list::-webkit-scrollbar {
+  display: none;
+}
+
+.notifications-item {
+  width: 100%;
+  display: flex;
+  align-items: flex-start;
+  gap: 12px;
+  padding: 14px;
+  border-radius: 18px;
+  border: 1px solid rgba(255,255,255,0.06);
+  background: rgba(255,255,255,0.04);
+  text-align: left;
+  cursor: pointer;
+}
+
+.notifications-item + .notifications-item {
+  margin-top: 10px;
+}
+
+.notifications-item.is-unread {
+  border-color: rgba(126, 165, 135, 0.14);
+  background: rgba(126, 165, 135, 0.07);
+}
+
+.notifications-item-icon {
+  width: 30px;
+  height: 30px;
+  border-radius: 50%;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  flex-shrink: 0;
+}
+
+.notifications-item-icon.is-unread {
+  background: rgba(126, 165, 135, 0.16);
+  color: #d9f5e2;
+}
+
+.notifications-item-icon.is-read {
+  background: rgba(255,255,255,0.08);
+  color: rgba(255,255,255,0.76);
+}
+
+.notifications-item-copy {
+  min-width: 0;
+  flex: 1;
+}
+
+.notifications-item-topline {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 10px;
+}
+
+.notifications-item-topline strong {
+  color: #ffffff;
+  font-size: 13px;
+}
+
+.notifications-item-topline span {
+  color: rgba(255,255,255,0.5);
+  font-size: 11px;
+  white-space: nowrap;
+}
+
+.notifications-item-message {
+  margin-top: 6px;
+  color: rgba(255,255,255,0.68);
+  font-size: 12px;
+  line-height: 1.45;
+}
+
+.notifications-item-dot {
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  margin-top: 6px;
+  flex-shrink: 0;
+}
+
+.notifications-item-dot.is-unread {
+  background: #7ea587;
+  box-shadow: 0 0 0 4px rgba(126, 165, 135, 0.12);
+}
+
+.notifications-item-dot.is-read {
+  background: rgba(255,255,255,0.18);
+}
+
 .wifi-dropdown-panel {
   position: absolute;
   top: calc(100% + 12px);

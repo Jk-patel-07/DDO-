@@ -21,6 +21,7 @@ const PRIVATE_DATA_DIR = path.join(PROJECT_ROOT, 'backend', 'private');
 const USERS_JSON_FILE = path.join(PRIVATE_DATA_DIR, '.ddo-users.json');
 const USERS_XLSX_FILE = path.join(PRIVATE_DATA_DIR, 'users.xlsx');
 const DELETED_USERS_XLSX_FILE = path.join(PRIVATE_DATA_DIR, 'deleted-users.xlsx');
+const NOTIFICATIONS_JSON_FILE = path.join(PRIVATE_DATA_DIR, 'notifications.json');
 const LEGACY_USERS_JSON_FILE = path.join(PROJECT_ROOT, '.ddo-users.json');
 const LEGACY_USERS_XLSX_FILE = path.join(PROJECT_ROOT, 'users.xlsx');
 const USERS_SHEET_NAME = 'Users';
@@ -415,6 +416,122 @@ Add-Type -AssemblyName System.Windows.Forms
   );
 };
 
+const createNotificationRecord = ({
+  id = randomBytes(8).toString('hex'),
+  type = 'system',
+  title,
+  message,
+  time = new Date().toISOString(),
+  read = false,
+} = {}) => ({
+  id,
+  type,
+  title: sanitizeText(title, 120),
+  message: sanitizeText(message, 320),
+  time,
+  read: Boolean(read),
+});
+
+const createDefaultGeneralNotifications = () => [
+  createNotificationRecord({
+    type: 'app-update',
+    title: 'DDO update ready',
+    message: 'Core status bar services are online and ready to use.',
+    read: false,
+  }),
+  createNotificationRecord({
+    type: 'system-status',
+    title: 'System status normal',
+    message: 'Wi-Fi, Bluetooth, and launcher services are available.',
+    read: false,
+  }),
+  createNotificationRecord({
+    type: 'study-reminder',
+    title: 'Study reminder',
+    message: 'Start a short focus session from the US Dashboard when ready.',
+    read: true,
+  }),
+];
+
+const createDefaultUserNotifications = (email = '') => [
+  createNotificationRecord({
+    type: 'login-alert',
+    title: 'Login detected',
+    message: email ? `You are signed in as ${sanitizeEmail(email)}.` : 'You are signed in.',
+    read: false,
+  }),
+  createNotificationRecord({
+    type: 'security-alert',
+    title: 'Security check available',
+    message: 'Open Security Check in settings to review active protections.',
+    read: false,
+  }),
+  createNotificationRecord({
+    type: 'account-activity',
+    title: 'Account activity normal',
+    message: 'Your account session is active on this device.',
+    read: true,
+  }),
+];
+
+const normalizeNotificationBucket = (value) => Array.isArray(value)
+  ? value
+    .map((entry) => createNotificationRecord(entry))
+    .filter((entry) => entry.title && entry.message)
+  : [];
+
+const readNotificationsStore = async () => {
+  await ensurePrivateDataDirectory();
+
+  try {
+    const raw = await readFile(NOTIFICATIONS_JSON_FILE, 'utf8');
+    const parsed = JSON.parse(raw);
+    const general = normalizeNotificationBucket(parsed?.general);
+    const users = Object.fromEntries(
+      Object.entries(parsed?.users || {}).map(([email, notifications]) => [
+        sanitizeEmail(email),
+        normalizeNotificationBucket(notifications),
+      ]),
+    );
+
+    return { general, users };
+  } catch {
+    return {
+      general: createDefaultGeneralNotifications(),
+      users: {},
+    };
+  }
+};
+
+const writeNotificationsStore = async (store) => {
+  await ensurePrivateDataDirectory();
+  await writeFile(
+    NOTIFICATIONS_JSON_FILE,
+    JSON.stringify({
+      general: normalizeNotificationBucket(store.general),
+      users: Object.fromEntries(
+        Object.entries(store.users || {}).map(([email, notifications]) => [
+          sanitizeEmail(email),
+          normalizeNotificationBucket(notifications),
+        ]),
+      ),
+    }, null, 2),
+    'utf8',
+  );
+};
+
+const getOptionalSession = (request) => {
+  try {
+    const token = getBearerToken(request);
+    if (!token) {
+      return null;
+    }
+    return verifyToken(token);
+  } catch {
+    return null;
+  }
+};
+
 const BLUETOOTH_MOCK_DEVICES = [
   {
     id: 'buds-pro',
@@ -485,6 +602,7 @@ app.get('/', (_request, response) => {
     ok: true,
     message: 'DDO backend is running',
     routes: {
+      notifications: '/api/notifications',
       security: '/api/security/status',
       bluetoothStatus: '/api/bluetooth/status',
       bluetoothDevices: '/api/bluetooth/devices',
@@ -498,6 +616,110 @@ app.get('/', (_request, response) => {
       sleep: 'POST /api/system/sleep',
     },
   });
+});
+
+app.get('/api/notifications', async (request, response, next) => {
+  try {
+    const session = getOptionalSession(request);
+    const store = await readNotificationsStore();
+
+    if (session?.email) {
+      const email = sanitizeEmail(session.email);
+      const existingUserNotifications = normalizeNotificationBucket(store.users[email]);
+      const userNotifications = existingUserNotifications.length
+        ? existingUserNotifications
+        : createDefaultUserNotifications(email);
+
+      if (!existingUserNotifications.length) {
+        store.users[email] = userNotifications;
+        await writeNotificationsStore(store);
+      }
+
+      response.json({
+        ok: true,
+        notifications: userNotifications,
+      });
+      return;
+    }
+
+    const generalNotifications = store.general.length
+      ? store.general
+      : createDefaultGeneralNotifications();
+
+    if (!store.general.length) {
+      store.general = generalNotifications;
+      await writeNotificationsStore(store);
+    }
+
+    response.json({
+      ok: true,
+      notifications: generalNotifications,
+    });
+  } catch (error) {
+    next(error);
+  }
+});
+
+app.post('/api/notifications/mark-read', async (request, response, next) => {
+  try {
+    const session = getOptionalSession(request);
+    const email = session?.email ? sanitizeEmail(session.email) : '';
+    const store = await readNotificationsStore();
+    const targetBucket = email
+      ? normalizeNotificationBucket(store.users[email]).length
+        ? [...store.users[email]]
+        : createDefaultUserNotifications(email)
+      : (store.general.length ? [...store.general] : createDefaultGeneralNotifications());
+
+    const rawIds = Array.isArray(request.body?.ids)
+      ? request.body.ids
+      : [request.body?.id].filter(Boolean);
+    const ids = rawIds.map((value) => sanitizeText(value, 80)).filter(Boolean);
+
+    const nextBucket = targetBucket.map((notification) => (
+      !ids.length || ids.includes(notification.id)
+        ? { ...notification, read: true }
+        : notification
+    ));
+
+    if (email) {
+      store.users[email] = nextBucket;
+    } else {
+      store.general = nextBucket;
+    }
+
+    await writeNotificationsStore(store);
+
+    response.json({
+      ok: true,
+      notifications: nextBucket,
+    });
+  } catch (error) {
+    next(error);
+  }
+});
+
+app.post('/api/notifications/clear', async (request, response, next) => {
+  try {
+    const session = getOptionalSession(request);
+    const email = session?.email ? sanitizeEmail(session.email) : '';
+    const store = await readNotificationsStore();
+
+    if (email) {
+      store.users[email] = [];
+    } else {
+      store.general = [];
+    }
+
+    await writeNotificationsStore(store);
+
+    response.json({
+      ok: true,
+      notifications: [],
+    });
+  } catch (error) {
+    next(error);
+  }
 });
 
 app.get('/api/bluetooth/status', (_request, response) => {

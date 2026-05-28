@@ -382,6 +382,10 @@ const RightTray = ({ onPopupStateChange = () => {} }) => {
   const [deleteAccountStatus, setDeleteAccountStatus] = useState('');
   const [isDeleteAccountSubmitting, setIsDeleteAccountSubmitting] = useState(false);
   const [isGoogleSubmitting, setIsGoogleSubmitting] = useState(false);
+  const [isNotificationsOpen, setIsNotificationsOpen] = useState(false);
+  const [notifications, setNotifications] = useState([]);
+  const [isNotificationsLoading, setIsNotificationsLoading] = useState(false);
+  const [notificationsError, setNotificationsError] = useState('');
   const [registerForm, setRegisterForm] = useState({
     email: '',
     firstName: '',
@@ -398,6 +402,7 @@ const RightTray = ({ onPopupStateChange = () => {} }) => {
   const googleTokenClientRef = useRef(null);
   const usStatusPopupRef = useRef(null);
   const usSideSettingsRef = useRef(null);
+  const notificationsPopupRef = useRef(null);
   const [studySecondsLeft, setStudySecondsLeft] = useState(25 * 60);
   const [isStudyTimerRunning, setIsStudyTimerRunning] = useState(false);
   const [usVolume, setUsVolume] = useState(65);
@@ -544,6 +549,20 @@ const RightTray = ({ onPopupStateChange = () => {} }) => {
     });
   };
 
+  const requestNotifications = async (endpoint, options = {}) => {
+    const headers = createAuthHeaders({
+      'Content-Type': 'application/json',
+      ...(options.headers || {}),
+    });
+
+    return requestBackendJson(endpoint, {
+      ...options,
+      headers,
+    }, {
+      fallbackMessage: 'Notifications unavailable',
+    });
+  };
+
   const loadBluetoothSnapshot = useCallback(async (mode = 'status', showLoader = true) => {
     try {
       if (showLoader) {
@@ -584,6 +603,20 @@ const RightTray = ({ onPopupStateChange = () => {} }) => {
       setSecurityStatusError('Security status unavailable.');
     } finally {
       setIsSecurityStatusLoading(false);
+    }
+  }, []);
+
+  const loadNotifications = useCallback(async () => {
+    try {
+      setIsNotificationsLoading(true);
+      setNotificationsError('');
+      const payload = await requestNotifications('/api/notifications', { method: 'GET' });
+      setNotifications(Array.isArray(payload.notifications) ? payload.notifications : []);
+    } catch (error) {
+      setNotifications([]);
+      setNotificationsError(error.message || 'Notifications unavailable');
+    } finally {
+      setIsNotificationsLoading(false);
     }
   }, []);
 
@@ -978,6 +1011,19 @@ const RightTray = ({ onPopupStateChange = () => {} }) => {
   }, []);
 
   useEffect(() => {
+    const handleNotificationsClickOutside = (event) => {
+      if (notificationsPopupRef.current && !notificationsPopupRef.current.contains(event.target)) {
+        setIsNotificationsOpen(false);
+      }
+    };
+
+    document.addEventListener('mousedown', handleNotificationsClickOutside);
+    return () => {
+      document.removeEventListener('mousedown', handleNotificationsClickOutside);
+    };
+  }, []);
+
+  useEffect(() => {
     const handleSpotifyClickOutside = (event) => {
       if (spotifyNowPlayingRef.current && spotifyNowPlayingRef.current.contains(event.target)) {
         return;
@@ -1288,6 +1334,7 @@ const RightTray = ({ onPopupStateChange = () => {} }) => {
       || isBatteryPopupOpen
       || isWifiDropdownOpen
       || isBluetoothPopupOpen
+      || isNotificationsOpen
       || isAppLauncherOpen
       || showSpotifyPopup
       || isUserLoginOpen
@@ -1302,6 +1349,7 @@ const RightTray = ({ onPopupStateChange = () => {} }) => {
     isBatteryPopupOpen,
     isBluetoothPopupOpen,
     isContactSelectOpen,
+    isNotificationsOpen,
     isSearchPopupOpen,
     isTimePopupOpen,
     isUserLoginOpen,
@@ -1381,6 +1429,7 @@ const RightTray = ({ onPopupStateChange = () => {} }) => {
   const batteryPercent = Math.round(batteryInfo.level * 100);
   const connectedWifi = wifiNetworks.find((network) => network.status === 'connected') || null;
   const wifiConnectedName = connectedWifi?.name || 'No active wireless network';
+  const unreadNotificationsCount = notifications.filter((notification) => !notification.read).length;
   const batteryTone = batteryInfo.charging
     ? 'charging'
     : batteryPercent <= 20
@@ -1410,6 +1459,44 @@ const RightTray = ({ onPopupStateChange = () => {} }) => {
     }
 
     return `${hours}h ${minutes.toString().padStart(2, '0')}m`;
+  };
+
+  const formatNotificationTime = (value) => {
+    const parsed = new Date(value);
+    if (Number.isNaN(parsed.getTime())) {
+      return 'Now';
+    }
+
+    return parsed.toLocaleString([], {
+      month: 'short',
+      day: 'numeric',
+      hour: '2-digit',
+      minute: '2-digit',
+    });
+  };
+
+  const getNotificationTypeIcon = (type) => {
+    switch (type) {
+      case 'security-alert':
+        return Shield;
+      case 'study-reminder':
+        return Clock3;
+      case 'system-status':
+        return Gauge;
+      case 'bluetooth-alert':
+        return Bluetooth;
+      case 'wifi-alert':
+        return Wifi;
+      case 'account-activity':
+        return User;
+      case 'error-message':
+        return TriangleAlert;
+      case 'app-update':
+        return RefreshCw;
+      case 'login-alert':
+      default:
+        return Bell;
+    }
   };
 
   function closeSpotifyPopups() {
@@ -1513,6 +1600,52 @@ const RightTray = ({ onPopupStateChange = () => {} }) => {
       setBluetoothError(error.message || 'Bluetooth service unavailable');
     } finally {
       setBluetoothBusyDeviceId('');
+    }
+  };
+
+  const handleNotificationsToggle = () => {
+    setIsNotificationsOpen((open) => {
+      const nextOpen = !open;
+      if (nextOpen) {
+        void loadNotifications();
+      }
+      return nextOpen;
+    });
+  };
+
+  const handleMarkNotificationRead = async (notificationId) => {
+    try {
+      const payload = await requestNotifications('/api/notifications/mark-read', {
+        method: 'POST',
+        body: JSON.stringify({ id: notificationId }),
+      });
+      setNotifications(Array.isArray(payload.notifications) ? payload.notifications : []);
+    } catch (error) {
+      setNotificationsError(error.message || 'Notifications unavailable');
+    }
+  };
+
+  const handleMarkAllNotificationsRead = async () => {
+    try {
+      const payload = await requestNotifications('/api/notifications/mark-read', {
+        method: 'POST',
+        body: JSON.stringify({ ids: notifications.map((notification) => notification.id) }),
+      });
+      setNotifications(Array.isArray(payload.notifications) ? payload.notifications : []);
+    } catch (error) {
+      setNotificationsError(error.message || 'Notifications unavailable');
+    }
+  };
+
+  const handleClearNotifications = async () => {
+    try {
+      const payload = await requestNotifications('/api/notifications/clear', {
+        method: 'POST',
+        body: JSON.stringify({}),
+      });
+      setNotifications(Array.isArray(payload.notifications) ? payload.notifications : []);
+    } catch (error) {
+      setNotificationsError(error.message || 'Notifications unavailable');
     }
   };
 
@@ -4398,7 +4531,99 @@ const RightTray = ({ onPopupStateChange = () => {} }) => {
 
       {/* User Profile & Notifications */}
       <div className="flex-center" style={{ gap: '8px', position: 'relative' }} ref={usStatusPopupRef}>
-        <div className="flex-center icon-item"><Bell size={14} /></div>
+        <div ref={notificationsPopupRef} style={{ position: 'relative' }}>
+          <button
+            type="button"
+            className={`flex-center icon-item notifications-button ${isNotificationsOpen ? 'open' : ''}`}
+            onClick={handleNotificationsToggle}
+            aria-label="Open notifications"
+            style={{ background: isNotificationsOpen ? 'var(--hover-bg)' : 'transparent' }}
+          >
+            <Bell size={14} />
+            {unreadNotificationsCount > 0 ? (
+              <span className="notifications-badge">
+                {unreadNotificationsCount > 9 ? '9+' : unreadNotificationsCount}
+              </span>
+            ) : null}
+          </button>
+
+          {isNotificationsOpen ? (
+            <div className="notifications-popup popup-aurora-surface" onClick={(event) => event.stopPropagation()}>
+              <div className="notifications-popup-header">
+                <div>
+                  <div className="notifications-popup-title">Notifications</div>
+                  <div className="notifications-popup-subtitle">
+                    {unreadNotificationsCount > 0
+                      ? `${unreadNotificationsCount} unread notification${unreadNotificationsCount === 1 ? '' : 's'}`
+                      : 'All caught up'}
+                  </div>
+                </div>
+                <button
+                  type="button"
+                  className="notifications-popup-close"
+                  onClick={() => setIsNotificationsOpen(false)}
+                  aria-label="Close notifications"
+                >
+                  <X size={12} />
+                </button>
+              </div>
+
+              <div className="notifications-popup-actions">
+                <button type="button" className="notifications-popup-action" onClick={() => void handleMarkAllNotificationsRead()}>
+                  Mark all as read
+                </button>
+                <button type="button" className="notifications-popup-action danger" onClick={() => void handleClearNotifications()}>
+                  Clear all
+                </button>
+              </div>
+
+              {isNotificationsLoading ? (
+                <div className="notifications-loading-state">
+                  <LoaderCircle size={16} className="wifi-action-spinner" />
+                  <span>Loading notifications...</span>
+                </div>
+              ) : null}
+
+              {!isNotificationsLoading && notificationsError ? (
+                <div className="notifications-unavailable-state">
+                  <span>{notificationsError || 'Notifications unavailable'}</span>
+                </div>
+              ) : null}
+
+              {!isNotificationsLoading && !notificationsError ? (
+                <div className="notifications-list">
+                  {notifications.length ? notifications.map((notification) => {
+                    const NotificationIcon = getNotificationTypeIcon(notification.type);
+                    return (
+                      <button
+                        key={notification.id}
+                        type="button"
+                        className={`notifications-item ${notification.read ? 'is-read' : 'is-unread'}`}
+                        onClick={() => void handleMarkNotificationRead(notification.id)}
+                      >
+                        <div className={`notifications-item-icon ${notification.read ? 'is-read' : 'is-unread'}`}>
+                          <NotificationIcon size={14} />
+                        </div>
+                        <div className="notifications-item-copy">
+                          <div className="notifications-item-topline">
+                            <strong>{notification.title}</strong>
+                            <span>{formatNotificationTime(notification.time)}</span>
+                          </div>
+                          <div className="notifications-item-message">{notification.message}</div>
+                        </div>
+                        <span className={`notifications-item-dot ${notification.read ? 'is-read' : 'is-unread'}`} />
+                      </button>
+                    );
+                  }) : (
+                    <div className="notifications-empty-state">
+                      <span>No notifications yet</span>
+                    </div>
+                  )}
+                </div>
+              ) : null}
+            </div>
+          ) : null}
+        </div>
         <button
           type="button"
           className={`user-status-button ${isUserLoginOpen || isUsStatusPopupOpen ? 'open' : ''}`}
