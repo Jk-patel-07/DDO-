@@ -180,6 +180,11 @@ const mapStoredUser = (user) => {
 };
 
 const isMongoReady = () => mongoose.connection.readyState === 1;
+const requireMongoConnection = () => {
+  if (!isMongoReady()) {
+    throw new HttpError(503, 'MongoDB is not connected.');
+  }
+};
 
 const readUsersFile = async () => {
   await ensurePrivateDataDirectory();
@@ -205,80 +210,52 @@ const writeUsersFile = async (users) => {
 };
 
 const getAllUsers = async () => {
-  if (isMongoReady()) {
-    const users = await User.find({ accountStatus: { $ne: 'Deleted' } })
-      .sort({ createdAt: 1 })
-      .lean();
-    return users.map(mapStoredUser);
-  }
-
-  const users = await readUsersFile();
+  requireMongoConnection();
+  const users = await User.find({ accountStatus: { $ne: 'Deleted' } })
+    .sort({ createdAt: 1 })
+    .lean();
   return users.map(mapStoredUser);
 };
 
 const findUserByEmail = async (email) => {
   const normalizedEmail = sanitizeEmail(email);
-
-  if (isMongoReady()) {
-    const user = await User.findOne({
-      email: normalizedEmail,
-      accountStatus: { $ne: 'Deleted' },
-    }).lean();
-    return mapStoredUser(user);
-  }
-
-  const users = await readUsersFile();
-  return mapStoredUser(users.find((entry) => sanitizeEmail(entry.email) === normalizedEmail));
+  requireMongoConnection();
+  const user = await User.findOne({
+    email: normalizedEmail,
+    accountStatus: { $ne: 'Deleted' },
+  }).lean();
+  return mapStoredUser(user);
 };
 
 const createStoredUser = async (userInput) => {
+  requireMongoConnection();
   const normalizedUser = mapStoredUser({
     ...userInput,
     accountStatus: userInput.accountStatus || 'Active',
   });
 
-  if (isMongoReady()) {
-    const createdUser = await User.create({
-      email: normalizedUser.email,
-      firstName: normalizedUser.firstName,
-      middleName: normalizedUser.middleName,
-      lastName: normalizedUser.lastName,
-      phoneNumber: normalizedUser.phoneNumber,
-      moreInformation: normalizedUser.moreInformation,
-      passwordHash: normalizedUser.passwordHash,
-      provider: normalizedUser.provider,
-      accountStatus: normalizedUser.accountStatus,
-    });
+  const createdUser = await User.create({
+    email: normalizedUser.email,
+    firstName: normalizedUser.firstName,
+    middleName: normalizedUser.middleName,
+    lastName: normalizedUser.lastName,
+    phoneNumber: normalizedUser.phoneNumber,
+    moreInformation: normalizedUser.moreInformation,
+    passwordHash: normalizedUser.passwordHash,
+    provider: normalizedUser.provider,
+    accountStatus: normalizedUser.accountStatus,
+  });
 
-    return mapStoredUser(createdUser.toObject());
-  }
-
-  const users = await readUsersFile();
-  users.push(normalizedUser);
-  await writeUsersFile(users);
-  return normalizedUser;
+  return mapStoredUser(createdUser.toObject());
 };
 
 const deleteStoredUserByEmail = async (email) => {
   const normalizedEmail = sanitizeEmail(email);
-
-  if (isMongoReady()) {
-    const deletedUser = await User.findOneAndDelete({
-      email: normalizedEmail,
-      accountStatus: { $ne: 'Deleted' },
-    }).lean();
-    return mapStoredUser(deletedUser);
-  }
-
-  const users = await readUsersFile();
-  const userIndex = users.findIndex((entry) => sanitizeEmail(entry.email) === normalizedEmail);
-
-  if (userIndex === -1) {
-    return null;
-  }
-
-  const [deletedUser] = users.splice(userIndex, 1);
-  await writeUsersFile(users);
+  requireMongoConnection();
+  const deletedUser = await User.findOneAndDelete({
+    email: normalizedEmail,
+    accountStatus: { $ne: 'Deleted' },
+  }).lean();
   return mapStoredUser(deletedUser);
 };
 
@@ -330,25 +307,25 @@ const readDeletedExcelRows = async () => {
 const saveUserToExcel = async (user) => {
   const normalizedEmail = sanitizeEmail(user.email);
   const existingRows = await readExcelRows();
+  const userRow = {
+    'Email ID': normalizedEmail,
+    'First Name': sanitizeText(user.firstName, 80),
+    'Middle Name': sanitizeText(user.middleName, 80),
+    'Last Name': sanitizeText(user.lastName, 80),
+    'Phone Number': sanitizeText(user.phoneNumber, 40),
+    'More Information': sanitizeText(user.moreInformation, 500),
+    'Password Hash': String(user.passwordHash || ''),
+    'Register Date': user.createdAt,
+    'Account Status': user.accountStatus || 'Active',
+  };
+  const existingIndex = existingRows.findIndex((row) => sanitizeEmail(row['Email ID']) === normalizedEmail);
+  const nextRows = [...existingRows];
 
-  if (existingRows.some((row) => sanitizeEmail(row['Email ID']) === normalizedEmail)) {
-    throw new HttpError(409, 'Email already registered.');
+  if (existingIndex >= 0) {
+    nextRows[existingIndex] = userRow;
+  } else {
+    nextRows.push(userRow);
   }
-
-  const nextRows = [
-    ...existingRows,
-    {
-      'Email ID': normalizedEmail,
-      'First Name': sanitizeText(user.firstName, 80),
-      'Middle Name': sanitizeText(user.middleName, 80),
-      'Last Name': sanitizeText(user.lastName, 80),
-      'Phone Number': sanitizeText(user.phoneNumber, 40),
-      'More Information': sanitizeText(user.moreInformation, 500),
-      'Password Hash': String(user.passwordHash || ''),
-      'Register Date': user.createdAt,
-      'Account Status': user.accountStatus,
-    },
-  ];
 
   const workbook = XLSX.utils.book_new();
   const worksheet = XLSX.utils.json_to_sheet(nextRows, {
@@ -911,6 +888,7 @@ app.get('/api/wifi/status', (_request, response) => {
 
 app.post('/api/auth/register', async (request, response, next) => {
   try {
+    requireMongoConnection();
     const {
       email,
       firstName,
@@ -952,7 +930,7 @@ app.post('/api/auth/register', async (request, response, next) => {
       accountStatus: 'Active',
     });
 
-    await writeActiveUsersToExcel(await getAllUsers());
+    await saveUserToExcel(user);
 
     response.status(201).json({
       ok: true,
@@ -970,6 +948,7 @@ app.post('/api/auth/register', async (request, response, next) => {
 
 app.post('/api/auth/login', async (request, response, next) => {
   try {
+    requireMongoConnection();
     const { email, password } = request.body || {};
     const normalizedEmail = validateEmail(email);
     const normalizedPassword = String(password || '');
@@ -978,7 +957,11 @@ app.post('/api/auth/login', async (request, response, next) => {
       throw new HttpError(400, 'Invalid details: password is required.');
     }
 
-    const user = await findUserByEmail(normalizedEmail);
+    const userDocument = await User.findOne({
+      email: normalizedEmail,
+      accountStatus: { $ne: 'Deleted' },
+    }).lean();
+    const user = mapStoredUser(userDocument);
 
     if (!user || !verifyPassword(normalizedPassword, user.passwordHash)) {
       throw new HttpError(401, 'Invalid details: email or password is incorrect.');
@@ -995,6 +978,7 @@ app.post('/api/auth/login', async (request, response, next) => {
 
 app.get('/api/auth/session', async (request, response, next) => {
   try {
+    requireMongoConnection();
     const session = requireAuth(request);
     const user = await findUserByEmail(session.email);
 
@@ -1017,6 +1001,7 @@ app.post('/api/auth/logout', (_request, response) => {
 
 app.post('/api/auth/delete-account', async (request, response, next) => {
   try {
+    requireMongoConnection();
     const session = requireAuth(request);
     const email = validateEmail(request.body?.email || '');
     const password = String(request.body?.password || '');

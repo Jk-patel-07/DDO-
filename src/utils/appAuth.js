@@ -22,26 +22,25 @@ export const readStoredAuthSession = () => {
   }
 
   const remembered = window.localStorage.getItem(APP_AUTH_REMEMBERED_KEY) === 'true';
-  const primaryStorage = remembered ? window.localStorage : window.sessionStorage;
-  const secondaryStorage = remembered ? window.sessionStorage : window.localStorage;
-
-  const primaryToken = primaryStorage.getItem(APP_AUTH_TOKEN_KEY);
-  const primaryUser = readJson(primaryStorage, APP_AUTH_USER_KEY);
-  if (primaryToken && primaryUser) {
+  const localToken = window.localStorage.getItem(APP_AUTH_TOKEN_KEY);
+  const localUser = readJson(window.localStorage, APP_AUTH_USER_KEY);
+  if (localToken && localUser) {
     return {
-      token: primaryToken,
-      user: primaryUser,
+      token: localToken,
+      user: localUser,
       rememberMe: remembered,
     };
   }
 
-  const secondaryToken = secondaryStorage.getItem(APP_AUTH_TOKEN_KEY);
-  const secondaryUser = readJson(secondaryStorage, APP_AUTH_USER_KEY);
-  if (secondaryToken && secondaryUser) {
+  const sessionToken = window.sessionStorage.getItem(APP_AUTH_TOKEN_KEY);
+  const sessionUser = readJson(window.sessionStorage, APP_AUTH_USER_KEY);
+  if (sessionToken && sessionUser) {
+    window.localStorage.setItem(APP_AUTH_TOKEN_KEY, sessionToken);
+    window.localStorage.setItem(APP_AUTH_USER_KEY, JSON.stringify(sessionUser));
     return {
-      token: secondaryToken,
-      user: secondaryUser,
-      rememberMe: !remembered,
+      token: sessionToken,
+      user: sessionUser,
+      rememberMe: true,
     };
   }
 
@@ -53,12 +52,9 @@ export const persistAuthSession = (session, rememberMe = false) => {
     return;
   }
 
-  const targetStorage = rememberMe ? window.localStorage : window.sessionStorage;
-  const otherStorage = rememberMe ? window.sessionStorage : window.localStorage;
-
-  clearStorageKeys(otherStorage);
-  targetStorage.setItem(APP_AUTH_TOKEN_KEY, session.token);
-  targetStorage.setItem(APP_AUTH_USER_KEY, JSON.stringify(session.user));
+  clearStorageKeys(window.sessionStorage);
+  window.localStorage.setItem(APP_AUTH_TOKEN_KEY, session.token);
+  window.localStorage.setItem(APP_AUTH_USER_KEY, JSON.stringify(session.user));
   window.localStorage.setItem(APP_AUTH_REMEMBERED_KEY, rememberMe ? 'true' : 'false');
 };
 
