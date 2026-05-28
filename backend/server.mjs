@@ -1,5 +1,7 @@
+import dotenv from 'dotenv';
 import cors from 'cors';
 import express from 'express';
+import mongoose from 'mongoose';
 import { execFile } from 'node:child_process';
 import {
   createHmac,
@@ -9,13 +11,19 @@ import {
 } from 'node:crypto';
 import { mkdir, readFile, writeFile } from 'node:fs/promises';
 import path from 'node:path';
+import { fileURLToPath } from 'node:url';
 import { promisify } from 'node:util';
 import XLSX from 'xlsx';
+import User from './models/User.mjs';
+
+const __filename = fileURLToPath(import.meta.url);
+const __dirname = path.dirname(__filename);
+dotenv.config({ path: path.join(__dirname, '.env') });
 
 const app = express();
 const execFileAsync = promisify(execFile);
 const HOST = '127.0.0.1';
-const PORT = 5000;
+const PORT = Number(process.env.PORT || 5000);
 const PROJECT_ROOT = process.cwd();
 const PRIVATE_DATA_DIR = path.join(PROJECT_ROOT, 'backend', 'private');
 const USERS_JSON_FILE = path.join(PRIVATE_DATA_DIR, '.ddo-users.json');
@@ -30,7 +38,8 @@ const ALLOWED_ORIGINS = new Set([
   'http://127.0.0.1:3000',
   'http://localhost:3000',
 ]);
-const AUTH_SECRET = process.env.APP_AUTH_SECRET || 'ddo-local-auth-secret-change-me';
+const MONGODB_URI = String(process.env.MONGODB_URI || '').trim();
+const AUTH_SECRET = process.env.JWT_SECRET || process.env.APP_AUTH_SECRET || 'ddo-local-auth-secret-change-me';
 const USERS_XLSX_HEADERS = [
   'Email ID',
   'First Name',
@@ -149,7 +158,30 @@ const verifyPassword = (password, storedHash) => {
   return timingSafeEqual(expected, actual);
 };
 
-const readUsers = async () => {
+const mapStoredUser = (user) => {
+  if (!user) {
+    return null;
+  }
+
+  return {
+    id: String(user.id || user._id || ''),
+    email: sanitizeEmail(user.email),
+    firstName: sanitizeText(user.firstName, 80),
+    middleName: sanitizeText(user.middleName, 80),
+    lastName: sanitizeText(user.lastName, 80),
+    phoneNumber: sanitizeText(user.phoneNumber, 40),
+    moreInformation: sanitizeText(user.moreInformation, 500),
+    passwordHash: String(user.passwordHash || ''),
+    provider: sanitizeText(user.provider || 'local', 40) || 'local',
+    accountStatus: sanitizeText(user.accountStatus || 'Active', 40) || 'Active',
+    createdAt: user.createdAt ? new Date(user.createdAt).toISOString() : new Date().toISOString(),
+    updatedAt: user.updatedAt ? new Date(user.updatedAt).toISOString() : new Date().toISOString(),
+  };
+};
+
+const isMongoReady = () => mongoose.connection.readyState === 1;
+
+const readUsersFile = async () => {
   await ensurePrivateDataDirectory();
 
   try {
@@ -167,9 +199,87 @@ const readUsers = async () => {
   }
 };
 
-const writeUsers = async (users) => {
+const writeUsersFile = async (users) => {
   await ensurePrivateDataDirectory();
   await writeFile(USERS_JSON_FILE, JSON.stringify(users, null, 2), 'utf8');
+};
+
+const getAllUsers = async () => {
+  if (isMongoReady()) {
+    const users = await User.find({ accountStatus: { $ne: 'Deleted' } })
+      .sort({ createdAt: 1 })
+      .lean();
+    return users.map(mapStoredUser);
+  }
+
+  const users = await readUsersFile();
+  return users.map(mapStoredUser);
+};
+
+const findUserByEmail = async (email) => {
+  const normalizedEmail = sanitizeEmail(email);
+
+  if (isMongoReady()) {
+    const user = await User.findOne({
+      email: normalizedEmail,
+      accountStatus: { $ne: 'Deleted' },
+    }).lean();
+    return mapStoredUser(user);
+  }
+
+  const users = await readUsersFile();
+  return mapStoredUser(users.find((entry) => sanitizeEmail(entry.email) === normalizedEmail));
+};
+
+const createStoredUser = async (userInput) => {
+  const normalizedUser = mapStoredUser({
+    ...userInput,
+    accountStatus: userInput.accountStatus || 'Active',
+  });
+
+  if (isMongoReady()) {
+    const createdUser = await User.create({
+      email: normalizedUser.email,
+      firstName: normalizedUser.firstName,
+      middleName: normalizedUser.middleName,
+      lastName: normalizedUser.lastName,
+      phoneNumber: normalizedUser.phoneNumber,
+      moreInformation: normalizedUser.moreInformation,
+      passwordHash: normalizedUser.passwordHash,
+      provider: normalizedUser.provider,
+      accountStatus: normalizedUser.accountStatus,
+    });
+
+    return mapStoredUser(createdUser.toObject());
+  }
+
+  const users = await readUsersFile();
+  users.push(normalizedUser);
+  await writeUsersFile(users);
+  return normalizedUser;
+};
+
+const deleteStoredUserByEmail = async (email) => {
+  const normalizedEmail = sanitizeEmail(email);
+
+  if (isMongoReady()) {
+    const deletedUser = await User.findOneAndDelete({
+      email: normalizedEmail,
+      accountStatus: { $ne: 'Deleted' },
+    }).lean();
+    return mapStoredUser(deletedUser);
+  }
+
+  const users = await readUsersFile();
+  const userIndex = users.findIndex((entry) => sanitizeEmail(entry.email) === normalizedEmail);
+
+  if (userIndex === -1) {
+    return null;
+  }
+
+  const [deletedUser] = users.splice(userIndex, 1);
+  await writeUsersFile(users);
+  return mapStoredUser(deletedUser);
 };
 
 const readExcelRows = async () => {
@@ -821,13 +931,13 @@ app.post('/api/auth/register', async (request, response, next) => {
       throw new HttpError(400, 'Invalid details: password and confirm password must match.');
     }
 
-    const users = await readUsers();
-    if (users.some((user) => sanitizeEmail(user.email) === normalizedEmail)) {
+    const existingUser = await findUserByEmail(normalizedEmail);
+    if (existingUser) {
       throw new HttpError(409, 'Email already registered.');
     }
 
     const createdAt = new Date().toISOString();
-    const user = {
+    const user = await createStoredUser({
       id: randomBytes(12).toString('hex'),
       email: normalizedEmail,
       firstName: normalizedFirstName,
@@ -840,11 +950,9 @@ app.post('/api/auth/register', async (request, response, next) => {
       createdAt,
       updatedAt: createdAt,
       accountStatus: 'Active',
-    };
+    });
 
-    await saveUserToExcel(user);
-    users.push(user);
-    await writeUsers(users);
+    await writeActiveUsersToExcel(await getAllUsers());
 
     response.status(201).json({
       ok: true,
@@ -870,8 +978,7 @@ app.post('/api/auth/login', async (request, response, next) => {
       throw new HttpError(400, 'Invalid details: password is required.');
     }
 
-    const users = await readUsers();
-    const user = users.find((entry) => sanitizeEmail(entry.email) === normalizedEmail);
+    const user = await findUserByEmail(normalizedEmail);
 
     if (!user || !verifyPassword(normalizedPassword, user.passwordHash)) {
       throw new HttpError(401, 'Invalid details: email or password is incorrect.');
@@ -889,8 +996,7 @@ app.post('/api/auth/login', async (request, response, next) => {
 app.get('/api/auth/session', async (request, response, next) => {
   try {
     const session = requireAuth(request);
-    const users = await readUsers();
-    const user = users.find((entry) => sanitizeEmail(entry.email) === sanitizeEmail(session.email));
+    const user = await findUserByEmail(session.email);
 
     if (!user) {
       throw new HttpError(404, 'Account not found.');
@@ -923,22 +1029,23 @@ app.post('/api/auth/delete-account', async (request, response, next) => {
       throw new HttpError(403, 'Authenticated user does not match the requested account.');
     }
 
-    const users = await readUsers();
-    const userIndex = users.findIndex((entry) => sanitizeEmail(entry.email) === sanitizeEmail(session.email));
+    const user = await findUserByEmail(session.email);
 
-    if (userIndex === -1) {
+    if (!user) {
       throw new HttpError(404, 'Account not found.');
     }
 
-    const user = users[userIndex];
     if (!verifyPassword(password, user.passwordHash)) {
       throw new HttpError(401, 'Incorrect password. Account not deleted.');
     }
 
-    const remainingUsers = users.filter((_, index) => index !== userIndex);
-    await writeUsers(remainingUsers);
-    await writeActiveUsersToExcel(remainingUsers);
-    await saveDeletedUserToExcel(user);
+    const deletedUser = await deleteStoredUserByEmail(session.email);
+    if (!deletedUser) {
+      throw new HttpError(404, 'Account not found.');
+    }
+
+    await writeActiveUsersToExcel(await getAllUsers());
+    await saveDeletedUserToExcel(deletedUser);
 
     response.json({
       ok: true,
@@ -1010,6 +1117,26 @@ app.use((error, _request, response, _next) => {
   response.status(statusCode).json({ error: message });
 });
 
-app.listen(PORT, HOST, () => {
-  console.log(`DDO backend listening at http://${HOST}:${PORT}`);
-});
+const connectMongoDB = async () => {
+  if (!MONGODB_URI) {
+    console.warn('MongoDB URI not configured. Using local file storage fallback.');
+    return;
+  }
+
+  try {
+    await mongoose.connect(MONGODB_URI);
+    console.log('MongoDB connected successfully');
+  } catch (error) {
+    console.error('MongoDB connection failed:', error instanceof Error ? error.message : String(error));
+    process.exit(1);
+  }
+};
+
+const startServer = async () => {
+  await connectMongoDB();
+  app.listen(PORT, HOST, () => {
+    console.log(`DDO backend listening at http://${HOST}:${PORT}`);
+  });
+};
+
+await startServer();
