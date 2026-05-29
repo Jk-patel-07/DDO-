@@ -40,6 +40,11 @@ const ALLOWED_ORIGINS = new Set([
 ]);
 const MONGODB_URI = String(process.env.MONGODB_URI || '').trim();
 const AUTH_SECRET = process.env.JWT_SECRET || process.env.APP_AUTH_SECRET || 'ddo-local-auth-secret-change-me';
+const COMPANY_ID = String(process.env.COMPANY_ID || '').trim();
+const COMPANY_KEY = String(process.env.COMPANY_KEY || '').trim();
+const COMPANY_NAME = String(process.env.COMPANY_NAME || 'DDO Company').trim();
+const COMPANY_PASSWORD_HASH = String(process.env.COMPANY_PASSWORD_HASH || '').trim();
+const COMPANY_PASSWORD = String(process.env.COMPANY_PASSWORD || '').trim();
 const USERS_XLSX_HEADERS = [
   'Email ID',
   'First Name',
@@ -464,6 +469,21 @@ const toPublicUser = (user) => ({
   phoneNumber: sanitizeText(user.phoneNumber, 40),
   moreInformation: sanitizeText(user.moreInformation, 240),
   provider: user.provider || 'local',
+  role: user.role || 'user',
+  companyId: user.companyId ? sanitizeText(user.companyId, 120) : '',
+});
+
+const buildCompanySessionUser = () => ({
+  email: 'company@ddo.local',
+  displayName: COMPANY_NAME || 'DDO Company',
+  firstName: 'Company',
+  middleName: '',
+  lastName: 'Admin',
+  phoneNumber: '',
+  moreInformation: 'Company access session',
+  provider: 'company',
+  role: 'company',
+  companyId: COMPANY_ID,
 });
 
 const openWindowsSettings = async () => {
@@ -696,6 +716,7 @@ app.get('/', (_request, response) => {
       wifi: '/api/wifi/status',
       register: 'POST /api/auth/register',
       login: 'POST /api/auth/login',
+      companyLogin: 'POST /api/auth/company-login',
       settings: 'POST /api/system/settings',
       controlPanel: 'POST /api/system/control-panel',
       taskManager: 'POST /api/system/task-manager',
@@ -976,10 +997,54 @@ app.post('/api/auth/login', async (request, response, next) => {
   }
 });
 
+app.post('/api/auth/company-login', async (request, response, next) => {
+  try {
+    const companyId = sanitizeText(request.body?.companyId || '', 120);
+    const companyKey = sanitizeText(request.body?.companyKey || '', 160);
+    const companyPassword = String(request.body?.companyPassword || '');
+
+    if (!companyId || !companyKey || !companyPassword) {
+      throw new HttpError(400, 'Invalid company login details');
+    }
+
+    if (!COMPANY_ID || !COMPANY_KEY || (!COMPANY_PASSWORD_HASH && !COMPANY_PASSWORD)) {
+      throw new HttpError(503, 'Company login server unavailable');
+    }
+
+    const passwordMatches = COMPANY_PASSWORD_HASH
+      ? verifyPassword(companyPassword, COMPANY_PASSWORD_HASH)
+      : companyPassword === COMPANY_PASSWORD;
+
+    if (companyId !== COMPANY_ID || companyKey !== COMPANY_KEY || !passwordMatches) {
+      throw new HttpError(401, 'Invalid company login details');
+    }
+
+    const companyUser = buildCompanySessionUser();
+    response.json({
+      ok: true,
+      message: 'Company login successful.',
+      token: createToken(companyUser),
+      user: companyUser,
+    });
+  } catch (error) {
+    next(error);
+  }
+});
+
 app.get('/api/auth/session', async (request, response, next) => {
   try {
     requireMongoConnection();
     const session = requireAuth(request);
+
+    if (session?.role === 'company' || session?.provider === 'company') {
+      const companyUser = buildCompanySessionUser();
+      response.json({
+        ok: true,
+        user: companyUser,
+      });
+      return;
+    }
+
     const user = await findUserByEmail(session.email);
 
     if (!user) {

@@ -37,6 +37,7 @@ const SPOTIFY_STORAGE_KEYS = {
   expiresAt: 'spotify_expires_at',
   user: 'spotify_user_profile',
 };
+const COMPANY_LOGIN_API_URL = 'http://127.0.0.1:5000/api/auth/company-login';
 
 const readStoredSpotifyUser = () => {
   try {
@@ -364,6 +365,7 @@ const RightTray = ({ onPopupStateChange = () => {} }) => {
   const [spotifyVolume, setSpotifyVolume] = useState(70);
   const [isUserLoginOpen, setIsUserLoginOpen] = useState(false);
   const [isRegisterOpen, setIsRegisterOpen] = useState(false);
+  const [isCompanyLoginOpen, setIsCompanyLoginOpen] = useState(false);
   const [isUsStatusPopupOpen, setIsUsStatusPopupOpen] = useState(false);
   const [usStatusActiveSection, setUsStatusActiveSection] = useState('none');
   const [isUsSideSettingsOpen, setIsUsSideSettingsOpen] = useState(false);
@@ -376,6 +378,14 @@ const RightTray = ({ onPopupStateChange = () => {} }) => {
   });
   const [loginError, setLoginError] = useState('');
   const [isLoginSubmitting, setIsLoginSubmitting] = useState(false);
+  const [companyLoginForm, setCompanyLoginForm] = useState({
+    companyId: '',
+    companyKey: '',
+    companyPassword: '',
+  });
+  const [companyLoginError, setCompanyLoginError] = useState('');
+  const [companyLoginStatus, setCompanyLoginStatus] = useState('');
+  const [isCompanyLoginSubmitting, setIsCompanyLoginSubmitting] = useState(false);
   const [isDeleteAccountOpen, setIsDeleteAccountOpen] = useState(false);
   const [deleteAccountPassword, setDeleteAccountPassword] = useState('');
   const [deleteAccountError, setDeleteAccountError] = useState('');
@@ -2484,6 +2494,67 @@ const RightTray = ({ onPopupStateChange = () => {} }) => {
     }
   };
 
+  const handleCompanyLoginFieldChange = (field, value) => {
+    setCompanyLoginForm((current) => ({
+      ...current,
+      [field]: value,
+    }));
+  };
+
+  const handleCompanyLoginSubmit = async (event) => {
+    event.preventDefault();
+
+    const companyId = companyLoginForm.companyId.trim();
+    const companyKey = companyLoginForm.companyKey.trim();
+    const companyPassword = companyLoginForm.companyPassword;
+
+    if (!companyId || !companyKey || !companyPassword) {
+      setCompanyLoginError('Enter company login details.');
+      return;
+    }
+
+    setIsCompanyLoginSubmitting(true);
+    setCompanyLoginError('');
+    setCompanyLoginStatus('');
+
+    try {
+      const payload = await requestBackendJson(COMPANY_LOGIN_API_URL, {
+        method: 'POST',
+        body: JSON.stringify({
+          companyId,
+          companyKey,
+          companyPassword,
+        }),
+      }, {
+        fallbackMessage: 'Company login server unavailable',
+      });
+
+      setCompanyLoginStatus(payload.message || 'Company login successful.');
+      persistAuthSession(payload, true);
+      setAppAuthSession({
+        token: payload.token,
+        user: payload.user,
+        rememberMe: true,
+      });
+      setCompanyLoginForm({
+        companyId: '',
+        companyKey: '',
+        companyPassword: '',
+      });
+      setIsRegisterOpen(false);
+      setIsCompanyLoginOpen(false);
+      setIsUsSideSettingsOpen(false);
+      setUsSideSettingsSection('profile');
+      setUsStatusActiveSection('none');
+      setIsUserLoginOpen(false);
+      setIsUsStatusPopupOpen(true);
+    } catch (error) {
+      setCompanyLoginError(error.message || 'Company login server unavailable');
+    } finally {
+      setIsCompanyLoginSubmitting(false);
+    }
+  };
+
   const handleUserLogout = async () => {
     try {
       await requestBackendJson('/api/auth/logout', { method: 'POST' }, {
@@ -2498,6 +2569,7 @@ const RightTray = ({ onPopupStateChange = () => {} }) => {
     setAppAuthSession(null);
     setLoginError('');
     setIsRegisterOpen(false);
+    setIsCompanyLoginOpen(false);
     setIsUsSideSettingsOpen(false);
     setUsSideSettingsSection('profile');
     setIsUsStatusPopupOpen(false);
@@ -4811,9 +4883,11 @@ const RightTray = ({ onPopupStateChange = () => {} }) => {
                     <BrandLogo className="welcome-brand-logo" surface="dark" />
                     <div className="welcome-avatar">US</div>
                   </div>
-                  <h3>US Dashboard</h3>
+                  <h3>{appAuthSession?.user?.role === 'company' ? 'Company Dashboard' : 'US Dashboard'}</h3>
                   <p className="welcome-subtext">
-                    {appAuthSession?.user?.email
+                    {appAuthSession?.user?.role === 'company'
+                      ? `Company access active${appAuthSession?.user?.companyId ? ` for ${appAuthSession.user.companyId}` : ''}`
+                      : appAuthSession?.user?.email
                       ? `Signed in as ${appAuthSession.user.email}`
                       : 'Sign in to secure local controls and private actions'}
                   </p>
@@ -4897,18 +4971,20 @@ const RightTray = ({ onPopupStateChange = () => {} }) => {
                   >
                     Security Check
                   </button>
-                  <button
-                    type="button"
-                    className="us-side-settings-action is-danger"
-                    onClick={() => {
-                      setDeleteAccountError('');
-                      setDeleteAccountStatus('');
-                      setDeleteAccountPassword('');
-                      setIsDeleteAccountOpen(true);
-                    }}
-                  >
-                    Delete Account
-                  </button>
+                  {appAuthSession?.user?.role !== 'company' ? (
+                    <button
+                      type="button"
+                      className="us-side-settings-action is-danger"
+                      onClick={() => {
+                        setDeleteAccountError('');
+                        setDeleteAccountStatus('');
+                        setDeleteAccountPassword('');
+                        setIsDeleteAccountOpen(true);
+                      }}
+                    >
+                      Delete Account
+                    </button>
+                  ) : null}
                   <button
                     type="button"
                     className="us-side-settings-action"
@@ -4935,6 +5011,12 @@ const RightTray = ({ onPopupStateChange = () => {} }) => {
                           <span>Status</span>
                           <strong>Online</strong>
                         </div>
+                        {appAuthSession?.user?.role === 'company' ? (
+                          <div className="us-side-settings-profile-row">
+                            <span>Company ID</span>
+                            <strong>{appAuthSession?.user?.companyId || 'Not available'}</strong>
+                          </div>
+                        ) : null}
                       </div>
                     </div>
                   ) : (
@@ -5000,6 +5082,18 @@ const RightTray = ({ onPopupStateChange = () => {} }) => {
               <span className="user-login-kicker">US</span>
               <h2>Nature-inspired calm for your daily sign in.</h2>
               <p>Soft forest tones, clean spacing, and a premium split-screen login experience.</p>
+              <button
+                type="button"
+                className="user-login-company-entry"
+                onClick={() => {
+                  setCompanyLoginError('');
+                  setCompanyLoginStatus('');
+                  setIsCompanyLoginOpen(true);
+                }}
+              >
+                <Briefcase size={14} />
+                <span>Company Login</span>
+              </button>
             </div>
           </div>
 
@@ -5223,6 +5317,72 @@ const RightTray = ({ onPopupStateChange = () => {} }) => {
                   >
                     <span className="user-login-google-icon" aria-hidden="true">G</span>
                     <span>{isGoogleSubmitting ? 'Connecting Google...' : 'Continue with Google'}</span>
+                  </button>
+                </div>
+              </form>
+            </div>
+          </div>
+        )}
+
+        {isCompanyLoginOpen && (
+          <div className="user-register-modal" onClick={() => setIsCompanyLoginOpen(false)}>
+            <div className="user-register-card company-login-card popup-aurora-surface" onClick={(event) => event.stopPropagation()}>
+              <div className="user-register-header">
+                <div>
+                  <h2>Company Login</h2>
+                  <p>Secure access for company and admin users only.</p>
+                </div>
+                <button
+                  type="button"
+                  className="user-login-window-button close"
+                  onClick={() => setIsCompanyLoginOpen(false)}
+                  aria-label="Close company login popup"
+                >
+                  <X size={14} />
+                </button>
+              </div>
+
+              <form className="user-register-form" onSubmit={handleCompanyLoginSubmit}>
+                <label className="user-login-field">
+                  <span>Company ID</span>
+                  <input
+                    type="text"
+                    placeholder="Enter company ID"
+                    value={companyLoginForm.companyId}
+                    onChange={(event) => handleCompanyLoginFieldChange('companyId', event.target.value)}
+                    required
+                  />
+                </label>
+
+                <label className="user-login-field">
+                  <span>Company Key</span>
+                  <input
+                    type="text"
+                    placeholder="Enter company key"
+                    value={companyLoginForm.companyKey}
+                    onChange={(event) => handleCompanyLoginFieldChange('companyKey', event.target.value)}
+                    required
+                  />
+                </label>
+
+                <label className="user-login-field">
+                  <span>Company Password</span>
+                  <input
+                    type="password"
+                    placeholder="Enter company password"
+                    value={companyLoginForm.companyPassword}
+                    onChange={(event) => handleCompanyLoginFieldChange('companyPassword', event.target.value)}
+                    autoComplete="current-password"
+                    required
+                  />
+                </label>
+
+                {companyLoginError ? <div className="spotify-auth-error">{companyLoginError}</div> : null}
+                {companyLoginStatus ? <div className="user-register-success">{companyLoginStatus}</div> : null}
+
+                <div className="user-register-actions">
+                  <button type="submit" className="user-login-submit" disabled={isCompanyLoginSubmitting}>
+                    {isCompanyLoginSubmitting ? 'Signing in...' : 'Login'}
                   </button>
                 </div>
               </form>
