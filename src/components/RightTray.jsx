@@ -1,6 +1,6 @@
 import { useState, useEffect, useRef, useCallback } from 'react';
 import { createPortal } from 'react-dom';
-import { Wifi, Bluetooth, Bell, X, User, Phone, Mail, Users, Briefcase, Plus, ChevronDown, Smartphone, MoreVertical, Zap, HeartPulse, Gauge, Clock3, Leaf, Thermometer, Square, Lock, Check, LoaderCircle, RefreshCw, LayoutGrid, Search as SearchIcon, Settings, Music4, Volume, Volume1, Volume2, VolumeX, Shield, TriangleAlert } from 'lucide-react';
+import { Wifi, Bluetooth, Bell, X, User, Phone, Mail, Users, Briefcase, Plus, ChevronDown, Smartphone, MoreVertical, Zap, HeartPulse, Gauge, Clock3, Leaf, Thermometer, Square, Lock, Check, LoaderCircle, RefreshCw, LayoutGrid, Search as SearchIcon, Settings, Music4, Volume, Volume1, Volume2, VolumeX, Shield, TriangleAlert, Eye, EyeOff } from 'lucide-react';
 import { FaWhatsapp, FaSpotify } from 'react-icons/fa';
 import CenterSearch from './CenterSearch';
 import BrandLogo from './BrandLogo';
@@ -37,7 +37,7 @@ const SPOTIFY_STORAGE_KEYS = {
   expiresAt: 'spotify_expires_at',
   user: 'spotify_user_profile',
 };
-const COMPANY_LOGIN_API_URL = 'http://127.0.0.1:5000/api/auth/company-login';
+const COMPANY_LOGIN_API_URL = 'http://127.0.0.1:5000/api/company/login';
 
 const readStoredSpotifyUser = () => {
   try {
@@ -391,6 +391,13 @@ const RightTray = ({ onPopupStateChange = () => {} }) => {
   const [deleteAccountError, setDeleteAccountError] = useState('');
   const [deleteAccountStatus, setDeleteAccountStatus] = useState('');
   const [isDeleteAccountSubmitting, setIsDeleteAccountSubmitting] = useState(false);
+  const [passwordVisibility, setPasswordVisibility] = useState({
+    loginPassword: false,
+    registerPassword: false,
+    registerConfirmPassword: false,
+    companyPassword: false,
+    deleteAccountPassword: false,
+  });
   const [isGoogleSubmitting, setIsGoogleSubmitting] = useState(false);
   const [isNotificationsOpen, setIsNotificationsOpen] = useState(false);
   const [notifications, setNotifications] = useState([]);
@@ -516,6 +523,20 @@ const RightTray = ({ onPopupStateChange = () => {} }) => {
   useEffect(() => {
     localStorage.setItem(APP_BOX_PRIVACY_STORAGE_KEY, JSON.stringify(appPrivacySettings));
   }, [appPrivacySettings]);
+
+  useEffect(() => {
+    if (typeof window === 'undefined') {
+      return;
+    }
+
+    const params = new URLSearchParams(window.location.search);
+    if (params.get('companyLogin') === '1') {
+      params.delete('companyLogin');
+      const nextQuery = params.toString();
+      const nextUrl = `${window.location.pathname}${nextQuery ? `?${nextQuery}` : ''}${window.location.hash || ''}`;
+      window.history.replaceState({}, '', nextUrl);
+    }
+  }, []);
 
   const applyWifiSnapshot = (snapshot) => {
     setWifiNetworks(Array.isArray(snapshot.networks) ? snapshot.networks : []);
@@ -2500,6 +2521,15 @@ const RightTray = ({ onPopupStateChange = () => {} }) => {
       [field]: value,
     }));
   };
+
+  const togglePasswordVisibility = (field) => {
+    setPasswordVisibility((current) => ({
+      ...current,
+      [field]: !current[field],
+    }));
+  };
+
+  const getPasswordInputType = (field) => (passwordVisibility[field] ? 'text' : 'password');
 
   const handleCompanyLoginSubmit = async (event) => {
     event.preventDefault();
@@ -4886,7 +4916,7 @@ const RightTray = ({ onPopupStateChange = () => {} }) => {
                   <h3>{appAuthSession?.user?.role === 'company' ? 'Company Dashboard' : 'US Dashboard'}</h3>
                   <p className="welcome-subtext">
                     {appAuthSession?.user?.role === 'company'
-                      ? `Company access active${appAuthSession?.user?.companyId ? ` for ${appAuthSession.user.companyId}` : ''}`
+                      ? `${appAuthSession?.user?.companyName || 'Company'} access active${appAuthSession?.user?.companyId ? ` for ${appAuthSession.user.companyId}` : ''}`
                       : appAuthSession?.user?.email
                       ? `Signed in as ${appAuthSession.user.email}`
                       : 'Sign in to secure local controls and private actions'}
@@ -5000,22 +5030,32 @@ const RightTray = ({ onPopupStateChange = () => {} }) => {
                       <div className="us-side-settings-profile-pill">Profile Details</div>
                       <div className="us-side-settings-profile-list">
                         <div className="us-side-settings-profile-row">
-                          <span>Email</span>
-                          <strong>{appAuthSession?.user?.email || 'Not signed in'}</strong>
+                          <span>{appAuthSession?.user?.role === 'company' ? 'Company Email' : 'Email'}</span>
+                          <strong>{appAuthSession?.user?.companyEmail || appAuthSession?.user?.email || 'Not signed in'}</strong>
                         </div>
                         <div className="us-side-settings-profile-row">
-                          <span>Name</span>
-                          <strong>{appAuthSession?.user?.displayName || 'US User'}</strong>
+                          <span>{appAuthSession?.user?.role === 'company' ? 'Company Name' : 'Name'}</span>
+                          <strong>{appAuthSession?.user?.companyName || appAuthSession?.user?.displayName || 'US User'}</strong>
                         </div>
                         <div className="us-side-settings-profile-row">
                           <span>Status</span>
-                          <strong>Online</strong>
+                          <strong>{appAuthSession?.user?.status || 'Online'}</strong>
                         </div>
                         {appAuthSession?.user?.role === 'company' ? (
-                          <div className="us-side-settings-profile-row">
-                            <span>Company ID</span>
-                            <strong>{appAuthSession?.user?.companyId || 'Not available'}</strong>
-                          </div>
+                          <>
+                            <div className="us-side-settings-profile-row">
+                              <span>Company ID</span>
+                              <strong>{appAuthSession?.user?.companyId || 'Not available'}</strong>
+                            </div>
+                            <div className="us-side-settings-profile-row">
+                              <span>Company Phone</span>
+                              <strong>{appAuthSession?.user?.companyPhone || 'Not available'}</strong>
+                            </div>
+                            <div className="us-side-settings-profile-row">
+                              <span>Company Website</span>
+                              <strong>{appAuthSession?.user?.companyWebsite || 'Not available'}</strong>
+                            </div>
+                          </>
                         ) : null}
                       </div>
                     </div>
@@ -5123,16 +5163,26 @@ const RightTray = ({ onPopupStateChange = () => {} }) => {
 
                 <label className="user-login-field">
                   <span>Password</span>
-                  <input
-                    type="password"
-                    placeholder="********"
-                    value={loginForm.password}
-                    onChange={(event) => handleLoginFieldChange('password', event.target.value)}
-                    autoComplete="current-password"
-                    minLength={8}
-                    maxLength={128}
-                    required
-                  />
+                  <div className="user-password-input-wrap">
+                    <input
+                      type={getPasswordInputType('loginPassword')}
+                      placeholder="********"
+                      value={loginForm.password}
+                      onChange={(event) => handleLoginFieldChange('password', event.target.value)}
+                      autoComplete="current-password"
+                      minLength={8}
+                      maxLength={128}
+                      required
+                    />
+                    <button
+                      type="button"
+                      className="user-password-toggle"
+                      onClick={() => togglePasswordVisibility('loginPassword')}
+                      aria-label={passwordVisibility.loginPassword ? 'Hide password' : 'Show password'}
+                    >
+                      {passwordVisibility.loginPassword ? <EyeOff size={16} /> : <Eye size={16} />}
+                    </button>
+                  </div>
                 </label>
 
                 <div className="user-login-meta">
@@ -5277,27 +5327,47 @@ const RightTray = ({ onPopupStateChange = () => {} }) => {
                 <div className="user-register-grid">
                   <label className="user-login-field">
                     <span>Password</span>
-                    <input
-                      type="password"
-                      placeholder="Create password"
-                      value={registerForm.password}
-                      onChange={(event) => handleRegisterFieldChange('password', event.target.value)}
-                      autoComplete="new-password"
-                      required
-                    />
+                    <div className="user-password-input-wrap">
+                      <input
+                        type={getPasswordInputType('registerPassword')}
+                        placeholder="Create password"
+                        value={registerForm.password}
+                        onChange={(event) => handleRegisterFieldChange('password', event.target.value)}
+                        autoComplete="new-password"
+                        required
+                      />
+                      <button
+                        type="button"
+                        className="user-password-toggle"
+                        onClick={() => togglePasswordVisibility('registerPassword')}
+                        aria-label={passwordVisibility.registerPassword ? 'Hide password' : 'Show password'}
+                      >
+                        {passwordVisibility.registerPassword ? <EyeOff size={16} /> : <Eye size={16} />}
+                      </button>
+                    </div>
                     {registerErrors.password ? <small className="user-register-error">{registerErrors.password}</small> : null}
                   </label>
 
                   <label className="user-login-field">
                     <span>Confirm Password</span>
-                    <input
-                      type="password"
-                      placeholder="Confirm password"
-                      value={registerForm.confirmPassword}
-                      onChange={(event) => handleRegisterFieldChange('confirmPassword', event.target.value)}
-                      autoComplete="new-password"
-                      required
-                    />
+                    <div className="user-password-input-wrap">
+                      <input
+                        type={getPasswordInputType('registerConfirmPassword')}
+                        placeholder="Confirm password"
+                        value={registerForm.confirmPassword}
+                        onChange={(event) => handleRegisterFieldChange('confirmPassword', event.target.value)}
+                        autoComplete="new-password"
+                        required
+                      />
+                      <button
+                        type="button"
+                        className="user-password-toggle"
+                        onClick={() => togglePasswordVisibility('registerConfirmPassword')}
+                        aria-label={passwordVisibility.registerConfirmPassword ? 'Hide password' : 'Show password'}
+                      >
+                        {passwordVisibility.registerConfirmPassword ? <EyeOff size={16} /> : <Eye size={16} />}
+                      </button>
+                    </div>
                     {registerErrors.confirmPassword ? <small className="user-register-error">{registerErrors.confirmPassword}</small> : null}
                   </label>
                 </div>
@@ -5367,14 +5437,24 @@ const RightTray = ({ onPopupStateChange = () => {} }) => {
 
                 <label className="user-login-field">
                   <span>Company Password</span>
-                  <input
-                    type="password"
-                    placeholder="Enter company password"
-                    value={companyLoginForm.companyPassword}
-                    onChange={(event) => handleCompanyLoginFieldChange('companyPassword', event.target.value)}
-                    autoComplete="current-password"
-                    required
-                  />
+                  <div className="user-password-input-wrap">
+                    <input
+                      type={getPasswordInputType('companyPassword')}
+                      placeholder="Enter company password"
+                      value={companyLoginForm.companyPassword}
+                      onChange={(event) => handleCompanyLoginFieldChange('companyPassword', event.target.value)}
+                      autoComplete="current-password"
+                      required
+                    />
+                    <button
+                      type="button"
+                      className="user-password-toggle"
+                      onClick={() => togglePasswordVisibility('companyPassword')}
+                      aria-label={passwordVisibility.companyPassword ? 'Hide password' : 'Show password'}
+                    >
+                      {passwordVisibility.companyPassword ? <EyeOff size={16} /> : <Eye size={16} />}
+                    </button>
+                  </div>
                 </label>
 
                 {companyLoginError ? <div className="spotify-auth-error">{companyLoginError}</div> : null}
@@ -5389,6 +5469,7 @@ const RightTray = ({ onPopupStateChange = () => {} }) => {
             </div>
           </div>
         )}
+
       </div>
     )}
 
@@ -5417,18 +5498,28 @@ const RightTray = ({ onPopupStateChange = () => {} }) => {
 
           <label className="user-login-field delete-account-field">
             <span>Confirm Password</span>
-            <input
-              type="password"
-              placeholder="Enter your password"
-              value={deleteAccountPassword}
-              onChange={(event) => {
-                setDeleteAccountPassword(event.target.value);
-                if (deleteAccountError) {
-                  setDeleteAccountError('');
-                }
-              }}
-              autoComplete="current-password"
-            />
+            <div className="user-password-input-wrap">
+              <input
+                type={getPasswordInputType('deleteAccountPassword')}
+                placeholder="Enter your password"
+                value={deleteAccountPassword}
+                onChange={(event) => {
+                  setDeleteAccountPassword(event.target.value);
+                  if (deleteAccountError) {
+                    setDeleteAccountError('');
+                  }
+                }}
+                autoComplete="current-password"
+              />
+              <button
+                type="button"
+                className="user-password-toggle"
+                onClick={() => togglePasswordVisibility('deleteAccountPassword')}
+                aria-label={passwordVisibility.deleteAccountPassword ? 'Hide password' : 'Show password'}
+              >
+                {passwordVisibility.deleteAccountPassword ? <EyeOff size={16} /> : <Eye size={16} />}
+              </button>
+            </div>
           </label>
 
           {deleteAccountError ? <div className="spotify-auth-error">{deleteAccountError}</div> : null}

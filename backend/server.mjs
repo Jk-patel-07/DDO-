@@ -1,9 +1,11 @@
 import dotenv from 'dotenv';
+import { compare } from 'bcrypt';
 import cors from 'cors';
 import express from 'express';
 import mongoose from 'mongoose';
 import { execFile } from 'node:child_process';
 import {
+  createHash,
   createHmac,
   randomBytes,
   scryptSync,
@@ -15,6 +17,7 @@ import { fileURLToPath } from 'node:url';
 import { promisify } from 'node:util';
 import XLSX from 'xlsx';
 import User from './models/User.mjs';
+import Company from './models/Company.mjs';
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
@@ -37,14 +40,11 @@ const DELETED_USERS_SHEET_NAME = 'Deleted Users';
 const ALLOWED_ORIGINS = new Set([
   'http://127.0.0.1:3000',
   'http://localhost:3000',
+  'http://127.0.0.1:5173',
+  'http://localhost:5173',
 ]);
 const MONGODB_URI = String(process.env.MONGODB_URI || '').trim();
 const AUTH_SECRET = process.env.JWT_SECRET || process.env.APP_AUTH_SECRET || 'ddo-local-auth-secret-change-me';
-const COMPANY_ID = String(process.env.COMPANY_ID || '').trim();
-const COMPANY_KEY = String(process.env.COMPANY_KEY || '').trim();
-const COMPANY_NAME = String(process.env.COMPANY_NAME || 'DDO Company').trim();
-const COMPANY_PASSWORD_HASH = String(process.env.COMPANY_PASSWORD_HASH || '').trim();
-const COMPANY_PASSWORD = String(process.env.COMPANY_PASSWORD || '').trim();
 const USERS_XLSX_HEADERS = [
   'Email ID',
   'First Name',
@@ -76,7 +76,12 @@ class HttpError extends Error {
 
 app.use(express.json({ limit: '1mb' }));
 app.use(cors({
-  origin: ['http://127.0.0.1:3000', 'http://localhost:3000'],
+  origin: [
+    'http://127.0.0.1:3000',
+    'http://localhost:3000',
+    'http://127.0.0.1:5173',
+    'http://localhost:5173',
+  ],
   credentials: true,
   methods: ['GET', 'POST', 'OPTIONS'],
   allowedHeaders: ['Content-Type', 'Authorization'],
@@ -415,6 +420,9 @@ const createToken = (user) => {
     sub: user.email,
     email: user.email,
     displayName: `${user.firstName} ${user.lastName}`.trim(),
+    role: user.role || 'user',
+    provider: user.provider || 'local',
+    companyId: user.companyId || '',
     iat: Math.floor(Date.now() / 1000),
   })).toString('base64url');
   const signature = createHmac('sha256', AUTH_SECRET)
@@ -471,19 +479,39 @@ const toPublicUser = (user) => ({
   provider: user.provider || 'local',
   role: user.role || 'user',
   companyId: user.companyId ? sanitizeText(user.companyId, 120) : '',
+  companyName: user.companyName ? sanitizeText(user.companyName, 160) : '',
+  companyEmail: user.companyEmail ? sanitizeEmail(user.companyEmail) : '',
+  companyPhone: user.companyPhone ? sanitizeText(user.companyPhone, 40) : '',
+  companyWebsite: user.companyWebsite ? sanitizeText(user.companyWebsite, 200) : '',
+  status: user.status ? sanitizeText(user.status, 40) : '',
 });
 
-const buildCompanySessionUser = () => ({
-  email: 'company@ddo.local',
-  displayName: COMPANY_NAME || 'DDO Company',
-  firstName: 'Company',
+const toPublicCompany = (company) => ({
+  companyName: sanitizeText(company.companyName, 160),
+  companyEmail: sanitizeEmail(company.companyEmail),
+  companyPhone: sanitizeText(company.companyPhone, 40),
+  companyWebsite: sanitizeText(company.companyWebsite, 200),
+  status: sanitizeText(company.status || 'pending', 40),
+  companyId: sanitizeText(company.companyId || '', 120),
+  companyKey: '',
+});
+
+const buildCompanySessionUser = (company) => ({
+  email: sanitizeEmail(company.companyEmail),
+  displayName: sanitizeText(company.companyName, 160),
+  firstName: sanitizeText(company.companyName, 160),
   middleName: '',
-  lastName: 'Admin',
-  phoneNumber: '',
-  moreInformation: 'Company access session',
+  lastName: 'Company',
+  phoneNumber: sanitizeText(company.companyPhone, 40),
+  moreInformation: sanitizeText(company.companyWebsite, 200),
   provider: 'company',
   role: 'company',
-  companyId: COMPANY_ID,
+  companyId: sanitizeText(company.companyId || '', 120),
+  companyName: sanitizeText(company.companyName, 160),
+  companyEmail: sanitizeEmail(company.companyEmail),
+  companyPhone: sanitizeText(company.companyPhone, 40),
+  companyWebsite: sanitizeText(company.companyWebsite, 200),
+  status: sanitizeText(company.status || 'approved', 40),
 });
 
 const openWindowsSettings = async () => {
@@ -716,7 +744,7 @@ app.get('/', (_request, response) => {
       wifi: '/api/wifi/status',
       register: 'POST /api/auth/register',
       login: 'POST /api/auth/login',
-      companyLogin: 'POST /api/auth/company-login',
+      companyLogin: 'POST /api/company/login',
       settings: 'POST /api/system/settings',
       controlPanel: 'POST /api/system/control-panel',
       taskManager: 'POST /api/system/task-manager',
@@ -997,34 +1025,39 @@ app.post('/api/auth/login', async (request, response, next) => {
   }
 });
 
-app.post('/api/auth/company-login', async (request, response, next) => {
+app.post('/api/company/login', async (request, response, next) => {
   try {
+    requireMongoConnection();
     const companyId = sanitizeText(request.body?.companyId || '', 120);
     const companyKey = sanitizeText(request.body?.companyKey || '', 160);
     const companyPassword = String(request.body?.companyPassword || '');
 
     if (!companyId || !companyKey || !companyPassword) {
-      throw new HttpError(400, 'Invalid company login details');
+      throw new HttpError(400, 'Invalid company ID, key, or password');
     }
 
-    if (!COMPANY_ID || !COMPANY_KEY || (!COMPANY_PASSWORD_HASH && !COMPANY_PASSWORD)) {
-      throw new HttpError(503, 'Company login server unavailable');
+    const company = await Company.findOne({
+      companyId,
+      companyKey,
+      status: 'approved',
+    }).lean();
+
+    if (!company?.companyPasswordHash) {
+      throw new HttpError(401, 'Invalid company ID, key, or password');
     }
 
-    const passwordMatches = COMPANY_PASSWORD_HASH
-      ? verifyPassword(companyPassword, COMPANY_PASSWORD_HASH)
-      : companyPassword === COMPANY_PASSWORD;
-
-    if (companyId !== COMPANY_ID || companyKey !== COMPANY_KEY || !passwordMatches) {
-      throw new HttpError(401, 'Invalid company login details');
+    const passwordMatches = await compare(companyPassword, company.companyPasswordHash);
+    if (!passwordMatches) {
+      throw new HttpError(401, 'Invalid company ID, key, or password');
     }
 
-    const companyUser = buildCompanySessionUser();
+    const companyUser = buildCompanySessionUser(company);
     response.json({
-      ok: true,
-      message: 'Company login successful.',
+      success: true,
+      message: 'Company login successful',
       token: createToken(companyUser),
       user: companyUser,
+      company: toPublicCompany(company),
     });
   } catch (error) {
     next(error);
@@ -1037,10 +1070,18 @@ app.get('/api/auth/session', async (request, response, next) => {
     const session = requireAuth(request);
 
     if (session?.role === 'company' || session?.provider === 'company') {
-      const companyUser = buildCompanySessionUser();
+      const companyLookup = session?.companyId
+        ? { companyId: sanitizeText(session.companyId, 120), status: 'approved' }
+        : { companyEmail: sanitizeEmail(session.email), status: 'approved' };
+      const company = await Company.findOne(companyLookup).lean();
+      if (!company) {
+        throw new HttpError(404, 'Company account not found.');
+      }
+      const companyUser = buildCompanySessionUser(company);
       response.json({
         ok: true,
         user: companyUser,
+        company: toPublicCompany(company),
       });
       return;
     }
@@ -1178,7 +1219,7 @@ const connectMongoDB = async () => {
     console.log('MongoDB connected successfully');
   } catch (error) {
     console.error('MongoDB connection failed:', error instanceof Error ? error.message : String(error));
-    process.exit(1);
+    console.warn('Backend will continue in degraded mode without MongoDB.');
   }
 };
 

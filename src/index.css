@@ -4485,6 +4485,36 @@ button:active::after,
   color: rgba(207, 216, 211, 0.58) !important;
 }
 
+.user-password-input-wrap {
+  position: relative;
+  width: 100%;
+}
+
+.user-password-input-wrap input {
+  padding-right: 40px;
+}
+
+.user-password-toggle {
+  position: absolute;
+  right: 0;
+  bottom: 12px;
+  width: 30px;
+  height: 30px;
+  border: 0;
+  background: transparent;
+  color: rgba(220, 228, 223, 0.78);
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  cursor: pointer;
+  transition: color 0.18s ease, transform 0.18s ease, opacity 0.18s ease;
+}
+
+.user-password-toggle:hover {
+  color: #ffffff;
+  transform: translateY(-1px);
+}
+
 .user-login-field textarea {
   width: 100%;
   padding: 0 0 18px;
