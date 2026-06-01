@@ -35,6 +35,12 @@ const companySchema = new mongoose.Schema(
       trim: true,
       index: true,
     },
+    approvalStatus: {
+      type: String,
+      default: 'pending',
+      trim: true,
+      index: true,
+    },
     companyId: {
       type: String,
       default: '',
@@ -53,6 +59,11 @@ const companySchema = new mongoose.Schema(
     approvedAt: {
       type: Date,
       default: null,
+    },
+    isActive: {
+      type: Boolean,
+      default: true,
+      index: true,
     },
     employees: {
       type: [

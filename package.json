@@ -4,7 +4,7 @@
   "version": "0.0.0",
   "type": "module",
   "scripts": {
-    "dev": "vite --host localhost --port 5173 --strictPort",
+    "dev": "vite --host 127.0.0.1 --port 3000 --strictPort",
     "dev:full": "node tools/dev-with-backend.mjs",
     "backend": "node server.mjs",
     "wifi-backend": "node server.mjs",

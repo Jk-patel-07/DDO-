@@ -1,5 +1,5 @@
 import dotenv from 'dotenv';
-import { compare } from 'bcrypt';
+import { compare, hash as bcryptHash } from 'bcrypt';
 import cors from 'cors';
 import express from 'express';
 import mongoose from 'mongoose';
@@ -45,6 +45,12 @@ const ALLOWED_ORIGINS = new Set([
 ]);
 const MONGODB_URI = String(process.env.MONGODB_URI || '').trim();
 const AUTH_SECRET = process.env.JWT_SECRET || process.env.APP_AUTH_SECRET || 'ddo-local-auth-secret-change-me';
+const COMPANY_SESSION_TTL_SECONDS = 60 * 30;
+const GEMINI_MODEL = process.env.GEMINI_MODEL || 'gemini-2.5-flash';
+const STEPFUN_MODEL = process.env.STEPFUN_MODEL || process.env.STEP_FUN_MODEL || 'step-2-mini';
+const STEPFUN_API_URL = process.env.STEPFUN_API_URL
+  || process.env.STEP_FUN_API_URL
+  || 'https://api.stepfun.com/v1/chat/completions';
 const USERS_XLSX_HEADERS = [
   'Email ID',
   'First Name',
@@ -166,6 +172,117 @@ const verifyPassword = (password, storedHash) => {
   const expected = Buffer.from(expectedHex, 'hex');
   const actual = scryptSync(password, salt, expected.length);
   return timingSafeEqual(expected, actual);
+};
+
+const getAiApiKey = (provider) => {
+  if (provider === 'gemini') {
+    return String(process.env.GEMINI_API_KEY || '').trim();
+  }
+
+  if (provider === 'stepfun') {
+    return String(process.env.STEPFUN_API_KEY || process.env.STEP_FUN_API_KEY || '').trim();
+  }
+
+  return '';
+};
+
+const parseGeminiAnswer = (payload) => {
+  const parts = payload?.candidates?.[0]?.content?.parts || [];
+  return parts.map((part) => part?.text || '').join('\n').trim();
+};
+
+const requestGeminiAnswer = async (prompt, apiKey) => {
+  const response = await fetch(
+    `https://generativelanguage.googleapis.com/v1beta/models/${GEMINI_MODEL}:generateContent?key=${encodeURIComponent(apiKey)}`,
+    {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        contents: [
+          {
+            role: 'user',
+            parts: [{ text: prompt }],
+          },
+        ],
+      }),
+    },
+  );
+
+  const payload = await response.json().catch(() => ({}));
+  if (!response.ok) {
+    throw new HttpError(response.status, payload?.error?.message || 'Gemini request failed.');
+  }
+
+  const answer = parseGeminiAnswer(payload);
+  if (!answer) {
+    throw new HttpError(502, 'Gemini did not return an answer.');
+  }
+
+  return answer;
+};
+
+const requestStepFunAnswer = async (prompt, apiKey) => {
+  const response = await fetch(STEPFUN_API_URL, {
+    method: 'POST',
+    headers: {
+      Authorization: `Bearer ${apiKey}`,
+      'Content-Type': 'application/json',
+    },
+    body: JSON.stringify({
+      model: STEPFUN_MODEL,
+      messages: [
+        {
+          role: 'system',
+          content: 'You are StepFun AI. Always reply in English only. Do not use Chinese.',
+        },
+        {
+          role: 'user',
+          content: prompt,
+        },
+      ],
+      temperature: 0.7,
+    }),
+  });
+
+  const payload = await response.json().catch(() => ({}));
+  if (!response.ok) {
+    throw new HttpError(response.status, payload?.error?.message || 'StepFun AI request failed.');
+  }
+
+  const answer = String(payload?.choices?.[0]?.message?.content || '').trim();
+  if (!answer) {
+    throw new HttpError(502, 'StepFun AI did not return an answer.');
+  }
+
+  return answer;
+};
+
+const respondWithAi = async ({ provider, prompt }) => {
+  const normalizedProvider = sanitizeText(provider, 24).toLowerCase();
+  const normalizedPrompt = String(prompt || '').trim();
+
+  if (!normalizedPrompt) {
+    throw new HttpError(400, 'Enter a question first.');
+  }
+
+  if (!['gemini', 'stepfun'].includes(normalizedProvider)) {
+    throw new HttpError(400, 'Unsupported AI provider.');
+  }
+
+  const apiKey = getAiApiKey(normalizedProvider);
+  if (!apiKey) {
+    const label = normalizedProvider === 'stepfun' ? 'StepFun AI' : 'Gemini';
+    throw new HttpError(503, `${label} is not configured. Add the API key in backend/.env.`);
+  }
+
+  const answer = normalizedProvider === 'stepfun'
+    ? await requestStepFunAnswer(normalizedPrompt, apiKey)
+    : await requestGeminiAnswer(normalizedPrompt, apiKey);
+
+  return {
+    provider: normalizedProvider,
+    answer,
+  };
 };
 
 const mapStoredUser = (user) => {
@@ -414,17 +531,24 @@ const saveDeletedUserToExcel = async (user) => {
   await writeFile(DELETED_USERS_XLSX_FILE, workbookBuffer);
 };
 
-const createToken = (user) => {
+const createToken = (user, options = {}) => {
+  const now = Math.floor(Date.now() / 1000);
   const header = Buffer.from(JSON.stringify({ alg: 'HS256', typ: 'JWT' })).toString('base64url');
-  const payload = Buffer.from(JSON.stringify({
+  const payloadObject = {
     sub: user.email,
     email: user.email,
     displayName: `${user.firstName} ${user.lastName}`.trim(),
     role: user.role || 'user',
     provider: user.provider || 'local',
     companyId: user.companyId || '',
-    iat: Math.floor(Date.now() / 1000),
-  })).toString('base64url');
+    iat: now,
+  };
+
+  if (typeof options.expiresInSeconds === 'number' && options.expiresInSeconds > 0) {
+    payloadObject.exp = now + options.expiresInSeconds;
+  }
+
+  const payload = Buffer.from(JSON.stringify(payloadObject)).toString('base64url');
   const signature = createHmac('sha256', AUTH_SECRET)
     .update(`${header}.${payload}`)
     .digest('base64url');
@@ -451,8 +575,15 @@ const verifyToken = (token) => {
   }
 
   try {
-    return JSON.parse(Buffer.from(payload, 'base64url').toString('utf8'));
-  } catch {
+    const parsedPayload = JSON.parse(Buffer.from(payload, 'base64url').toString('utf8'));
+    if (parsedPayload?.exp && Math.floor(Date.now() / 1000) >= Number(parsedPayload.exp)) {
+      throw new HttpError(401, 'Session expired, please login again.');
+    }
+    return parsedPayload;
+  } catch (error) {
+    if (error instanceof HttpError) {
+      throw error;
+    }
     throw new HttpError(401, 'Invalid authentication token.');
   }
 };
@@ -467,6 +598,14 @@ const getBearerToken = (request) => {
 };
 
 const requireAuth = (request) => verifyToken(getBearerToken(request));
+const requireCompanyAuth = (request) => {
+  const session = requireAuth(request);
+  if (session?.role !== 'company' && session?.provider !== 'company') {
+    throw new HttpError(403, 'Company authentication required.');
+  }
+
+  return session;
+};
 
 const toPublicUser = (user) => ({
   email: sanitizeEmail(user.email),
@@ -491,7 +630,8 @@ const toPublicCompany = (company) => ({
   companyEmail: sanitizeEmail(company.companyEmail),
   companyPhone: sanitizeText(company.companyPhone, 40),
   companyWebsite: sanitizeText(company.companyWebsite, 200),
-  status: sanitizeText(company.status || 'pending', 40),
+  companyAddress: sanitizeText(company.companyAddress, 240),
+  status: sanitizeText(company.approvalStatus || company.status || 'pending', 40),
   companyId: sanitizeText(company.companyId || '', 120),
   companyKey: '',
 });
@@ -511,8 +651,169 @@ const buildCompanySessionUser = (company) => ({
   companyEmail: sanitizeEmail(company.companyEmail),
   companyPhone: sanitizeText(company.companyPhone, 40),
   companyWebsite: sanitizeText(company.companyWebsite, 200),
-  status: sanitizeText(company.status || 'approved', 40),
+  companyAddress: sanitizeText(company.companyAddress, 240),
+  status: sanitizeText(company.approvalStatus || company.status || 'approved', 40),
 });
+
+const getCompanyApprovalStatus = (company) => sanitizeText(company?.approvalStatus || company?.status || 'pending', 40).toLowerCase();
+const isCompanyApproved = (company) => getCompanyApprovalStatus(company) === 'approved';
+const isCompanyActive = (company) => company?.isActive !== false;
+const getCompanyLookupFromSession = (session) => (
+  session?.companyId
+    ? { companyId: sanitizeText(session.companyId, 120) }
+    : { companyEmail: sanitizeEmail(session.email) }
+);
+
+const formatCompanyEmployees = (employees = []) => {
+  const normalizedEmployees = Array.isArray(employees) ? employees : [];
+  if (!normalizedEmployees.length) {
+    return [];
+  }
+
+  return normalizedEmployees.map((employee, index) => ({
+    id: sanitizeText(employee.id || `${index + 1}`, 40) || `${index + 1}`,
+    name: sanitizeText(employee.name, 120) || 'Unnamed Employee',
+    email: sanitizeEmail(employee.email || ''),
+    role: sanitizeText(employee.role, 80) || 'Employee',
+    status: sanitizeText(employee.status, 40) || 'Active',
+    joinedDate: employee.joinedDate ? new Date(employee.joinedDate).toISOString() : '',
+  }));
+};
+
+const formatCompanyLoginActivity = (activity = [], company = null) => {
+  const normalizedActivity = Array.isArray(activity) ? activity : [];
+  const mappedActivity = normalizedActivity.map((entry, index) => ({
+    id: sanitizeText(entry.id || `${index + 1}`, 40) || `${index + 1}`,
+    time: entry.time ? new Date(entry.time).toISOString() : new Date().toISOString(),
+    action: sanitizeText(entry.action, 80) || 'Login',
+    source: sanitizeText(entry.source, 80) || 'DDO App',
+    status: sanitizeText(entry.status, 40) || 'Success',
+  }));
+
+  if (mappedActivity.length) {
+    return mappedActivity
+      .sort((left, right) => new Date(right.time).getTime() - new Date(left.time).getTime())
+      .slice(0, 8);
+  }
+
+  return [{
+    id: 'current-session',
+    time: new Date().toISOString(),
+    action: 'Login',
+    source: 'DDO App',
+    status: company?.status === 'approved' ? 'Success' : 'Pending',
+  }];
+};
+
+const formatSubmittedForms = (forms = []) => {
+  const normalizedForms = Array.isArray(forms) ? forms : [];
+  return normalizedForms.map((form, index) => ({
+    id: sanitizeText(form.id || `${index + 1}`, 40) || `${index + 1}`,
+    title: sanitizeText(form.title, 160) || 'Untitled Request',
+    status: sanitizeText(form.status, 40) || 'Submitted',
+    submittedAt: form.submittedAt ? new Date(form.submittedAt).toISOString() : '',
+  }));
+};
+
+const buildCompanyDeveloperStatus = async () => {
+  let excelBackupAvailable = false;
+  try {
+    await readFile(USERS_XLSX_FILE);
+    excelBackupAvailable = true;
+  } catch {
+    excelBackupAvailable = false;
+  }
+
+  return {
+    backendStatus: 'Online',
+    apiStatus: 'Healthy',
+    mongoDbStatus: isMongoReady() ? 'Connected' : 'Disconnected',
+    excelBackupStatus: excelBackupAvailable ? 'Available' : 'Not Found',
+    debugLogs: [
+      `Environment: ${process.env.NODE_ENV || 'development'}`,
+      `Mongo ready state: ${mongoose.connection.readyState}`,
+      `Last check: ${new Date().toISOString()}`,
+    ],
+  };
+};
+
+const buildCompanyDashboardPayload = async (company) => {
+  const employees = formatCompanyEmployees(company.employees);
+  const submittedForms = formatSubmittedForms(company.submittedForms);
+  const loginActivity = formatCompanyLoginActivity(company.loginActivity, company);
+  const developerMode = await buildCompanyDeveloperStatus();
+
+  return {
+    company: toPublicCompany(company),
+    developerMode,
+    details: {
+      companyName: sanitizeText(company.companyName, 160),
+      companyId: sanitizeText(company.companyId || '', 120),
+      companyEmail: sanitizeEmail(company.companyEmail),
+      companyWebsite: sanitizeText(company.companyWebsite, 200),
+      companyPhone: sanitizeText(company.companyPhone, 40),
+      companyAddress: sanitizeText(company.companyAddress, 240) || 'Not available',
+      accountStatus: sanitizeText(company.status || 'approved', 40),
+    },
+    employees,
+    loginActivity,
+    submittedForms,
+    securityStatus: {
+      fileUploadProtection: true,
+      linkProtection: true,
+      loginProtection: true,
+      apiKeyProtection: true,
+    },
+    stats: {
+      totalEmployees: employees.length,
+      activeEmployees: employees.filter((employee) => employee.status.toLowerCase() === 'active').length,
+      openRequests: submittedForms.filter((form) => !['approved', 'completed'].includes(form.status.toLowerCase())).length,
+      recentLogins: loginActivity.length,
+    },
+  };
+};
+
+const verifyCompanyPassword = async (password, company) => {
+  const storedHash = String(company?.companyPasswordHash || '').trim();
+  const legacyPlainPassword = typeof company?.companyPassword === 'string'
+    ? company.companyPassword
+    : '';
+
+  if (storedHash) {
+    if (storedHash.startsWith('scrypt$')) {
+      return {
+        matches: verifyPassword(password, storedHash),
+        shouldUpgradeHash: false,
+      };
+    }
+
+    if (storedHash.startsWith('$2')) {
+      return {
+        matches: await compare(password, storedHash),
+        shouldUpgradeHash: false,
+      };
+    }
+
+    const plainMatch = password === storedHash;
+    return {
+      matches: plainMatch,
+      shouldUpgradeHash: plainMatch,
+    };
+  }
+
+  if (legacyPlainPassword) {
+    const plainMatch = password === legacyPlainPassword;
+    return {
+      matches: plainMatch,
+      shouldUpgradeHash: plainMatch,
+    };
+  }
+
+  return {
+    matches: false,
+    shouldUpgradeHash: false,
+  };
+};
 
 const openWindowsSettings = async () => {
   await execFileAsync('cmd', ['/c', 'start', '', 'ms-settings:'], {
@@ -732,11 +1033,24 @@ app.get('/api/security/status', (_request, response) => {
   });
 });
 
+app.post('/api/ai/respond', async (request, response, next) => {
+  try {
+    const result = await respondWithAi(request.body || {});
+    response.json({
+      ok: true,
+      ...result,
+    });
+  } catch (error) {
+    next(error);
+  }
+});
+
 app.get('/', (_request, response) => {
   response.json({
     ok: true,
     message: 'DDO backend is running',
     routes: {
+      aiRespond: 'POST /api/ai/respond',
       notifications: '/api/notifications',
       security: '/api/security/status',
       bluetoothStatus: '/api/bluetooth/status',
@@ -745,6 +1059,10 @@ app.get('/', (_request, response) => {
       register: 'POST /api/auth/register',
       login: 'POST /api/auth/login',
       companyLogin: 'POST /api/company/login',
+      companyDashboard: 'GET /api/company/dashboard',
+      companyDetails: 'GET /api/company/details',
+      companyEmployees: 'GET /api/company/employees',
+      companyDevStatus: 'GET /api/company/dev-status',
       settings: 'POST /api/system/settings',
       controlPanel: 'POST /api/system/control-panel',
       taskManager: 'POST /api/system/task-manager',
@@ -1032,32 +1350,174 @@ app.post('/api/company/login', async (request, response, next) => {
     const companyKey = sanitizeText(request.body?.companyKey || '', 160);
     const companyPassword = String(request.body?.companyPassword || '');
 
-    if (!companyId || !companyKey || !companyPassword) {
-      throw new HttpError(400, 'Invalid company ID, key, or password');
-    }
-
-    const company = await Company.findOne({
+    console.log('[company-login] request received', {
       companyId,
-      companyKey,
-      status: 'approved',
-    }).lean();
+      companyKeyLength: companyKey.length,
+      hasPassword: Boolean(companyPassword),
+    });
 
-    if (!company?.companyPasswordHash) {
-      throw new HttpError(401, 'Invalid company ID, key, or password');
+    if (!companyId || !companyKey || !companyPassword) {
+      throw new HttpError(400, 'Wrong company ID/key/password');
     }
 
-    const passwordMatches = await compare(companyPassword, company.companyPasswordHash);
-    if (!passwordMatches) {
-      throw new HttpError(401, 'Invalid company ID, key, or password');
+    const company = await Company.findOne({ companyId, companyKey }).lean();
+
+    if (!company) {
+      console.log('[company-login] company not found');
+      throw new HttpError(404, 'Company not found');
     }
+
+    console.log('[company-login] company found', {
+      companyEmail: company.companyEmail,
+      approvalStatus: getCompanyApprovalStatus(company),
+      isActive: isCompanyActive(company),
+      hasPasswordHash: Boolean(company.companyPasswordHash),
+    });
+
+    if (!isCompanyApproved(company)) {
+      console.log('[company-login] company not approved');
+      throw new HttpError(403, 'Company not approved');
+    }
+
+    if (!isCompanyActive(company)) {
+      console.log('[company-login] company inactive');
+      throw new HttpError(403, 'Company not approved');
+    }
+
+    const passwordCheck = await verifyCompanyPassword(companyPassword, company);
+    console.log('[company-login] password match', passwordCheck.matches);
+    if (!passwordCheck.matches) {
+      throw new HttpError(401, 'Wrong company ID/key/password');
+    }
+
+    const loginEntry = {
+      time: new Date(),
+      action: 'Login',
+      source: 'DDO App',
+      status: 'Success',
+    };
+
+    const update = {
+      $push: {
+        loginActivity: {
+          $each: [loginEntry],
+          $position: 0,
+          $slice: 8,
+        },
+      },
+    };
+
+    if (passwordCheck.shouldUpgradeHash) {
+      update.$set = {
+        companyPasswordHash: await bcryptHash(companyPassword, 10),
+      };
+      update.$unset = {
+        companyPassword: '',
+      };
+    }
+
+    await Company.updateOne({ _id: company._id }, update);
 
     const companyUser = buildCompanySessionUser(company);
+    console.log('[company-login] jwt token created');
     response.json({
       success: true,
       message: 'Company login successful',
-      token: createToken(companyUser),
+      token: createToken(companyUser, { expiresInSeconds: COMPANY_SESSION_TTL_SECONDS }),
       user: companyUser,
       company: toPublicCompany(company),
+    });
+  } catch (error) {
+    next(error);
+  }
+});
+
+app.get('/api/company/dashboard', async (request, response, next) => {
+  try {
+    requireMongoConnection();
+    const session = requireCompanyAuth(request);
+    const companyLookup = getCompanyLookupFromSession(session);
+    const company = await Company.findOne(companyLookup).lean();
+
+    if (!company) {
+      console.log('[company-dashboard] access denied - company not found', companyLookup);
+      throw new HttpError(404, 'Company account not found.');
+    }
+
+    if (!isCompanyApproved(company) || !isCompanyActive(company)) {
+      console.log('[company-dashboard] access denied - approval inactive', {
+        approvalStatus: getCompanyApprovalStatus(company),
+        isActive: isCompanyActive(company),
+      });
+      throw new HttpError(403, 'Company not approved');
+    }
+
+    console.log('[company-dashboard] access allowed', { companyId: company.companyId });
+
+    response.json({
+      ok: true,
+      ...(await buildCompanyDashboardPayload(company)),
+    });
+  } catch (error) {
+    next(error);
+  }
+});
+
+app.get('/api/company/details', async (request, response, next) => {
+  try {
+    requireMongoConnection();
+    const session = requireCompanyAuth(request);
+    const companyLookup = getCompanyLookupFromSession(session);
+    const company = await Company.findOne(companyLookup).lean();
+
+    if (!company) {
+      throw new HttpError(404, 'Company account not found.');
+    }
+
+    if (!isCompanyApproved(company) || !isCompanyActive(company)) {
+      throw new HttpError(403, 'Company not approved');
+    }
+
+    const payload = await buildCompanyDashboardPayload(company);
+    response.json({
+      ok: true,
+      company: payload.details,
+    });
+  } catch (error) {
+    next(error);
+  }
+});
+
+app.get('/api/company/employees', async (request, response, next) => {
+  try {
+    requireMongoConnection();
+    const session = requireCompanyAuth(request);
+    const companyLookup = getCompanyLookupFromSession(session);
+    const company = await Company.findOne(companyLookup).lean();
+
+    if (!company) {
+      throw new HttpError(404, 'Company account not found.');
+    }
+
+    if (!isCompanyApproved(company) || !isCompanyActive(company)) {
+      throw new HttpError(403, 'Company not approved');
+    }
+
+    response.json({
+      ok: true,
+      employees: formatCompanyEmployees(company.employees),
+    });
+  } catch (error) {
+    next(error);
+  }
+});
+
+app.get('/api/company/dev-status', async (request, response, next) => {
+  try {
+    requireCompanyAuth(request);
+    response.json({
+      ok: true,
+      developerMode: await buildCompanyDeveloperStatus(),
     });
   } catch (error) {
     next(error);
@@ -1070,13 +1530,20 @@ app.get('/api/auth/session', async (request, response, next) => {
     const session = requireAuth(request);
 
     if (session?.role === 'company' || session?.provider === 'company') {
-      const companyLookup = session?.companyId
-        ? { companyId: sanitizeText(session.companyId, 120), status: 'approved' }
-        : { companyEmail: sanitizeEmail(session.email), status: 'approved' };
+      const companyLookup = getCompanyLookupFromSession(session);
       const company = await Company.findOne(companyLookup).lean();
       if (!company) {
+        console.log('[company-session] access denied - company not found', companyLookup);
         throw new HttpError(404, 'Company account not found.');
       }
+      if (!isCompanyApproved(company) || !isCompanyActive(company)) {
+        console.log('[company-session] access denied - approval inactive', {
+          approvalStatus: getCompanyApprovalStatus(company),
+          isActive: isCompanyActive(company),
+        });
+        throw new HttpError(403, 'Company not approved');
+      }
+      console.log('[company-session] dashboard access allowed', { companyId: company.companyId });
       const companyUser = buildCompanySessionUser(company);
       response.json({
         ok: true,
@@ -1215,7 +1682,9 @@ const connectMongoDB = async () => {
   }
 
   try {
-    await mongoose.connect(MONGODB_URI);
+    await mongoose.connect(MONGODB_URI, {
+      serverSelectionTimeoutMS: 5000,
+    });
     console.log('MongoDB connected successfully');
   } catch (error) {
     console.error('MongoDB connection failed:', error instanceof Error ? error.message : String(error));
@@ -1224,10 +1693,13 @@ const connectMongoDB = async () => {
 };
 
 const startServer = async () => {
-  await connectMongoDB();
-  app.listen(PORT, HOST, () => {
+  const server = app.listen(PORT, HOST, () => {
     console.log(`DDO backend listening at http://${HOST}:${PORT}`);
   });
+  server.on('error', (error) => {
+    console.error('DDO backend failed to start:', error instanceof Error ? error.message : String(error));
+  });
+  void connectMongoDB();
 };
 
 await startServer();

@@ -1,6 +1,6 @@
 import { useState, useEffect, useRef, useCallback } from 'react';
 import { createPortal } from 'react-dom';
-import { Wifi, Bluetooth, Bell, X, User, Phone, Mail, Users, Briefcase, Plus, ChevronDown, Smartphone, MoreVertical, Zap, HeartPulse, Gauge, Clock3, Leaf, Thermometer, Square, Lock, Check, LoaderCircle, RefreshCw, LayoutGrid, Search as SearchIcon, Settings, Music4, Volume, Volume1, Volume2, VolumeX, Shield, TriangleAlert, Eye, EyeOff } from 'lucide-react';
+import { Wifi, Bluetooth, Bell, X, User, Phone, Mail, Users, Briefcase, Plus, ChevronDown, Smartphone, MoreVertical, Zap, HeartPulse, Gauge, Clock3, Leaf, Thermometer, Square, Lock, Check, LoaderCircle, RefreshCw, LayoutGrid, Search as SearchIcon, Settings, Music4, Volume, Volume1, Volume2, VolumeX, Shield, TriangleAlert, Eye, EyeOff, LogOut } from 'lucide-react';
 import { FaWhatsapp, FaSpotify } from 'react-icons/fa';
 import CenterSearch from './CenterSearch';
 import BrandLogo from './BrandLogo';
@@ -367,10 +367,15 @@ const RightTray = ({ onPopupStateChange = () => {} }) => {
   const [isRegisterOpen, setIsRegisterOpen] = useState(false);
   const [isCompanyLoginOpen, setIsCompanyLoginOpen] = useState(false);
   const [isUsStatusPopupOpen, setIsUsStatusPopupOpen] = useState(false);
+  const [isCompanyDashboardOpen, setIsCompanyDashboardOpen] = useState(() => readStoredAuthSession()?.user?.role === 'company');
+  const [companyDashboardSection, setCompanyDashboardSection] = useState('none');
   const [usStatusActiveSection, setUsStatusActiveSection] = useState('none');
   const [isUsSideSettingsOpen, setIsUsSideSettingsOpen] = useState(false);
   const [usSideSettingsSection, setUsSideSettingsSection] = useState('profile');
   const [appAuthSession, setAppAuthSession] = useState(() => readStoredAuthSession());
+  const [companyDashboardData, setCompanyDashboardData] = useState(null);
+  const [isCompanyDashboardLoading, setIsCompanyDashboardLoading] = useState(false);
+  const [companyDashboardError, setCompanyDashboardError] = useState('');
   const [loginForm, setLoginForm] = useState({
     email: '',
     password: '',
@@ -420,6 +425,8 @@ const RightTray = ({ onPopupStateChange = () => {} }) => {
   const usStatusPopupRef = useRef(null);
   const usSideSettingsRef = useRef(null);
   const notificationsPopupRef = useRef(null);
+  const companyDashboardRef = useRef(null);
+  const companyDashboardNestedRef = useRef(null);
   const [studySecondsLeft, setStudySecondsLeft] = useState(25 * 60);
   const [isStudyTimerRunning, setIsStudyTimerRunning] = useState(false);
   const [usVolume, setUsVolume] = useState(65);
@@ -546,17 +553,25 @@ const RightTray = ({ onPopupStateChange = () => {} }) => {
 
   const handleProtectedRequestFailure = useCallback((message) => {
     if (/session expired|authentication required|unauthorized|log in/i.test(message)) {
-      clearStoredAuthSession();
+      const isCompanySession = appAuthSession?.user?.role === 'company';
+      clearStoredAuthSession(isCompanySession ? 'company' : 'user');
       setAppAuthSession(null);
       setIsUsStatusPopupOpen(false);
+      setIsCompanyDashboardOpen(false);
       setIsUsSideSettingsOpen(false);
       setUsSideSettingsSection('profile');
       setUsStatusActiveSection('none');
       setIsRegisterOpen(false);
-      setLoginError(message);
-      setIsUserLoginOpen(true);
+      if (isCompanySession) {
+        setCompanyDashboardError('');
+        setCompanyLoginError(message);
+        setIsCompanyLoginOpen(true);
+      } else {
+        setLoginError(message);
+        setIsUserLoginOpen(true);
+      }
     }
-  }, []);
+  }, [appAuthSession?.user?.role]);
 
   const requestWifi = async (endpoint, options = {}) => {
     return requestBackendJson(endpoint, options, {
@@ -651,6 +666,65 @@ const RightTray = ({ onPopupStateChange = () => {} }) => {
     }
   }, []);
 
+  const loadCompanyDashboard = useCallback(async () => {
+    setIsCompanyDashboardLoading(true);
+    setCompanyDashboardError('');
+
+    try {
+      const [dashboardPayload, detailsPayload, employeesPayload, devStatusPayload] = await Promise.all([
+        requestBackendJson('/api/company/dashboard', { method: 'GET' }, {
+          requiresAuth: true,
+          fallbackMessage: 'Unable to load company dashboard.',
+          onUnauthorized: handleProtectedRequestFailure,
+        }),
+        requestBackendJson('/api/company/details', { method: 'GET' }, {
+          requiresAuth: true,
+          fallbackMessage: 'Unable to load company details.',
+          onUnauthorized: handleProtectedRequestFailure,
+        }),
+        requestBackendJson('/api/company/employees', { method: 'GET' }, {
+          requiresAuth: true,
+          fallbackMessage: 'Unable to load company employees.',
+          onUnauthorized: handleProtectedRequestFailure,
+        }),
+        requestBackendJson('/api/company/dev-status', { method: 'GET' }, {
+          requiresAuth: true,
+          fallbackMessage: 'Unable to load developer mode.',
+          onUnauthorized: handleProtectedRequestFailure,
+        }),
+      ]);
+
+      setCompanyDashboardData({
+        company: dashboardPayload.company || null,
+        details: detailsPayload.company || dashboardPayload.details || null,
+        employees: Array.isArray(employeesPayload.employees) ? employeesPayload.employees : [],
+        loginActivity: Array.isArray(dashboardPayload.loginActivity) ? dashboardPayload.loginActivity : [],
+        submittedForms: Array.isArray(dashboardPayload.submittedForms) ? dashboardPayload.submittedForms : [],
+        securityStatus: dashboardPayload.securityStatus || null,
+        developerMode: devStatusPayload.developerMode || dashboardPayload.developerMode || null,
+        stats: dashboardPayload.stats || null,
+      });
+    } catch (error) {
+      setCompanyDashboardData(null);
+      setCompanyDashboardError(error.message || 'Unable to load company dashboard.');
+    } finally {
+      setIsCompanyDashboardLoading(false);
+    }
+  }, [handleProtectedRequestFailure]);
+
+  const openCompanyDashboard = useCallback(() => {
+    setIsRegisterOpen(false);
+    setIsUserLoginOpen(false);
+    setIsCompanyLoginOpen(false);
+    setIsUsStatusPopupOpen(false);
+    setIsUsSideSettingsOpen(false);
+    setUsSideSettingsSection('profile');
+    setUsStatusActiveSection('none');
+    setCompanyDashboardSection('none');
+    setIsCompanyDashboardOpen(true);
+    void loadCompanyDashboard();
+  }, [loadCompanyDashboard]);
+
   useEffect(() => {
     const storedSession = readStoredAuthSession();
     if (!storedSession?.token) {
@@ -668,6 +742,9 @@ const RightTray = ({ onPopupStateChange = () => {} }) => {
           return;
         }
         setAppAuthSession((current) => (current ? { ...current, user: payload.user } : storedSession));
+        if (payload.user?.role === 'company') {
+          openCompanyDashboard();
+        }
       })
       .catch(() => {
         if (!isActive) {
@@ -680,7 +757,7 @@ const RightTray = ({ onPopupStateChange = () => {} }) => {
     return () => {
       isActive = false;
     };
-  }, [handleProtectedRequestFailure]);
+  }, [handleProtectedRequestFailure, openCompanyDashboard]);
 
   const loadWifiNetworks = async (showLoader = true) => {
     try {
@@ -1304,6 +1381,15 @@ const RightTray = ({ onPopupStateChange = () => {} }) => {
   // US Status Popup Click Outside
   useEffect(() => {
     const handleUsStatusClickOutside = (event) => {
+      if (companyDashboardNestedRef.current && companyDashboardNestedRef.current.contains(event.target)) {
+        return;
+      }
+      if (companyDashboardRef.current && companyDashboardRef.current.contains(event.target)) {
+        if (companyDashboardSection !== 'none') {
+          setCompanyDashboardSection('none');
+        }
+        return;
+      }
       if (usSideSettingsRef.current && usSideSettingsRef.current.contains(event.target)) {
         return;
       }
@@ -1317,12 +1403,16 @@ const RightTray = ({ onPopupStateChange = () => {} }) => {
         setIsUsSideSettingsOpen(false);
         setUsSideSettingsSection('profile');
       }
+      if (isCompanyDashboardOpen) {
+        setIsCompanyDashboardOpen(false);
+        setCompanyDashboardSection('none');
+      }
     };
     document.addEventListener('mousedown', handleUsStatusClickOutside);
     return () => {
       document.removeEventListener('mousedown', handleUsStatusClickOutside);
     };
-  }, [isUsSideSettingsOpen]);
+  }, [companyDashboardSection, isCompanyDashboardOpen, isUsSideSettingsOpen]);
 
   // Study Timer logic
   useEffect(() => {
@@ -1369,6 +1459,7 @@ const RightTray = ({ onPopupStateChange = () => {} }) => {
       || isAppLauncherOpen
       || showSpotifyPopup
       || isUserLoginOpen
+      || isCompanyDashboardOpen
       || isUsStatusPopupOpen,
     );
 
@@ -1379,6 +1470,7 @@ const RightTray = ({ onPopupStateChange = () => {} }) => {
     isAddContactOpen,
     isBatteryPopupOpen,
     isBluetoothPopupOpen,
+    isCompanyDashboardOpen,
     isContactSelectOpen,
     isNotificationsOpen,
     isSearchPopupOpen,
@@ -2571,13 +2663,7 @@ const RightTray = ({ onPopupStateChange = () => {} }) => {
         companyKey: '',
         companyPassword: '',
       });
-      setIsRegisterOpen(false);
-      setIsCompanyLoginOpen(false);
-      setIsUsSideSettingsOpen(false);
-      setUsSideSettingsSection('profile');
-      setUsStatusActiveSection('none');
-      setIsUserLoginOpen(false);
-      setIsUsStatusPopupOpen(true);
+      openCompanyDashboard();
     } catch (error) {
       setCompanyLoginError(error.message || 'Company login server unavailable');
     } finally {
@@ -2595,16 +2681,24 @@ const RightTray = ({ onPopupStateChange = () => {} }) => {
       // Logout should still clear local auth even if the backend call fails.
     }
 
-    clearStoredAuthSession();
+    const isCompanySession = appAuthSession?.user?.role === 'company';
+    clearStoredAuthSession(isCompanySession ? 'company' : 'user');
     setAppAuthSession(null);
     setLoginError('');
+    setCompanyLoginError('');
     setIsRegisterOpen(false);
     setIsCompanyLoginOpen(false);
+    setIsCompanyDashboardOpen(false);
     setIsUsSideSettingsOpen(false);
     setUsSideSettingsSection('profile');
     setIsUsStatusPopupOpen(false);
     setUsStatusActiveSection('none');
-    setIsUserLoginOpen(true);
+    if (isCompanySession) {
+      setIsUserLoginOpen(false);
+      setIsCompanyLoginOpen(true);
+    } else {
+      setIsUserLoginOpen(true);
+    }
   };
 
   const handleDeleteAccount = async () => {
@@ -2648,6 +2742,224 @@ const RightTray = ({ onPopupStateChange = () => {} }) => {
     } finally {
       setIsDeleteAccountSubmitting(false);
     }
+  };
+
+  const companyDashboardNav = [
+    { id: 'developer', label: 'Developer Mode', icon: Gauge },
+    { id: 'details', label: 'Company Details', icon: Briefcase },
+    { id: 'employees', label: 'Company Employee Details', icon: Users },
+    { id: 'security', label: 'Security Status', icon: Shield },
+    { id: 'forms', label: 'Submitted Forms', icon: LayoutGrid },
+    { id: 'settings', label: 'Settings', icon: Settings },
+    { id: 'logout', label: 'Logout', icon: LogOut },
+  ];
+
+  const renderCompanyDashboardSection = () => {
+    if (isCompanyDashboardLoading) {
+      return (
+        <div className="company-dashboard-empty-state">
+          <LoaderCircle size={18} className="wifi-action-spinner" />
+          <span>Loading company dashboard...</span>
+        </div>
+      );
+    }
+
+    if (companyDashboardError) {
+      return (
+        <div className="company-dashboard-empty-state is-error">
+          <span>{companyDashboardError}</span>
+        </div>
+      );
+    }
+
+    const stats = companyDashboardData?.stats || {};
+    const details = companyDashboardData?.details || {};
+    const developerMode = companyDashboardData?.developerMode || {};
+    const securityStatusData = securityStatus || companyDashboardData?.securityStatus || {};
+
+    if (companyDashboardSection === 'developer') {
+      return (
+        <div className="company-dashboard-section-grid">
+          {[
+            ['Backend Status', developerMode.backendStatus || 'Unknown'],
+            ['API Status', developerMode.apiStatus || 'Unknown'],
+            ['MongoDB Status', developerMode.mongoDbStatus || 'Unknown'],
+            ['Excel Backup Status', developerMode.excelBackupStatus || 'Unknown'],
+          ].map(([label, value]) => (
+            <div key={label} className="company-dashboard-card">
+              <span>{label}</span>
+              <strong>{value}</strong>
+            </div>
+          ))}
+          <div className="company-dashboard-card company-dashboard-card-wide">
+            <span>Debug Logs</span>
+            <div className="company-dashboard-log-list">
+              {(developerMode.debugLogs || []).length ? (developerMode.debugLogs || []).map((log, index) => (
+                <code key={`${log}-${index}`}>{log}</code>
+              )) : <code>No debug logs available.</code>}
+            </div>
+          </div>
+        </div>
+      );
+    }
+
+    if (companyDashboardSection === 'details') {
+      return (
+        <div className="company-dashboard-list-card">
+          {[
+            ['Company Name', details.companyName],
+            ['Company ID', details.companyId],
+            ['Company Email', details.companyEmail],
+            ['Company Website', details.companyWebsite],
+            ['Company Phone', details.companyPhone],
+            ['Company Address', details.companyAddress],
+            ['Account Status', details.accountStatus],
+          ].map(([label, value]) => (
+            <div key={label} className="company-dashboard-detail-row">
+              <span>{label}</span>
+              <strong>{value || 'Not available'}</strong>
+            </div>
+          ))}
+        </div>
+      );
+    }
+
+    if (companyDashboardSection === 'employees') {
+      const employees = companyDashboardData?.employees || [];
+      return employees.length ? (
+        <div className="company-dashboard-table">
+          {employees.map((employee) => (
+            <div key={employee.id} className="company-dashboard-table-row">
+              <div>
+                <strong>{employee.name}</strong>
+                <span>{employee.email || 'No email'}</span>
+              </div>
+              <div>
+                <strong>{employee.role}</strong>
+                <span>{employee.status}</span>
+              </div>
+              <div>
+                <strong>Joined</strong>
+                <span>{employee.joinedDate ? new Date(employee.joinedDate).toLocaleDateString() : 'Not available'}</span>
+              </div>
+            </div>
+          ))}
+        </div>
+      ) : (
+        <div className="company-dashboard-empty-state">
+          <span>No employee records available yet.</span>
+        </div>
+      );
+    }
+
+    if (companyDashboardSection === 'activity') {
+      const loginActivity = companyDashboardData?.loginActivity || [];
+      return loginActivity.length ? (
+        <div className="company-dashboard-timeline">
+          {loginActivity.map((entry) => (
+            <div key={entry.id} className="company-dashboard-timeline-row">
+              <div className="company-dashboard-timeline-dot" />
+              <div>
+                <strong>{entry.action}</strong>
+                <span>{entry.source} · {entry.status}</span>
+              </div>
+              <time>{entry.time ? new Date(entry.time).toLocaleString() : 'Now'}</time>
+            </div>
+          ))}
+        </div>
+      ) : (
+        <div className="company-dashboard-empty-state">
+          <span>No login activity available.</span>
+        </div>
+      );
+    }
+
+    if (companyDashboardSection === 'security') {
+      return (
+        <div className="company-dashboard-list-card">
+          {[
+            ['File Upload Protection', securityStatusData.fileUploadProtection],
+            ['Link Protection', securityStatusData.linkProtection],
+            ['Login Protection', securityStatusData.loginProtection],
+            ['API Key Protection', securityStatusData.apiKeyProtection],
+          ].map(([label, value]) => (
+            <div key={label} className="company-dashboard-security-row">
+              <div className="company-dashboard-security-copy">
+                <span className={`company-dashboard-security-dot ${value ? 'is-on' : 'is-off'}`} />
+                <span>{label}</span>
+              </div>
+              <strong>{value ? 'ON' : 'OFF'}</strong>
+            </div>
+          ))}
+        </div>
+      );
+    }
+
+    if (companyDashboardSection === 'forms') {
+      const submittedForms = companyDashboardData?.submittedForms || [];
+      return submittedForms.length ? (
+        <div className="company-dashboard-table">
+          {submittedForms.map((form) => (
+            <div key={form.id} className="company-dashboard-table-row">
+              <div>
+                <strong>{form.title}</strong>
+                <span>{form.status}</span>
+              </div>
+              <div>
+                <strong>Submitted</strong>
+                <span>{form.submittedAt ? new Date(form.submittedAt).toLocaleString() : 'Not available'}</span>
+              </div>
+            </div>
+          ))}
+        </div>
+      ) : (
+        <div className="company-dashboard-empty-state">
+          <span>No submitted forms or requests found.</span>
+        </div>
+      );
+    }
+
+    if (companyDashboardSection === 'settings') {
+      return (
+        <div className="company-dashboard-section-grid">
+          <div className="company-dashboard-card company-dashboard-card-wide">
+            <span>Session</span>
+            <strong>Company session is active</strong>
+            <p>Use refresh to reload live company data, or logout to return to the company login page.</p>
+            <div className="company-dashboard-settings-actions">
+              <button type="button" className="company-dashboard-action-button" onClick={() => void loadCompanyDashboard()}>
+                Refresh Data
+              </button>
+              <button type="button" className="company-dashboard-action-button is-danger" onClick={() => void handleUserLogout()}>
+                Logout
+              </button>
+            </div>
+          </div>
+        </div>
+      );
+    }
+
+    return (
+      <div className="company-dashboard-section-grid">
+        {[
+          ['Employees', stats.totalEmployees ?? 0],
+          ['Active Employees', stats.activeEmployees ?? 0],
+          ['Open Requests', stats.openRequests ?? 0],
+          ['Recent Logins', stats.recentLogins ?? 0],
+        ].map(([label, value]) => (
+          <div key={label} className="company-dashboard-card">
+            <span>{label}</span>
+            <strong>{value}</strong>
+          </div>
+        ))}
+        <div className="company-dashboard-card company-dashboard-card-wide">
+          <span>Company Summary</span>
+          <strong>{details.companyName || appAuthSession?.user?.companyName || 'Approved Company'}</strong>
+          <p>{details.companyEmail || appAuthSession?.user?.companyEmail || 'No company email available'}</p>
+          <p>{details.companyWebsite || 'No company website available'}</p>
+        </div>
+      </div>
+    );
   };
 
   return (
@@ -4728,13 +5040,17 @@ const RightTray = ({ onPopupStateChange = () => {} }) => {
         </div>
         <button
           type="button"
-          className={`user-status-button ${isUserLoginOpen || isUsStatusPopupOpen ? 'open' : ''}`}
+          className={`user-status-button ${isUserLoginOpen || isUsStatusPopupOpen || isCompanyDashboardOpen ? 'open' : ''}`}
           onClick={() => {
-            if (isUsStatusPopupOpen) {
+            if (isCompanyDashboardOpen) {
+              setIsCompanyDashboardOpen(false);
+            } else if (isUsStatusPopupOpen) {
               setIsUsStatusPopupOpen(false);
               setIsUsSideSettingsOpen(false);
               setUsSideSettingsSection('profile');
               setUsStatusActiveSection('none');
+            } else if (appAuthSession?.token && appAuthSession?.user?.role === 'company') {
+              openCompanyDashboard();
             } else if (appAuthSession?.token && appAuthSession?.user) {
               setIsRegisterOpen(false);
               setIsUserLoginOpen(false);
@@ -4744,6 +5060,7 @@ const RightTray = ({ onPopupStateChange = () => {} }) => {
               setIsUsStatusPopupOpen(true);
             } else {
               setIsRegisterOpen(false);
+              setIsCompanyDashboardOpen(false);
               setIsUserLoginOpen(true);
             }
           }}
@@ -5088,6 +5405,101 @@ const RightTray = ({ onPopupStateChange = () => {} }) => {
                       ) : null}
                     </div>
                   )}
+                </div>
+              </div>
+            )}
+          </div>
+        )}
+
+        {isCompanyDashboardOpen && (
+          <div
+            ref={companyDashboardRef}
+            className="company-dashboard-popup us-status-popup popup-aurora-surface"
+            onClick={(event) => event.stopPropagation()}
+          >
+            <button
+              type="button"
+              className="us-status-close-btn"
+              onClick={() => {
+                setIsCompanyDashboardOpen(false);
+                setCompanyDashboardSection('none');
+              }}
+              aria-label="Close company dashboard"
+            >
+              <X size={13} />
+            </button>
+
+            <div className="us-status-content company-dashboard-popup-content">
+              <div className="us-status-panel welcome-panel company-dashboard-welcome">
+                <div className="welcome-brand-row">
+                  <BrandLogo className="welcome-brand-logo" surface="dark" />
+                  <div className="welcome-avatar company-dashboard-avatar">CO</div>
+                </div>
+                <h3>{appAuthSession?.user?.companyName || 'Company Dashboard'}</h3>
+                <p className="welcome-subtext">
+                  {appAuthSession?.user?.companyEmail || 'Approved company access active'}
+                </p>
+                <div className="welcome-info-pill">
+                  {appAuthSession?.user?.companyId || 'Company Access'}
+                </div>
+
+                <div className="company-dashboard-options">
+                  {companyDashboardNav.map((item) => {
+                    const ItemIcon = item.icon;
+                    return (
+                      <button
+                        key={item.id}
+                        type="button"
+                        className={`company-dashboard-option ${companyDashboardSection === item.id ? 'active' : ''} ${item.id === 'logout' ? 'is-danger' : ''}`}
+                        onClick={() => {
+                          if (item.id === 'logout') {
+                            void handleUserLogout();
+                            return;
+                          }
+                          if (item.id === 'security') {
+                            void loadSecurityStatus();
+                          }
+                          setCompanyDashboardSection((current) => (current === item.id ? 'none' : item.id));
+                        }}
+                      >
+                        <span className="company-dashboard-option-icon">
+                          <ItemIcon size={14} />
+                        </span>
+                        <span>{item.label}</span>
+                      </button>
+                    );
+                  })}
+                </div>
+              </div>
+            </div>
+
+            {companyDashboardSection !== 'none' && (
+              <div
+                ref={companyDashboardNestedRef}
+                className="company-dashboard-nested popup-aurora-surface"
+                onClick={(event) => event.stopPropagation()}
+              >
+                <div className="company-dashboard-nested-header">
+                  <div className="company-dashboard-nested-title">
+                    {companyDashboardNav.find((item) => item.id === companyDashboardSection)?.label || 'Company Panel'}
+                  </div>
+                  <div className="company-dashboard-header-actions">
+                    <button type="button" className="company-dashboard-action-button" onClick={() => void loadCompanyDashboard()}>
+                      Refresh
+                    </button>
+                    <button
+                      type="button"
+                      className="company-dashboard-close"
+                      onClick={() => setCompanyDashboardSection('none')}
+                      aria-label="Close company nested popup"
+                    >
+                      <X size={12} />
+                    </button>
+                  </div>
+                </div>
+
+                <div className="company-dashboard-content company-dashboard-nested-content">
+                  {renderCompanyDashboardSection()}
                 </div>
               </div>
             )}

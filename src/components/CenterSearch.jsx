@@ -1,6 +1,6 @@
 import { useEffect, useRef, useState } from 'react';
 import { createPortal } from 'react-dom';
-import { LogOut, Mic, Plus, Search, Sparkles, X } from 'lucide-react';
+import { Bot, LogOut, Mic, Plus, Search, Sparkles, X } from 'lucide-react';
 import { createAuthHeaders } from '../utils/appAuth';
 import { buildApiUrl } from '../utils/api';
 
@@ -30,11 +30,19 @@ const readStoredSearchHistory = () => {
 const readStoredSearchProvider = () => {
   try {
     const raw = localStorage.getItem(SEARCH_PROVIDER_STORAGE_KEY);
-    return raw === 'gemini' ? 'gemini' : 'google';
+    return ['gemini', 'stepfun'].includes(raw) ? raw : 'google';
   } catch {
     return 'google';
   }
 };
+
+const AI_PROVIDER_IDS = new Set(['gemini', 'stepfun']);
+
+const providerOptions = [
+  { id: 'google', label: 'Google', icon: Search, placeholder: 'Search Google' },
+  { id: 'gemini', label: 'Gemini', icon: Sparkles, placeholder: 'Ask Gemini' },
+  { id: 'stepfun', label: 'StepFun AI', icon: Bot, placeholder: 'Ask StepFun AI...' },
+];
 
 const parseJwt = (token) => {
   const base64Url = token.split('.')[1];
@@ -74,14 +82,12 @@ const CenterSearch = ({ onPopupStateChange = () => {} }) => {
     status: 'idle',
     error: '',
   });
+  const [answerInput, setAnswerInput] = useState('');
 
   const providerMenuRef = useRef(null);
-
-  const providerOptions = [
-    { id: 'google', label: 'Google', icon: Search, placeholder: 'Search Google' },
-    { id: 'gemini', label: 'Gemini', icon: Sparkles, placeholder: 'Ask Gemini' },
-  ];
   const activeProvider = providerOptions.find((option) => option.id === searchProvider) || providerOptions[0];
+  const activeAnswerProvider = providerOptions.find((option) => option.id === answerPanel.provider) || providerOptions[1];
+  const ActiveAnswerIcon = activeAnswerProvider.icon;
 
   const googleEmail = googleAccount?.email || 'Not signed in';
   const googleAvatar = googleAccount?.picture || '';
@@ -333,64 +339,76 @@ const CenterSearch = ({ onPopupStateChange = () => {} }) => {
     setSearchHistory([]);
   };
 
+  const submitAiPrompt = async (providerId, promptText) => {
+    const trimmedQuery = promptText.trim();
+    if (!trimmedQuery) {
+      return;
+    }
+
+    const providerMeta = providerOptions.find((option) => option.id === providerId) || providerOptions[1];
+    saveSearchToHistory(trimmedQuery);
+
+    setAnswerPanel({
+      isOpen: true,
+      provider: providerId,
+      question: trimmedQuery,
+      answer: '',
+      status: 'loading',
+      error: '',
+    });
+
+    try {
+      const response = await fetch(buildApiUrl('/api/ai/respond'), {
+        method: 'POST',
+        headers: {
+          ...createAuthHeaders({
+            'Content-Type': 'application/json',
+          }),
+        },
+        body: JSON.stringify({
+          provider: providerId,
+          prompt: trimmedQuery,
+        }),
+      });
+
+      const payload = await response.json().catch(() => ({}));
+      if (!response.ok) {
+        throw new Error(payload.error || `${providerMeta.label} request failed.`);
+      }
+
+      setAnswerPanel({
+        isOpen: true,
+        provider: providerId,
+        question: trimmedQuery,
+        answer: payload.answer || '',
+        status: 'done',
+        error: '',
+      });
+      setAnswerInput('');
+    } catch (error) {
+      setAnswerPanel({
+        isOpen: true,
+        provider: providerId,
+        question: trimmedQuery,
+        answer: '',
+        status: 'error',
+        error: error.message || `${providerMeta.label} request failed.`,
+      });
+    }
+  };
+
   const submitQuery = async () => {
     const trimmedQuery = query.trim();
     if (!trimmedQuery) {
       return;
     }
 
-    saveSearchToHistory(trimmedQuery);
-    if (searchProvider === 'gemini') {
-      setAnswerPanel({
-        isOpen: true,
-        provider: 'gemini',
-        question: trimmedQuery,
-        answer: '',
-        status: 'loading',
-        error: '',
-      });
-
-      try {
-        const response = await fetch(buildApiUrl('/api/ai/respond'), {
-          method: 'POST',
-          headers: {
-            ...createAuthHeaders({
-              'Content-Type': 'application/json',
-            }),
-          },
-          body: JSON.stringify({
-            provider: 'gemini',
-            prompt: trimmedQuery,
-          }),
-        });
-
-        const payload = await response.json().catch(() => ({}));
-        if (!response.ok) {
-          throw new Error(payload.error || 'Gemini request failed.');
-        }
-
-        setAnswerPanel({
-          isOpen: true,
-          provider: 'gemini',
-          question: trimmedQuery,
-          answer: payload.answer || '',
-          status: 'done',
-          error: '',
-        });
-      } catch (error) {
-        setAnswerPanel({
-          isOpen: true,
-          provider: 'gemini',
-          question: trimmedQuery,
-          answer: '',
-          status: 'error',
-          error: error.message || 'Gemini request failed.',
-        });
-      }
-
+    if (AI_PROVIDER_IDS.has(searchProvider)) {
+      await submitAiPrompt(searchProvider, trimmedQuery);
       return;
     }
 
+    saveSearchToHistory(trimmedQuery);
     window.open(`https://www.google.com/search?q=${encodeURIComponent(trimmedQuery)}`, '_blank', 'noopener,noreferrer');
   };
 
@@ -405,6 +423,18 @@ const CenterSearch = ({ onPopupStateChange = () => {} }) => {
   const handleProviderChange = (providerId) => {
     setSearchProvider(providerId);
     setIsProviderMenuOpen(false);
+
+    if (providerId === 'stepfun') {
+      setAnswerInput('');
+      setAnswerPanel({
+        isOpen: true,
+        provider: 'stepfun',
+        question: '',
+        answer: '',
+        status: 'idle',
+        error: '',
+      });
+    }
   };
 
   const accountPopup = googleAccount && isAccountMenuOpen
@@ -488,9 +518,12 @@ const CenterSearch = ({ onPopupStateChange = () => {} }) => {
           <div className="center-search-answer-header">
             <div>
               <div className="center-search-answer-title">
-                Gemini
+                <ActiveAnswerIcon size={15} />
+                <span>{activeAnswerProvider.label}</span>
               </div>
-              <div className="center-search-answer-question">{answerPanel.question}</div>
+              {answerPanel.question ? (
+                <div className="center-search-answer-question">{answerPanel.question}</div>
+              ) : null}
             </div>
             <button
               type="button"
@@ -503,10 +536,18 @@ const CenterSearch = ({ onPopupStateChange = () => {} }) => {
           </div>
 
           <div className="center-search-answer-body">
+            {answerPanel.status === 'idle' ? (
+              <div className="center-search-answer-empty">
+                {answerPanel.provider === 'stepfun'
+                  ? 'Hello! Nice to meet you 😊 What would you like help with today?'
+                  : `Ask a question and ${activeAnswerProvider.label} will answer here.`}
+              </div>
+            ) : null}
+
             {answerPanel.status === 'loading' ? (
               <div className="center-search-answer-loading">
                 <span className="center-search-answer-loader" />
-                <span>Gemini is thinking...</span>
+                <span>{activeAnswerProvider.label} is thinking...</span>
               </div>
             ) : null}
 
@@ -518,6 +559,29 @@ const CenterSearch = ({ onPopupStateChange = () => {} }) => {
               <div className="center-search-answer-text">{answerPanel.answer}</div>
             ) : null}
           </div>
+
+          <form
+            className="center-search-answer-form"
+            onSubmit={(event) => {
+              event.preventDefault();
+              void submitAiPrompt(answerPanel.provider, answerInput);
+            }}
+          >
+            <input
+              type="text"
+              className="center-search-answer-input"
+              value={answerInput}
+              onChange={(event) => setAnswerInput(event.target.value)}
+              placeholder={`Ask ${activeAnswerProvider.label}...`}
+            />
+            <button
+              type="submit"
+              className="center-search-answer-send"
+              disabled={!answerInput.trim() || answerPanel.status === 'loading'}
+            >
+              Send
+            </button>
+          </form>
         </div>,
         document.body,
       )
@@ -585,6 +649,8 @@ const CenterSearch = ({ onPopupStateChange = () => {} }) => {
                   />
                 ) : searchProvider === 'gemini' ? (
                   <Sparkles size={18} className="center-search-google-icon center-search-mode-icon" />
+                ) : searchProvider === 'stepfun' ? (
+                  <Bot size={18} className="center-search-google-icon center-search-mode-icon" />
                 ) : (
                   <img
                     src="https://www.gstatic.com/images/branding/searchlogo/ico/favicon.ico"
