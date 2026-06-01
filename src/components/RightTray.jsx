@@ -4,6 +4,7 @@ import { Wifi, Bluetooth, Bell, X, User, Phone, Mail, Users, Briefcase, Plus, Ch
 import { FaWhatsapp, FaSpotify } from 'react-icons/fa';
 import CenterSearch from './CenterSearch';
 import BrandLogo from './BrandLogo';
+import { useDraggablePopup } from '../utils/useDraggablePopup';
 import {
   clearStoredAuthSession,
   createAuthHeaders,
@@ -312,12 +313,16 @@ const RightTray = ({ onPopupStateChange = () => {} }) => {
   
   // Time Popup States
   const [isTimePopupOpen, setIsTimePopupOpen] = useState(false);
-  const timePopupRef = useRef(null);
+  const timeDrag = useDraggablePopup('time');
+  const timePopupRef = timeDrag.popupRef;
   const [isBatteryPopupOpen, setIsBatteryPopupOpen] = useState(false);
-  const batteryPopupRef = useRef(null);
-  const wifiPopupRef = useRef(null);
+  const batteryDrag = useDraggablePopup('battery');
+  const batteryPopupRef = batteryDrag.popupRef;
+  const wifiDrag = useDraggablePopup('wifi');
+  const wifiPopupRef = wifiDrag.popupRef;
   const loadWifiNetworksRef = useRef(async () => {});
-  const bluetoothPopupRef = useRef(null);
+  const bluetoothDrag = useDraggablePopup('bluetooth');
+  const bluetoothPopupRef = bluetoothDrag.popupRef;
   const loadBluetoothSnapshotRef = useRef(async () => {});
   const [isWifiDropdownOpen, setIsWifiDropdownOpen] = useState(false);
   const [wifiNetworks, setWifiNetworks] = useState([]);
@@ -338,8 +343,10 @@ const RightTray = ({ onPopupStateChange = () => {} }) => {
   const [bluetoothError, setBluetoothError] = useState('');
   const [bluetoothScannedAt, setBluetoothScannedAt] = useState('');
   const [isBluetoothSupported, setIsBluetoothSupported] = useState(true);
-  const spotifyPopupRef = useRef(null);
-  const spotifyNowPlayingRef = useRef(null);
+  const spotifyDrag = useDraggablePopup('spotify');
+  const spotifyPopupRef = spotifyDrag.popupRef;
+  const spotifyNowPlayingDrag = useDraggablePopup('spotify-now-playing');
+  const spotifyNowPlayingRef = spotifyNowPlayingDrag.popupRef;
   const spotifyPlayerHostRef = useRef(null);
   const spotifyEmbedControllerRef = useRef(null);
   const [showSpotifyPopup, setShowSpotifyPopup] = useState(false);
@@ -422,21 +429,31 @@ const RightTray = ({ onPopupStateChange = () => {} }) => {
   const [registerStatus, setRegisterStatus] = useState('');
   const [isRegisterSubmitting, setIsRegisterSubmitting] = useState(false);
   const googleTokenClientRef = useRef(null);
-  const usStatusPopupRef = useRef(null);
-  const usSideSettingsRef = useRef(null);
-  const notificationsPopupRef = useRef(null);
-  const companyDashboardRef = useRef(null);
-  const companyDashboardNestedRef = useRef(null);
+  const usStatusDrag = useDraggablePopup('user-status');
+  const usStatusPopupRef = usStatusDrag.popupRef;
+  const usSideSettingsDrag = useDraggablePopup('user-side-settings');
+  const usSideSettingsRef = usSideSettingsDrag.popupRef;
+  const notificationsDrag = useDraggablePopup('notifications');
+  const notificationsPopupRef = notificationsDrag.popupRef;
+  const companyDashboardDrag = useDraggablePopup('company-dashboard');
+  const companyDashboardRef = companyDashboardDrag.popupRef;
+  const companyDashboardNestedDrag = useDraggablePopup('company-dashboard-nested');
+  const companyDashboardNestedRef = companyDashboardNestedDrag.popupRef;
   const [studySecondsLeft, setStudySecondsLeft] = useState(25 * 60);
   const [isStudyTimerRunning, setIsStudyTimerRunning] = useState(false);
   const [usVolume, setUsVolume] = useState(65);
   const [isUsMuted, setIsUsMuted] = useState(false);
   const [prevUsVolume, setPrevUsVolume] = useState(65);
   const [isSearchPopupOpen, setIsSearchPopupOpen] = useState(false);
-  const appLauncherRef = useRef(null);
-  const appSettingsPopupRef = useRef(null);
-  const appPrivacyPopupRef = useRef(null);
-  const appSecurityPopupRef = useRef(null);
+  const appLauncherDrag = useDraggablePopup('app-launcher');
+  const appLauncherRef = appLauncherDrag.popupRef;
+  const appSettingsDrag = useDraggablePopup('app-settings');
+  const appSettingsPopupRef = appSettingsDrag.popupRef;
+  const appPrivacyDrag = useDraggablePopup('app-privacy');
+  const appPrivacyPopupRef = appPrivacyDrag.popupRef;
+  const appSecurityDrag = useDraggablePopup('app-security');
+  const appSecurityPopupRef = appSecurityDrag.popupRef;
+  const appPickerDrag = useDraggablePopup('app-picker');
   const [isAppLauncherOpen, setIsAppLauncherOpen] = useState(false);
   const [isAppPickerOpen, setIsAppPickerOpen] = useState(false);
   const [isAppSettingsOpen, setIsAppSettingsOpen] = useState(false);
@@ -463,7 +480,13 @@ const RightTray = ({ onPopupStateChange = () => {} }) => {
   const [isWaSendMsgOpen, setIsWaSendMsgOpen] = useState(false);
   const [waPhone, setWaPhone] = useState('');
   const [waMessage, setWaMessage] = useState('');
-  const waPopupRef = useRef(null);
+  const waDrag = useDraggablePopup('whatsapp');
+  const waPopupRef = waDrag.popupRef;
+  const loginDrag = useDraggablePopup('login-shell');
+  const registerDrag = useDraggablePopup('register-card');
+  const companyLoginDrag = useDraggablePopup('company-login-card');
+  const deleteAccountDrag = useDraggablePopup('delete-account-card');
+  const contactPopupDrag = useDraggablePopup('contact-popup');
 
   // Contact Popup States
   const [isAddContactOpen, setIsAddContactOpen] = useState(false);
@@ -2980,13 +3003,21 @@ const RightTray = ({ onPopupStateChange = () => {} }) => {
             </button>
 
             {showSpotifyNowPlayingPopup && (
-              <div className="spotify-now-playing-popup popup-aurora-surface" onClick={(event) => event.stopPropagation()}>
+              <div ref={spotifyNowPlayingDrag.popupRef} style={spotifyNowPlayingDrag.dragStyle} className="spotify-now-playing-popup popup-aurora-surface" onClick={(event) => event.stopPropagation()}>
                 <button
                   type="button"
                   className="spotify-start-close"
                   onClick={() => setShowSpotifyNowPlayingPopup(false)}
                 >
                   <X size={15} />
+                </button>
+                <button
+                  type="button"
+                  className="spotify-start-close popup-drag-btn"
+                  style={{ right: '40px' }}
+                  {...spotifyNowPlayingDrag.dragProps}
+                >
+                  ⠿
                 </button>
 
                 <div className="spotify-now-playing-header">
@@ -3064,7 +3095,7 @@ const RightTray = ({ onPopupStateChange = () => {} }) => {
           </div>
 
           {/* WhatsApp Popup Dropdown */}
-          <div className="popup-aurora-surface" style={{
+          <div ref={waDrag.popupRef} className="popup-aurora-surface" style={{
             position: 'absolute',
             top: '100%',
             right: -80, // Center relative to icon
@@ -3085,7 +3116,8 @@ const RightTray = ({ onPopupStateChange = () => {} }) => {
             transform: isWaOpen ? 'translateY(0) scale(1)' : 'translateY(-10px) scale(0.95)',
             transition: 'all 0.25s cubic-bezier(0.16, 1, 0.3, 1)',
             pointerEvents: isWaOpen ? 'auto' : 'none',
-            zIndex: 100
+            zIndex: 100,
+            ...waDrag.dragStyle
           }}>
             {!isWaSendMsgOpen ? (
               <div style={{ display: 'flex', flexDirection: 'column', gap: '12px' }}>
@@ -3093,12 +3125,21 @@ const RightTray = ({ onPopupStateChange = () => {} }) => {
                   <div className="flex-center" style={{ gap: '8px', fontSize: '15px', fontWeight: 'bold' }}>
                     <FaWhatsapp size={18} color="white" /> WhatsApp
                   </div>
-                  <div 
-                    onClick={() => setIsWaOpen(false)}
-                    className="flex-center icon-item" 
-                    style={{ width: '20px', height: '20px', background: 'rgba(255,255,255,0.1)', cursor: 'pointer' }}
-                  >
-                    <X size={12} />
+                  <div style={{ display: 'flex', gap: '4px', alignItems: 'center' }}>
+                    <div 
+                      className="popup-drag-btn" 
+                      style={{ width: '20px', height: '20px', display: 'flex', alignItems: 'center', justifyContent: 'center', cursor: 'grab' }}
+                      {...waDrag.dragProps}
+                    >
+                      ⠿
+                    </div>
+                    <div 
+                      onClick={() => setIsWaOpen(false)}
+                      className="flex-center icon-item" 
+                      style={{ width: '20px', height: '20px', background: 'rgba(255,255,255,0.1)', cursor: 'pointer' }}
+                    >
+                      <X size={12} />
+                    </div>
                   </div>
                 </div>
                 <div 
@@ -3147,6 +3188,13 @@ const RightTray = ({ onPopupStateChange = () => {} }) => {
                     <div style={{ fontSize: '15px', fontWeight: '600', color: 'white' }}>Send Message</div>
                   </div>
                   <div className="flex-center" style={{ gap: '8px' }}>
+                    <div 
+                      className="popup-drag-btn" 
+                      style={{ width: '24px', height: '24px', display: 'flex', alignItems: 'center', justifyContent: 'center', cursor: 'grab', color: 'rgba(255,255,255,0.6)' }}
+                      {...waDrag.dragProps}
+                    >
+                      ⠿
+                    </div>
                     {/* Close X Button */}
                     <div 
                       onClick={() => setIsWaSendMsgOpen(false)}
@@ -3494,6 +3542,7 @@ const RightTray = ({ onPopupStateChange = () => {} }) => {
               }}
             >
               <div 
+                ref={contactPopupDrag.popupRef}
                 className="contact-popup-container popup-aurora-surface"
                 onClick={(e) => e.stopPropagation()}
                 style={{
@@ -3512,7 +3561,8 @@ const RightTray = ({ onPopupStateChange = () => {} }) => {
                   fontFamily: 'sans-serif',
                   position: 'relative',
                   animation: 'slideDownFade 0.3s cubic-bezier(0.16, 1, 0.3, 1)',
-                  overflowX: 'hidden'
+                  overflowX: 'hidden',
+                  ...contactPopupDrag.dragStyle
                 }}
               >
                 <style>{`
@@ -3533,11 +3583,12 @@ const RightTray = ({ onPopupStateChange = () => {} }) => {
                   }
                 `}</style>
               {/* Header */}
-              <div 
-                style={{ display: 'inline-flex', alignItems: 'center', gap: '6px', opacity: 0.9, alignSelf: 'flex-start', padding: '6px 8px', borderRadius: '8px', marginLeft: '-8px' }}
-              >
-                <Smartphone size={14} />
-                <span style={{ fontSize: '13px', fontWeight: '500' }}>Phone</span>
+              <div className="flex-between" style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', width: '100%', opacity: 0.9 }}>
+                <div style={{ display: 'inline-flex', alignItems: 'center', gap: '6px', padding: '6px 8px', borderRadius: '8px', marginLeft: '-8px' }}>
+                  <Smartphone size={14} />
+                  <span style={{ fontSize: '13px', fontWeight: '500' }}>Phone</span>
+                </div>
+                <button type="button" className="popup-drag-btn" style={{ padding: '4px', cursor: 'grab', background: 'transparent', border: 'none', color: '#ccc' }} {...contactPopupDrag.dragProps}>⠿</button>
               </div>
 
               {/* Photo Section */}
@@ -3641,6 +3692,7 @@ const RightTray = ({ onPopupStateChange = () => {} }) => {
               onClick={() => setDetailsContact(null)}
             >
               <div 
+                ref={contactPopupDrag.popupRef}
                 className="contact-popup-container popup-aurora-surface"
                 onClick={(e) => e.stopPropagation()}
                 style={{
@@ -3657,6 +3709,7 @@ const RightTray = ({ onPopupStateChange = () => {} }) => {
                   fontFamily: 'sans-serif',
                   position: 'relative',
                   animation: 'slideDownFade 0.3s cubic-bezier(0.16, 1, 0.3, 1)',
+                  ...contactPopupDrag.dragStyle
                 }}
               >
                 <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
@@ -3664,11 +3717,14 @@ const RightTray = ({ onPopupStateChange = () => {} }) => {
                     <User size={16} />
                     <span style={{ fontSize: '14px', fontWeight: '500' }}>Contact Details</span>
                   </div>
-                  <div 
-                    onClick={() => setDetailsContact(null)}
-                    style={{ padding: '6px', cursor: 'pointer', background: 'rgba(255,255,255,0.1)', borderRadius: '50%' }}
-                  >
-                    <X size={14} />
+                  <div style={{ display: 'flex', gap: '6px', alignItems: 'center' }}>
+                    <button type="button" className="popup-drag-btn" style={{ padding: '6px', cursor: 'grab', background: 'transparent', border: 'none', color: '#ccc' }} {...contactPopupDrag.dragProps}>⠿</button>
+                    <div 
+                      onClick={() => setDetailsContact(null)}
+                      style={{ padding: '6px', cursor: 'pointer', background: 'rgba(255,255,255,0.1)', borderRadius: '50%', display: 'flex', alignItems: 'center', justifyContent: 'center' }}
+                    >
+                      <X size={14} />
+                    </div>
                   </div>
                 </div>
 
@@ -3749,13 +3805,21 @@ const RightTray = ({ onPopupStateChange = () => {} }) => {
           </div>
 
           {showSpotifyPopup && spotifyActiveView === 'none' && (
-            <div className="spotify-start-popup popup-aurora-surface" onClick={(event) => event.stopPropagation()}>
+            <div ref={spotifyDrag.popupRef} style={spotifyDrag.dragStyle} className="spotify-start-popup popup-aurora-surface" onClick={(event) => event.stopPropagation()}>
               <button
                 type="button"
                 className="spotify-start-close"
                 onClick={closeSpotifyPopups}
               >
                 <X size={15} />
+              </button>
+              <button
+                type="button"
+                className="spotify-start-close popup-drag-btn"
+                style={{ right: '40px' }}
+                {...spotifyDrag.dragProps}
+              >
+                ⠿
               </button>
 
               <div className="spotify-start-icon">
@@ -3845,13 +3909,21 @@ const RightTray = ({ onPopupStateChange = () => {} }) => {
           )}
 
           {showSpotifyPopup && spotifyActiveView === 'top-tracks' && (
-            <div className="spotify-detail-popup popup-aurora-surface" onClick={(event) => event.stopPropagation()}>
+            <div ref={spotifyDrag.popupRef} style={spotifyDrag.dragStyle} className="spotify-detail-popup popup-aurora-surface" onClick={(event) => event.stopPropagation()}>
               <button
                 type="button"
                 className="spotify-start-close"
                 onClick={closeSpotifyOptionPopup}
               >
                 <X size={15} />
+              </button>
+              <button
+                type="button"
+                className="spotify-start-close popup-drag-btn"
+                style={{ right: '40px' }}
+                {...spotifyDrag.dragProps}
+              >
+                ⠿
               </button>
               <div className="spotify-top-tracks-panel">
                 <div className="spotify-top-tracks-header">
@@ -3904,13 +3976,21 @@ const RightTray = ({ onPopupStateChange = () => {} }) => {
           )}
 
           {showSpotifyPopup && spotifyActiveView === 'create-spotify' && (
-            <div className="spotify-detail-popup popup-aurora-surface" onClick={(event) => event.stopPropagation()}>
+            <div ref={spotifyDrag.popupRef} style={spotifyDrag.dragStyle} className="spotify-detail-popup popup-aurora-surface" onClick={(event) => event.stopPropagation()}>
               <button
                 type="button"
                 className="spotify-start-close"
                 onClick={closeSpotifyOptionPopup}
               >
                 <X size={15} />
+              </button>
+              <button
+                type="button"
+                className="spotify-start-close popup-drag-btn"
+                style={{ right: '40px' }}
+                {...spotifyDrag.dragProps}
+              >
+                ⠿
               </button>
               <div className="spotify-top-tracks-panel spotify-create-panel">
                 <div className="spotify-top-tracks-header">
@@ -3948,6 +4028,8 @@ const RightTray = ({ onPopupStateChange = () => {} }) => {
 
           {isSpotifyPlayerMounted && (
             <div
+              ref={spotifyDrag.popupRef}
+              style={spotifyDrag.dragStyle}
               className={`spotify-detail-popup spotify-detail-popup-wide popup-aurora-surface spotify-player-shell ${spotifyActiveView === 'playlist' ? 'is-visible' : 'is-hidden'}`}
               onClick={(event) => event.stopPropagation()}
             >
@@ -3957,6 +4039,14 @@ const RightTray = ({ onPopupStateChange = () => {} }) => {
                 onClick={closeSpotifyOptionPopup}
               >
                 <X size={15} />
+              </button>
+              <button
+                type="button"
+                className="spotify-start-close popup-drag-btn"
+                style={{ right: '40px' }}
+                {...spotifyDrag.dragProps}
+              >
+                ⠿
               </button>
               <div className="spotify-top-tracks-panel spotify-playlist-embed-panel">
                 <div className="spotify-top-tracks-header">
@@ -3997,6 +4087,8 @@ const RightTray = ({ onPopupStateChange = () => {} }) => {
 
           {isAppLauncherOpen && (
             <div
+              ref={appLauncherDrag.popupRef}
+              style={appLauncherDrag.dragStyle}
               className={`app-launcher-popup popup-aurora-surface app-launcher-view-${appBoxSettings.appView} app-launcher-size-${appBoxSettings.iconSize} ${appBoxSettings.dockAnimation ? 'dock-anim-on' : 'dock-anim-off'}`}
               onClick={(event) => event.stopPropagation()}
             >
@@ -4005,7 +4097,15 @@ const RightTray = ({ onPopupStateChange = () => {} }) => {
                   <BrandLogo className="app-launcher-brand-logo" surface="dark" />
                   <span>Apps</span>
                 </div>
-                <div className="app-launcher-dock-actions">
+                <div className="app-launcher-dock-actions" style={{ display: 'flex', gap: '6px', alignItems: 'center' }}>
+                  <button
+                    type="button"
+                    className="popup-drag-btn"
+                    style={{ padding: '6px', cursor: 'grab', background: 'transparent', border: 'none', color: '#ccc', display: 'flex', alignItems: 'center', justifyContent: 'center' }}
+                    {...appLauncherDrag.dragProps}
+                  >
+                    ⠿
+                  </button>
                   <button
                     type="button"
                     className="app-launcher-settings-trigger"
@@ -4040,24 +4140,35 @@ const RightTray = ({ onPopupStateChange = () => {} }) => {
               {isAppSettingsOpen && (
                 <div
                   ref={appSettingsPopupRef}
+                  style={appSettingsDrag.dragStyle}
                   className="app-launcher-settings-popup popup-aurora-surface"
                   onClick={(event) => event.stopPropagation()}
                 >
                   <div className="app-launcher-settings-header">
                     <div className="app-launcher-nested-title">Settings</div>
-                    <button
-                      type="button"
-                      className="app-launcher-picker-close"
-                      onClick={() => {
-                        setIsAppSettingsOpen(false);
-                        setIsAppPrivacyOpen(false);
-                        setIsAppSecurityOpen(false);
-                        setIsResetAppsConfirmOpen(false);
-                      }}
-                      aria-label="Close app settings"
-                    >
-                      <X size={14} />
-                    </button>
+                    <div style={{ display: 'flex', gap: '6px', alignItems: 'center' }}>
+                      <button
+                        type="button"
+                        className="popup-drag-btn"
+                        style={{ cursor: 'grab', background: 'transparent', border: 'none', color: '#ccc', display: 'flex', alignItems: 'center', justifyContent: 'center' }}
+                        {...appSettingsDrag.dragProps}
+                      >
+                        ⠿
+                      </button>
+                      <button
+                        type="button"
+                        className="app-launcher-picker-close"
+                        onClick={() => {
+                          setIsAppSettingsOpen(false);
+                          setIsAppPrivacyOpen(false);
+                          setIsAppSecurityOpen(false);
+                          setIsResetAppsConfirmOpen(false);
+                        }}
+                        aria-label="Close app settings"
+                      >
+                        <X size={14} />
+                      </button>
+                    </div>
                   </div>
 
                   <div className="app-launcher-settings-section">
@@ -4195,6 +4306,7 @@ const RightTray = ({ onPopupStateChange = () => {} }) => {
                   style={{
                     top: `${appSecurityPosition.top}px`,
                     left: `${appSecurityPosition.left}px`,
+                    ...appSecurityDrag.dragStyle,
                   }}
                   onClick={(event) => event.stopPropagation()}
                 >
@@ -4203,14 +4315,17 @@ const RightTray = ({ onPopupStateChange = () => {} }) => {
                       <Shield size={14} />
                       <span>Security Check</span>
                     </div>
-                    <button
-                      type="button"
-                      className="app-launcher-picker-close"
-                      onClick={() => setIsAppSecurityOpen(false)}
-                      aria-label="Close security check"
-                    >
-                      <X size={14} />
-                    </button>
+                    <div style={{ display: 'flex', gap: '8px', alignItems: 'center' }}>
+                      <button type="button" className="popup-drag-btn" {...appSecurityDrag.dragProps}>⠿</button>
+                      <button
+                        type="button"
+                        className="app-launcher-picker-close"
+                        onClick={() => setIsAppSecurityOpen(false)}
+                        aria-label="Close security check"
+                      >
+                        <X size={14} />
+                      </button>
+                    </div>
                   </div>
 
                   {isSecurityStatusLoading ? (
@@ -4250,19 +4365,23 @@ const RightTray = ({ onPopupStateChange = () => {} }) => {
                   style={{
                     top: `${appPrivacyPosition.top}px`,
                     left: `${appPrivacyPosition.left}px`,
+                    ...appPrivacyDrag.dragStyle,
                   }}
                   onClick={(event) => event.stopPropagation()}
                 >
                   <div className="app-launcher-settings-header">
                     <div className="app-launcher-nested-title">Local App / Private App</div>
-                    <button
-                      type="button"
-                      className="app-launcher-picker-close"
-                      onClick={() => setIsAppPrivacyOpen(false)}
-                      aria-label="Close privacy settings"
-                    >
-                      <X size={14} />
-                    </button>
+                    <div style={{ display: 'flex', gap: '8px', alignItems: 'center' }}>
+                      <button type="button" className="popup-drag-btn" {...appPrivacyDrag.dragProps}>⠿</button>
+                      <button
+                        type="button"
+                        className="app-launcher-picker-close"
+                        onClick={() => setIsAppPrivacyOpen(false)}
+                        aria-label="Close privacy settings"
+                      >
+                        <X size={14} />
+                      </button>
+                    </div>
                   </div>
 
                   <div className="app-launcher-settings-section">
@@ -4425,10 +4544,11 @@ const RightTray = ({ onPopupStateChange = () => {} }) => {
               </div>
 
               {isAppPickerOpen && (
-                <div className="app-launcher-picker-popup popup-aurora-surface" onClick={(event) => event.stopPropagation()}>
+                <div ref={appPickerDrag.popupRef} style={appPickerDrag.dragStyle} className="app-launcher-picker-popup popup-aurora-surface" onClick={(event) => event.stopPropagation()}>
                   <div className="app-launcher-picker-header">
                     <div className="app-launcher-nested-title">Add Apps</div>
                     <div className="app-launcher-picker-header-actions">
+                      <button type="button" className="popup-drag-btn" {...appPickerDrag.dragProps}>⠿</button>
                       <button
                         type="button"
                         className="app-launcher-picker-refresh"
@@ -4527,13 +4647,14 @@ const RightTray = ({ onPopupStateChange = () => {} }) => {
           </button>
 
           {isWifiDropdownOpen && (
-            <div className="wifi-dropdown-panel popup-aurora-surface" onClick={(event) => event.stopPropagation()}>
+            <div ref={wifiDrag.popupRef} style={wifiDrag.dragStyle} className="wifi-dropdown-panel popup-aurora-surface" onClick={(event) => event.stopPropagation()}>
               <div className="wifi-dropdown-header">
                 <div>
                   <div className="wifi-dropdown-title">Wi-Fi</div>
                   <div className="wifi-dropdown-subtitle">{wifiConnectedName}</div>
                 </div>
                 <div className="wifi-dropdown-header-actions">
+                  <button type="button" className="popup-drag-btn" {...wifiDrag.dragProps}>⠿</button>
                   <button
                     type="button"
                     className="wifi-refresh-button"
@@ -4680,7 +4801,7 @@ const RightTray = ({ onPopupStateChange = () => {} }) => {
           </button>
 
           {isBluetoothPopupOpen ? (
-            <div className="bluetooth-dropdown-panel popup-aurora-surface" onClick={(event) => event.stopPropagation()}>
+            <div ref={bluetoothDrag.popupRef} style={bluetoothDrag.dragStyle} className="bluetooth-dropdown-panel popup-aurora-surface" onClick={(event) => event.stopPropagation()}>
               <div className="bluetooth-dropdown-header">
                 <div>
                   <div className="bluetooth-dropdown-title">Bluetooth</div>
@@ -4692,6 +4813,7 @@ const RightTray = ({ onPopupStateChange = () => {} }) => {
                 </div>
 
                 <div className="bluetooth-dropdown-header-actions">
+                  <button type="button" className="popup-drag-btn" {...bluetoothDrag.dragProps}>⠿</button>
                   <button
                     type="button"
                     className="bluetooth-refresh-button"
@@ -4835,7 +4957,7 @@ const RightTray = ({ onPopupStateChange = () => {} }) => {
           </div>
           <span className="battery-percent">{batteryPercent}%</span>
 
-          <div className="battery-popup popup-aurora-surface" onClick={(event) => event.stopPropagation()}>
+          <div ref={batteryDrag.popupRef} style={batteryDrag.dragStyle} className="battery-popup popup-aurora-surface" onClick={(event) => event.stopPropagation()}>
             <div className="battery-popup-header">
               <div>
                 <div className="battery-popup-title">Battery Status</div>
@@ -4843,8 +4965,11 @@ const RightTray = ({ onPopupStateChange = () => {} }) => {
                   {batteryInfo.charging ? 'Charging with adaptive boost' : `${batteryTone[0].toUpperCase()}${batteryTone.slice(1)} reserve`}
                 </div>
               </div>
-              <div className={`battery-popup-pill ${batteryTone}`}>
-                {batteryInfo.charging ? 'Charging' : `${batteryPercent}%`}
+              <div style={{ display: 'flex', gap: '8px', alignItems: 'center' }}>
+                <button type="button" className="popup-drag-btn" {...batteryDrag.dragProps}>⠿</button>
+                <div className={`battery-popup-pill ${batteryTone}`}>
+                  {batteryInfo.charging ? 'Charging' : `${batteryPercent}%`}
+                </div>
               </div>
             </div>
 
@@ -4962,7 +5087,7 @@ const RightTray = ({ onPopupStateChange = () => {} }) => {
           </button>
 
           {isNotificationsOpen ? (
-            <div className="notifications-popup popup-aurora-surface" onClick={(event) => event.stopPropagation()}>
+            <div ref={notificationsDrag.popupRef} style={notificationsDrag.dragStyle} className="notifications-popup popup-aurora-surface" onClick={(event) => event.stopPropagation()}>
               <div className="notifications-popup-header">
                 <div>
                   <div className="notifications-popup-title">Notifications</div>
@@ -4972,14 +5097,17 @@ const RightTray = ({ onPopupStateChange = () => {} }) => {
                       : 'All caught up'}
                   </div>
                 </div>
-                <button
-                  type="button"
-                  className="notifications-popup-close"
-                  onClick={() => setIsNotificationsOpen(false)}
-                  aria-label="Close notifications"
-                >
-                  <X size={12} />
-                </button>
+                <div style={{ display: 'flex', gap: '8px', alignItems: 'center' }}>
+                  <button type="button" className="popup-drag-btn" {...notificationsDrag.dragProps}>⠿</button>
+                  <button
+                    type="button"
+                    className="notifications-popup-close"
+                    onClick={() => setIsNotificationsOpen(false)}
+                    aria-label="Close notifications"
+                  >
+                    <X size={12} />
+                  </button>
+                </div>
               </div>
 
               <div className="notifications-popup-actions">
@@ -5070,7 +5198,15 @@ const RightTray = ({ onPopupStateChange = () => {} }) => {
 
         {/* Small Control Popup after Login */}
         {isUsStatusPopupOpen && (
-          <div className="us-status-popup popup-aurora-surface" onClick={(event) => event.stopPropagation()}>
+          <div ref={usStatusDrag.popupRef} style={usStatusDrag.dragStyle} className="us-status-popup popup-aurora-surface" onClick={(event) => event.stopPropagation()}>
+            <button
+              type="button"
+              className="popup-drag-btn"
+              style={{ position: 'absolute', top: '10px', right: '35px', border: 'none', background: 'none', color: 'rgba(255,255,255,0.6)', padding: 0, display: 'flex', alignItems: 'center', justifyContent: 'center' }}
+              {...usStatusDrag.dragProps}
+            >
+              ⠿
+            </button>
             <button
               type="button"
               className={`us-status-settings-icon ${isUsSideSettingsOpen ? 'open' : ''}`}
@@ -5279,6 +5415,7 @@ const RightTray = ({ onPopupStateChange = () => {} }) => {
             {isUsSideSettingsOpen && (
               <div
                 ref={usSideSettingsRef}
+                style={usSideSettingsDrag.dragStyle}
                 className="us-side-settings-panel popup-aurora-surface"
                 onClick={(event) => event.stopPropagation()}
               >
@@ -5287,17 +5424,20 @@ const RightTray = ({ onPopupStateChange = () => {} }) => {
                     <Settings size={13} />
                     <span>Settings</span>
                   </div>
-                  <button
-                    type="button"
-                    className="us-side-settings-close"
-                    onClick={() => {
-                      setIsUsSideSettingsOpen(false);
-                      setUsSideSettingsSection('profile');
-                    }}
-                    aria-label="Close side settings"
-                  >
-                    <X size={12} />
-                  </button>
+                  <div style={{ display: 'flex', gap: '8px', alignItems: 'center' }}>
+                    <button type="button" className="popup-drag-btn" {...usSideSettingsDrag.dragProps}>⠿</button>
+                    <button
+                      type="button"
+                      className="us-side-settings-close"
+                      onClick={() => {
+                        setIsUsSideSettingsOpen(false);
+                        setUsSideSettingsSection('profile');
+                      }}
+                      aria-label="Close side settings"
+                    >
+                      <X size={12} />
+                    </button>
+                  </div>
                 </div>
 
                 <div className="us-side-settings-actions">
@@ -5414,9 +5554,18 @@ const RightTray = ({ onPopupStateChange = () => {} }) => {
         {isCompanyDashboardOpen && (
           <div
             ref={companyDashboardRef}
+            style={companyDashboardDrag.dragStyle}
             className="company-dashboard-popup us-status-popup popup-aurora-surface"
             onClick={(event) => event.stopPropagation()}
           >
+            <button
+              type="button"
+              className="popup-drag-btn"
+              style={{ position: 'absolute', top: '10px', right: '35px', border: 'none', background: 'none', color: 'rgba(255,255,255,0.6)', padding: 0, display: 'flex', alignItems: 'center', justifyContent: 'center' }}
+              {...companyDashboardDrag.dragProps}
+            >
+              ⠿
+            </button>
             <button
               type="button"
               className="us-status-close-btn"
@@ -5476,6 +5625,7 @@ const RightTray = ({ onPopupStateChange = () => {} }) => {
             {companyDashboardSection !== 'none' && (
               <div
                 ref={companyDashboardNestedRef}
+                style={companyDashboardNestedDrag.dragStyle}
                 className="company-dashboard-nested popup-aurora-surface"
                 onClick={(event) => event.stopPropagation()}
               >
@@ -5484,6 +5634,7 @@ const RightTray = ({ onPopupStateChange = () => {} }) => {
                     {companyDashboardNav.find((item) => item.id === companyDashboardSection)?.label || 'Company Panel'}
                   </div>
                   <div className="company-dashboard-header-actions">
+                    <button type="button" className="popup-drag-btn" {...companyDashboardNestedDrag.dragProps}>⠿</button>
                     <button type="button" className="company-dashboard-action-button" onClick={() => void loadCompanyDashboard()}>
                       Refresh
                     </button>
@@ -5509,8 +5660,9 @@ const RightTray = ({ onPopupStateChange = () => {} }) => {
     </div>
     {isUserLoginOpen && (
       <div className="user-login-screen popup-aurora-overlay" role="dialog" aria-modal="true">
-        <div className="user-login-shell popup-aurora-surface">
+        <div ref={loginDrag.popupRef} style={loginDrag.dragStyle} className="user-login-shell popup-aurora-surface">
           <div className="user-login-window-controls">
+            <button type="button" className="user-login-window-button popup-drag-btn" {...loginDrag.dragProps}>⠿</button>
             <button
               type="button"
               className="user-login-window-button"
@@ -5648,20 +5800,23 @@ const RightTray = ({ onPopupStateChange = () => {} }) => {
 
         {isRegisterOpen && (
           <div className="user-register-modal" onClick={() => setIsRegisterOpen(false)}>
-            <div className="user-register-card popup-aurora-surface" onClick={(event) => event.stopPropagation()}>
+            <div ref={registerDrag.popupRef} style={registerDrag.dragStyle} className="user-register-card popup-aurora-surface" onClick={(event) => event.stopPropagation()}>
               <div className="user-register-header">
                 <div>
                   <h2>Create account</h2>
                   <p>Register securely to continue using DDO.</p>
                 </div>
-                <button
-                  type="button"
-                  className="user-login-window-button close"
-                  onClick={() => setIsRegisterOpen(false)}
-                  aria-label="Close registration popup"
-                >
-                  <X size={14} />
-                </button>
+                <div style={{ display: 'flex', gap: '8px', alignItems: 'center' }}>
+                  <button type="button" className="popup-drag-btn" {...registerDrag.dragProps}>⠿</button>
+                  <button
+                    type="button"
+                    className="user-login-window-button close"
+                    onClick={() => setIsRegisterOpen(false)}
+                    aria-label="Close registration popup"
+                  >
+                    <X size={14} />
+                  </button>
+                </div>
               </div>
 
               <form className="user-register-form" onSubmit={handleRegisterSubmit}>
@@ -5808,20 +5963,23 @@ const RightTray = ({ onPopupStateChange = () => {} }) => {
 
         {isCompanyLoginOpen && (
           <div className="user-register-modal" onClick={() => setIsCompanyLoginOpen(false)}>
-            <div className="user-register-card company-login-card popup-aurora-surface" onClick={(event) => event.stopPropagation()}>
+            <div ref={companyLoginDrag.popupRef} style={companyLoginDrag.dragStyle} className="user-register-card company-login-card popup-aurora-surface" onClick={(event) => event.stopPropagation()}>
               <div className="user-register-header">
                 <div>
                   <h2>Company Login</h2>
                   <p>Secure access for company and admin users only.</p>
                 </div>
-                <button
-                  type="button"
-                  className="user-login-window-button close"
-                  onClick={() => setIsCompanyLoginOpen(false)}
-                  aria-label="Close company login popup"
-                >
-                  <X size={14} />
-                </button>
+                <div style={{ display: 'flex', gap: '8px', alignItems: 'center' }}>
+                  <button type="button" className="popup-drag-btn" {...companyLoginDrag.dragProps}>⠿</button>
+                  <button
+                    type="button"
+                    className="user-login-window-button close"
+                    onClick={() => setIsCompanyLoginOpen(false)}
+                    aria-label="Close company login popup"
+                  >
+                    <X size={14} />
+                  </button>
+                </div>
               </div>
 
               <form className="user-register-form" onSubmit={handleCompanyLoginSubmit}>
@@ -5887,20 +6045,23 @@ const RightTray = ({ onPopupStateChange = () => {} }) => {
 
     {isDeleteAccountOpen && (
       <div className="user-register-modal" role="dialog" aria-modal="true" onClick={() => setIsDeleteAccountOpen(false)}>
-        <div className="delete-account-card popup-aurora-surface" onClick={(event) => event.stopPropagation()}>
+        <div ref={deleteAccountDrag.popupRef} style={deleteAccountDrag.dragStyle} className="delete-account-card popup-aurora-surface" onClick={(event) => event.stopPropagation()}>
           <div className="user-register-header">
             <div>
               <h2>Delete Account</h2>
               <p>Are you sure you want to delete your account?</p>
             </div>
-            <button
-              type="button"
-              className="user-login-window-button close"
-              onClick={() => setIsDeleteAccountOpen(false)}
-              aria-label="Close delete account popup"
-            >
-              <X size={14} />
-            </button>
+            <div style={{ display: 'flex', gap: '8px', alignItems: 'center' }}>
+              <button type="button" className="popup-drag-btn" {...deleteAccountDrag.dragProps}>⠿</button>
+              <button
+                type="button"
+                className="user-login-window-button close"
+                onClick={() => setIsDeleteAccountOpen(false)}
+                aria-label="Close delete account popup"
+              >
+                <X size={14} />
+              </button>
+            </div>
           </div>
 
           <div className="delete-account-warning">

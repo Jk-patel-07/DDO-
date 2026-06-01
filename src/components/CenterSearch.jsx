@@ -1,4 +1,12 @@
+import { useEffect, useRef, useState } from 'react';
+import { createPortal } from 'react-dom';
+import { Bot, LogOut, Mic, Plus, Search, Sparkles, X, Minus, Maximize2, Minimize2 } from 'lucide-react';
+import { createAuthHeaders } from '../utils/appAuth';
+import { buildApiUrl } from '../utils/api';
+import { useDraggablePopup } from '../utils/useDraggablePopup';
 
+const InlineMarkdown = ({ text }) => {
+  if (!text) return null;
   const parts = text.split(/(`[^`\n]+`)/g);
   return (
     <>
@@ -214,7 +222,9 @@ const CenterSearch = ({ onPopupStateChange = () => {} }) => {
   const providerTriggerRef = useRef(null);
   const accountTriggerRef = useRef(null);
   const accountPopupRef = useRef(null);
-  const answerPopupRef = useRef(null);
+  const searchDrag = useDraggablePopup('search');
+  const answerDrag = useDraggablePopup('answer');
+  const answerPopupRef = answerDrag.popupRef;
   const googleTokenClientRef = useRef(null);
   const [activePopup, setActivePopup] = useState(null);
   const [query, setQuery] = useState('');
@@ -239,6 +249,66 @@ const CenterSearch = ({ onPopupStateChange = () => {} }) => {
   const [isMinimized, setIsMinimized] = useState(false);
   const [isMaximized, setIsMaximized] = useState(false);
   const chatBottomRef = useRef(null);
+
+  const [geminiCooldownUntil, setGeminiCooldownUntil] = useState(() => {
+    try {
+      return Number(localStorage.getItem("geminiCooldownUntil")) || 0;
+    } catch {
+      return 0;
+    }
+  });
+  const [cooldownSecondsLeft, setCooldownSecondsLeft] = useState(0);
+
+  useEffect(() => {
+    if (geminiCooldownUntil <= Date.now()) {
+      setCooldownSecondsLeft(0);
+      return;
+    }
+
+    const updateCooldown = () => {
+      const remaining = Math.max(0, Math.ceil((geminiCooldownUntil - Date.now()) / 1000));
+      setCooldownSecondsLeft(remaining);
+      if (remaining === 0) {
+        setGeminiCooldownUntil(0);
+        try {
+          localStorage.removeItem("geminiCooldownUntil");
+        } catch (e) {
+          // ignore
+        }
+      }
+    };
+
+    updateCooldown();
+    const interval = setInterval(updateCooldown, 1000);
+    return () => clearInterval(interval);
+  }, [geminiCooldownUntil]);
+
+  const handleGeminiError = (errorText) => {
+    const isQuotaError =
+      errorText.toLowerCase().includes("quota") ||
+      errorText.toLowerCase().includes("rate-limit") ||
+      errorText.toLowerCase().includes("rate limit") ||
+      errorText.toLowerCase().includes("free_tier_requests") ||
+      errorText.toLowerCase().includes("limit reached") ||
+      errorText.toLowerCase().includes("exceeded");
+
+    if (!isQuotaError) return false;
+
+    const retryMatch = errorText.match(/retry in ([\d.]+)s/i) || 
+                       errorText.match(/retry after ([\d.]+)s/i) || 
+                       errorText.match(/retry in ([\d.]+) seconds/i) ||
+                       errorText.match(/retry after ([\d.]+) seconds/i);
+    const retrySeconds = retryMatch ? Math.ceil(Number(retryMatch[1])) : 35;
+
+    const cooldownUntil = Date.now() + retrySeconds * 1000;
+    setGeminiCooldownUntil(cooldownUntil);
+    try {
+      localStorage.setItem("geminiCooldownUntil", String(cooldownUntil));
+    } catch (e) {
+      // ignore
+    }
+    return true;
+  };
 
   useEffect(() => {
     const welcomeText = answerPanel.provider === 'stepfun'
@@ -565,15 +635,26 @@ const CenterSearch = ({ onPopupStateChange = () => {} }) => {
         status: 'done',
       }));
     } catch (error) {
+      const errorMsg = error.message || `${providerMeta.label} request failed.`;
+
+      let isQuota = false;
+      if (providerId === 'gemini') {
+        isQuota = handleGeminiError(errorMsg);
+      }
+
+      const textToShow = isQuota
+        ? "Gemini limit reached. Please retry later."
+        : errorMsg;
+
       const errorMsgId = Math.random().toString();
       setChatHistory((prev) => [
         ...prev,
-        { id: errorMsgId, sender: 'ai', text: error.message || `${providerMeta.label} request failed.`, isError: true }
+        { id: errorMsgId, sender: 'ai', text: textToShow, isError: true }
       ]);
       setAnswerPanel((prev) => ({
         ...prev,
         status: 'error',
-        error: error.message || `${providerMeta.label} request failed.`,
+        error: textToShow,
       }));
     }
   };
@@ -697,6 +778,7 @@ const CenterSearch = ({ onPopupStateChange = () => {} }) => {
     ? createPortal(
         <div
           ref={answerPopupRef}
+          style={answerDrag.dragStyle}
           className={`center-search-answer-popup popup-aurora-surface ${isMinimized ? 'is-minimized' : ''} ${isMaximized ? 'is-maximized' : ''}`}
         >
           <div className="center-search-answer-header">
@@ -707,6 +789,13 @@ const CenterSearch = ({ onPopupStateChange = () => {} }) => {
               </div>
             </div>
             <div className="center-search-answer-actions">
+              <button
+                type="button"
+                className="center-search-answer-action-btn popup-drag-btn"
+                {...answerDrag.dragProps}
+              >
+                ⠿
+              </button>
               <button
                 type="button"
                 className="center-search-answer-action-btn"
@@ -768,6 +857,63 @@ const CenterSearch = ({ onPopupStateChange = () => {} }) => {
             </div>
           </div>
 
+          {answerPanel.provider === 'gemini' && cooldownSecondsLeft > 0 && (
+            <div 
+              className="gemini-quota-card"
+              style={{
+                margin: '8px 12px',
+                padding: '10px 12px',
+                border: '1px solid #f87171',
+                borderRadius: '6px',
+                background: 'rgba(239, 68, 68, 0.15)',
+                color: '#fca5a5',
+                fontSize: '11px',
+                lineHeight: '1.4',
+                display: 'flex',
+                flexDirection: 'column',
+                gap: '4px',
+              }}
+            >
+              <div style={{ fontWeight: 'bold', fontSize: '12px', color: '#f87171' }}>
+                Gemini limit reached
+              </div>
+              <div>Model: gemini-2.5-flash</div>
+              <div>Free requests limit: 20</div>
+              <div>Retry after: {cooldownSecondsLeft} seconds</div>
+              <div style={{ color: '#ffffff', fontWeight: '500', marginTop: '2px' }}>
+                Retry available in: {cooldownSecondsLeft}s
+              </div>
+              <div style={{ fontSize: '10px', color: '#94a3b8' }}>
+                Gemini available again at {new Date(geminiCooldownUntil).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit', second: '2-digit' })}
+              </div>
+              <div style={{ marginTop: '6px' }}>
+                <button
+                  type="button"
+                  style={{
+                    background: 'rgba(255, 255, 255, 0.1)',
+                    border: '1px solid rgba(255, 255, 255, 0.2)',
+                    borderRadius: '4px',
+                    color: 'white',
+                    padding: '3px 6px',
+                    cursor: 'pointer',
+                    fontSize: '10px',
+                  }}
+                  onClick={() => {
+                    setActivePopup('stepfun');
+                    setAnswerPanel((prev) => ({
+                      ...prev,
+                      provider: 'stepfun',
+                      status: 'idle',
+                      error: '',
+                    }));
+                  }}
+                >
+                  Use StepFun AI instead
+                </button>
+              </div>
+            </div>
+          )}
+
           <form
             className="center-search-answer-form"
             onSubmit={(event) => {
@@ -781,13 +927,20 @@ const CenterSearch = ({ onPopupStateChange = () => {} }) => {
               value={answerInput}
               onChange={(event) => setAnswerInput(event.target.value)}
               placeholder={`Ask ${activeAnswerProvider.label}...`}
+              disabled={answerPanel.provider === 'gemini' && cooldownSecondsLeft > 0}
             />
             <button
               type="submit"
               className="center-search-answer-send"
-              disabled={!answerInput.trim() || answerPanel.status === 'loading'}
+              disabled={
+                !answerInput.trim() || 
+                answerPanel.status === 'loading' || 
+                (answerPanel.provider === 'gemini' && cooldownSecondsLeft > 0)
+              }
             >
-              Send
+              {answerPanel.provider === 'gemini' && cooldownSecondsLeft > 0
+                ? `Wait ${cooldownSecondsLeft}s`
+                : 'Send'}
             </button>
           </form>
         </div>,
@@ -807,7 +960,7 @@ const CenterSearch = ({ onPopupStateChange = () => {} }) => {
       </button>
 
       {activePopup === 'search' && (
-        <div className="center-search-popup">
+        <div ref={searchDrag.popupRef} style={searchDrag.dragStyle} className="center-search-popup">
           <div
             className={`center-search-bar ${activePopup === 'search' ? 'is-open' : ''}`}
           >
@@ -834,6 +987,13 @@ const CenterSearch = ({ onPopupStateChange = () => {} }) => {
             </div>
 
             <div className="center-search-actions">
+              <button
+                type="button"
+                className="center-search-drag-btn popup-drag-btn"
+                {...searchDrag.dragProps}
+              >
+                ⠿
+              </button>
               <button type="button" className="center-search-mic" aria-label="Voice input">
                 <Mic size={24} strokeWidth={1.9} />
               </button>

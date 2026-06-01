@@ -191,7 +191,107 @@ const parseGeminiAnswer = (payload) => {
   return parts.map((part) => part?.text || '').join('\n').trim();
 };
 
-const requestGeminiAnswer = async (prompt, apiKey) => {
+const decodeDdgUrl = (urlStr) => {
+  try {
+    if (urlStr.startsWith('//')) {
+      urlStr = 'https:' + urlStr;
+    }
+    const uddgParam = urlStr.match(/[?&]uddg=([^&]+)/);
+    if (uddgParam) {
+      return decodeURIComponent(uddgParam[1]);
+    }
+  } catch (e) {
+    // ignore
+  }
+  return urlStr;
+};
+
+const searchGoogleNews = async (query) => {
+  try {
+    const res = await fetch(`https://news.google.com/rss/search?q=${encodeURIComponent(query)}&hl=en-US&gl=US&ceid=US:en`);
+    if (!res.ok) return [];
+    const xml = await res.text();
+    const items = [];
+    const itemSplits = xml.split('<item>');
+    for (let i = 1; i < Math.min(10, itemSplits.length); i++) {
+      const block = itemSplits[i];
+      const titleMatch = block.match(/<title>([\s\S]*?)<\/title>/);
+      const linkMatch = block.match(/<link>([\s\S]*?)<\/link>/);
+      const pubDateMatch = block.match(/<pubDate>([\s\S]*?)<\/pubDate>/);
+      const sourceMatch = block.match(/<source[^>]*>([\s\S]*?)<\/source>/);
+      
+      if (titleMatch && linkMatch) {
+        items.push({
+          title: titleMatch[1].replace(/<!\[CDATA\[|\]\]>/g, '').trim(),
+          link: linkMatch[1].trim(),
+          pubDate: pubDateMatch ? pubDateMatch[1].trim() : '',
+          source: sourceMatch ? sourceMatch[1].trim() : ''
+        });
+      }
+    }
+    return items.map(item => ({
+      title: item.title,
+      url: item.link,
+      snippet: `Published on ${item.pubDate} via ${item.source}. Original Article Link: ${item.link}`
+    }));
+  } catch (e) {
+    console.error("searchGoogleNews error:", e);
+    return [];
+  }
+};
+
+const searchWeb = async (query) => {
+  try {
+    // Use Google News RSS feed for news-related questions
+    if (/news|headline/i.test(query)) {
+      const newsResults = await searchGoogleNews(query);
+      if (newsResults && newsResults.length > 0) {
+        return newsResults;
+      }
+    }
+
+    // Otherwise use DuckDuckGo
+    const searchUrl = `https://html.duckduckgo.com/html/?q=${encodeURIComponent(query)}`;
+    const res = await fetch(searchUrl, {
+      headers: {
+        'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36'
+      }
+    });
+    if (!res.ok) return [];
+    const html = await res.text();
+    
+    const results = [];
+    const blocks = html.split('class="result ');
+    for (let i = 1; i < blocks.length; i++) {
+      const block = blocks[i];
+      const titleMatch = block.match(/<a[^>]*class="[a-zA-Z0-9_-]*result__a"[^>]*href="([^"]+)"[^>]*>([\s\S]*?)<\/a>/);
+      const snippetMatch = block.match(/<a[^>]*class="result__snippet"[^>]*>([\s\S]*?)<\/a>/);
+      
+      if (titleMatch) {
+        const rawUrl = titleMatch[1];
+        const title = titleMatch[2].replace(/<[^>]*>/g, '').replace(/\s+/g, ' ').trim();
+        const url = decodeDdgUrl(rawUrl);
+        const snippet = snippetMatch 
+          ? snippetMatch[1].replace(/<[^>]*>/g, '').replace(/\s+/g, ' ').trim()
+          : '';
+        
+        // Filter out ads
+        if (url.includes('duckduckgo.com/y.js') || url.includes('ad_provider') || url.includes('bing.com/aclick')) {
+          continue;
+        }
+        
+        results.push({ title, url, snippet });
+      }
+    }
+    return results.slice(0, 6);
+  } catch (err) {
+    console.error("searchWeb error:", err);
+    return [];
+  }
+};
+
+const requestGeminiAnswer = async (prompt, apiKey, systemPrompt) => {
+  const finalSystemPrompt = systemPrompt || `Today's date is: ${new Date().toDateString()}. Use this date when answering current/latest questions. Never say old dates unless the user asked for old news.`;
   const response = await fetch(
     `https://generativelanguage.googleapis.com/v1beta/models/${GEMINI_MODEL}:generateContent?key=${encodeURIComponent(apiKey)}`,
     {
@@ -201,7 +301,7 @@ const requestGeminiAnswer = async (prompt, apiKey) => {
         contents: [
           {
             role: 'user',
-            parts: [{ text: prompt }],
+            parts: [{ text: `${finalSystemPrompt}\n\nUser Question:\n${prompt}` }],
           },
         ],
       }),
@@ -221,7 +321,8 @@ const requestGeminiAnswer = async (prompt, apiKey) => {
   return answer;
 };
 
-const requestStepFunAnswer = async (prompt, apiKey) => {
+const requestStepFunAnswer = async (prompt, apiKey, systemPrompt) => {
+  const finalSystemPrompt = systemPrompt || `You are StepFun AI. Always reply in English only. Do not use Chinese. Today's date is: ${new Date().toDateString()}. Use this date when answering current/latest questions. Never say old dates unless the user asked for old news.`;
   const response = await fetch(STEPFUN_API_URL, {
     method: 'POST',
     headers: {
@@ -233,7 +334,7 @@ const requestStepFunAnswer = async (prompt, apiKey) => {
       messages: [
         {
           role: 'system',
-          content: 'You are StepFun AI. Always reply in English only. Do not use Chinese.',
+          content: finalSystemPrompt,
         },
         {
           role: 'user',
@@ -275,9 +376,68 @@ const respondWithAi = async ({ provider, prompt }) => {
     throw new HttpError(503, `${label} is not configured. Add the API key in backend/.env.`);
   }
 
-  const answer = normalizedProvider === 'stepfun'
-    ? await requestStepFunAnswer(normalizedPrompt, apiKey)
-    : await requestGeminiAnswer(normalizedPrompt, apiKey);
+  const isLiveQuery = /today|latest|current|now|recent|news|weather|price|score|update|2026/i.test(normalizedPrompt);
+  console.log("respondWithAi - isLiveQuery:", isLiveQuery, "prompt:", normalizedPrompt);
+
+  let answer;
+  if (isLiveQuery) {
+    const searchResults = await searchWeb(normalizedPrompt);
+    console.log("respondWithAi - searchResults count:", searchResults ? searchResults.length : 0);
+    if (!searchResults || searchResults.length === 0) {
+      return {
+        provider: normalizedProvider,
+        answer: "I could not fetch live data right now. Please try again.",
+      };
+    }
+
+    const currentQueryPrompt = `
+Today's date is: ${new Date().toDateString()}.
+Use this date when answering current/latest questions. Never say old dates unless the user asked for old news.
+You are an AI assistant like ChatGPT. Always answer clearly, helpfully, and in proper format.
+Note: Web search results might display dates from 2024, 2025, or 2026. Treat these search results as the most current/latest information available and present them as current news.
+
+Use only these latest web results to answer the user's question:
+${searchResults.map((r, idx) => `[Result ${idx + 1}] Title: ${r.title}\nURL: ${r.url}\nSnippet: ${r.snippet}`).join('\n\n')}
+
+User question:
+${normalizedPrompt}
+
+Format your answer exactly as follows for news and current events:
+Title: [A descriptive title matching the user's query, e.g., Today’s Top News]
+
+Date: [Today's date]
+
+1. [Headline title]
+   [Short 2–3 line explanation about what happened based on the web results]
+   Source: [Source name] [URL]
+
+2. [Headline title]
+   [Short 2–3 line explanation about what happened based on the web results]
+   Source: [Source name] [URL]
+... (up to 5 headlines)
+
+Important rules:
+- Do not use pre-training/old memory for current events.
+- Never invent headlines or make up details.
+- Every headline/point must have the source name and its actual URL next to it (e.g., Source: Reuters https://news.google.com/...)
+- If the search results do not contain relevant information, respond with exactly: "I could not fetch live data right now. Please try again."
+- Use only trusted sources present in the search results like PIB, India Today, The Hindu, Indian Express, NDTV, Reuters, BBC, IMD (for weather), or official government websites.
+`;
+
+    const systemInstruction = `You are an AI assistant like ChatGPT. Always answer clearly, helpfully, and in proper format. Do not give generic answers. Do not only provide links. For current/latest/news/weather/price/sports questions, use live web search first and summarize results with source links. For coding questions, use proper code blocks and step-by-step explanation. For normal questions, answer directly and simply. Always use English only. Today's date is: ${new Date().toDateString()}.`;
+
+    if (normalizedProvider === 'stepfun') {
+      answer = await requestStepFunAnswer(currentQueryPrompt, apiKey, systemInstruction);
+    } else {
+      answer = await requestGeminiAnswer(currentQueryPrompt, apiKey, systemInstruction);
+    }
+  } else {
+    const systemInstruction = `You are an AI assistant like ChatGPT. Always answer clearly, helpfully, and in proper format. Do not give generic answers. Do not only provide links. For coding questions, use proper code blocks and step-by-step explanation. For normal questions, answer directly and simply. Always use English only. Today's date is: ${new Date().toDateString()}.`;
+
+    answer = normalizedProvider === 'stepfun'
+      ? await requestStepFunAnswer(normalizedPrompt, apiKey, systemInstruction)
+      : await requestGeminiAnswer(normalizedPrompt, apiKey, systemInstruction);
+  }
 
   return {
     provider: normalizedProvider,

@@ -6678,3 +6678,27 @@ button:active::after,
   display: block;
 }
 
+/* Popup Drag Handle Styles */
+.popup-drag-btn {
+  background: transparent;
+  border: none;
+  color: rgba(255, 255, 255, 0.48);
+  font-size: 14px;
+  cursor: grab;
+  padding: 4px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  transition: color 0.2s ease, opacity 0.2s ease;
+  user-select: none;
+}
+
+.popup-drag-btn:hover {
+  color: rgba(255, 255, 255, 0.9);
+}
+
+.popup-drag-btn:active {
+  cursor: grabbing;
+}
+
+

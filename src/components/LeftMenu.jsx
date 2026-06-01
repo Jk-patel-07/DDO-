@@ -15,6 +15,7 @@ import {
 } from 'lucide-react';
 import { createAuthHeaders } from '../utils/appAuth';
 import { buildApiUrl } from '../utils/api';
+import { useDraggablePopup } from '../utils/useDraggablePopup';
 
 const YOUTUBE_SHORTS_URL = 'https://www.youtube.com/shorts';
 const BACKGROUND_ANIMATION_STORAGE_KEY = 'background_animation_mode';
@@ -51,11 +52,16 @@ const requestSleepMode = async () => {
 
 const LeftMenu = ({ onPopupStateChange = () => {} }) => {
   const wrapperRef = useRef(null);
-  const animationPopupRef = useRef(null);
-  const moreAnimationPopupRef = useRef(null);
-  const functionPopupRef = useRef(null);
-  const confirmPopupRef = useRef(null);
-  const sleepPopupRef = useRef(null);
+  const animationDrag = useDraggablePopup('left-animation');
+  const animationPopupRef = animationDrag.popupRef;
+  const moreAnimationDrag = useDraggablePopup('left-more-animation');
+  const moreAnimationPopupRef = moreAnimationDrag.popupRef;
+  const functionDrag = useDraggablePopup('left-function');
+  const functionPopupRef = functionDrag.popupRef;
+  const confirmDrag = useDraggablePopup('left-confirm');
+  const confirmPopupRef = confirmDrag.popupRef;
+  const sleepDrag = useDraggablePopup('left-sleep');
+  const sleepPopupRef = sleepDrag.popupRef;
   const [isViewPopupOpen, setIsViewPopupOpen] = useState(false);
   const [isWindowPopupOpen, setIsWindowPopupOpen] = useState(false);
   const [isEditPopupOpen, setIsEditPopupOpen] = useState(false);
@@ -580,9 +586,13 @@ const LeftMenu = ({ onPopupStateChange = () => {} }) => {
       {isAnimationPopupOpen ? (
         <div
           ref={animationPopupRef}
+          style={animationDrag.dragStyle}
           className="animation-settings-popup popup-aurora-surface"
         >
-          <div className="animation-settings-title">Animation Settings</div>
+          <div className="popup-drag-header" style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '12px' }}>
+            <div className="animation-settings-title" style={{ margin: 0 }}>Animation Settings</div>
+            <button type="button" className="popup-drag-btn" {...animationDrag.dragProps}>⠿</button>
+          </div>
           <div className="animation-settings-row">
             <div className="animation-settings-copy">
               <strong>Background Animation</strong>
@@ -612,9 +622,13 @@ const LeftMenu = ({ onPopupStateChange = () => {} }) => {
       {isMoreAnimationPopupOpen ? (
         <div
           ref={moreAnimationPopupRef}
+          style={moreAnimationDrag.dragStyle}
           className="animation-more-popup popup-aurora-surface"
         >
-          <div className="animation-settings-title">More Animation</div>
+          <div className="popup-drag-header" style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '12px' }}>
+            <div className="animation-settings-title" style={{ margin: 0 }}>More Animation</div>
+            <button type="button" className="popup-drag-btn" {...moreAnimationDrag.dragProps}>⠿</button>
+          </div>
           <div className="animation-more-options">
             {[
               'Background Animation',
@@ -638,9 +652,13 @@ const LeftMenu = ({ onPopupStateChange = () => {} }) => {
       {isFunctionPopupOpen ? (
         <div
           ref={functionPopupRef}
+          style={functionDrag.dragStyle}
           className="function-popup popup-aurora-surface"
         >
-          <div className="animation-settings-title">Functions</div>
+          <div className="popup-drag-header" style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '12px' }}>
+            <div className="animation-settings-title" style={{ margin: 0 }}>Functions</div>
+            <button type="button" className="popup-drag-btn" {...functionDrag.dragProps}>⠿</button>
+          </div>
           <div className="function-popup-options">
             {functionOptions.map(({ label, icon: Icon, action }) => (
               <button
@@ -660,9 +678,13 @@ const LeftMenu = ({ onPopupStateChange = () => {} }) => {
       {confirmAction ? (
         <div
           ref={confirmPopupRef}
+          style={confirmDrag.dragStyle}
           className="window-confirm-popup popup-aurora-surface"
         >
-          <div className="window-confirm-title">{confirmAction.confirmationTitle}</div>
+          <div className="popup-drag-header" style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '12px' }}>
+            <div className="window-confirm-title" style={{ margin: 0 }}>{confirmAction.confirmationTitle}</div>
+            <button type="button" className="popup-drag-btn" {...confirmDrag.dragProps}>⠿</button>
+          </div>
           <div className="window-confirm-message">{confirmAction.confirmationMessage}</div>
           <div className="window-confirm-actions">
             <button
@@ -686,9 +708,13 @@ const LeftMenu = ({ onPopupStateChange = () => {} }) => {
       {isSleepPopupOpen ? (
         <div
           ref={sleepPopupRef}
+          style={sleepDrag.dragStyle}
           className="sleep-timer-popup popup-aurora-surface"
         >
-          <div className="window-confirm-title">Sleep Timer</div>
+          <div className="popup-drag-header" style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '12px' }}>
+            <div className="window-confirm-title" style={{ margin: 0 }}>Sleep Timer</div>
+            <button type="button" className="popup-drag-btn" {...sleepDrag.dragProps}>⠿</button>
+          </div>
 
           <div className="sleep-timer-field">
             <label htmlFor="sleep-duration-input" className="sleep-timer-label">Enter duration</label>
