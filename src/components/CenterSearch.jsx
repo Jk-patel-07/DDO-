@@ -1,8 +1,160 @@
-import { useEffect, useRef, useState } from 'react';
-import { createPortal } from 'react-dom';
-import { Bot, LogOut, Mic, Plus, Search, Sparkles, X } from 'lucide-react';
-import { createAuthHeaders } from '../utils/appAuth';
-import { buildApiUrl } from '../utils/api';
+
+  const parts = text.split(/(`[^`\n]+`)/g);
+  return (
+    <>
+      {parts.map((part, idx) => {
+        if (part.startsWith('`') && part.endsWith('`')) {
+          return (
+            <code key={idx} className="markdown-inline-code">
+              {part.slice(1, -1)}
+            </code>
+          );
+        }
+        const boldParts = part.split(/(\*\*[^*]+\*\*)/g);
+        return (
+          <span key={idx}>
+            {boldParts.map((bPart, bIdx) => {
+              if (bPart.startsWith('**') && bPart.endsWith('**')) {
+                const innerText = bPart.slice(2, -2);
+                const italicParts = innerText.split(/(\*[^*]+\*)/g);
+                return (
+                  <strong key={bIdx}>
+                    {italicParts.map((iPart, iIdx) => {
+                      if (iPart.startsWith('*') && iPart.endsWith('*')) {
+                        return <em key={iIdx}>{iPart.slice(1, -1)}</em>;
+                      }
+                      return iPart;
+                    })}
+                  </strong>
+                );
+              }
+              const italicParts = bPart.split(/(\*[^*]+\*)/g);
+              return (
+                <span key={bIdx}>
+                  {italicParts.map((iPart, iIdx) => {
+                    if (iPart.startsWith('*') && iPart.endsWith('*')) {
+                      return <em key={iIdx}>{iPart.slice(1, -1)}</em>;
+                    }
+                    return iPart;
+                  })}
+                </span>
+              );
+            })}
+          </span>
+        );
+      })}
+    </>
+  );
+};
+
+const MarkdownTextBlock = ({ text }) => {
+  const lines = text.split('\n');
+  const renderedElements = [];
+  let currentList = null;
+  let listType = null;
+
+  const flushList = () => {
+    if (currentList) {
+      if (listType === 'ul') {
+        renderedElements.push(<ul key={`ul-${renderedElements.length}`} className="markdown-ul">{currentList}</ul>);
+      } else {
+        renderedElements.push(<ol key={`ol-${renderedElements.length}`} className="markdown-ol">{currentList}</ol>);
+      }
+      currentList = null;
+      listType = null;
+    }
+  };
+
+  for (let i = 0; i < lines.length; i++) {
+    const line = lines[i];
+    const headingMatch = line.match(/^(#{1,6})\s+(.*)$/);
+    if (headingMatch) {
+      flushList();
+      const level = headingMatch[1].length;
+      const headingText = headingMatch[2];
+      const HeadingTag = `h${level}`;
+      renderedElements.push(
+        <HeadingTag key={i} className={`markdown-h${level}`}>
+          <InlineMarkdown text={headingText} />
+        </HeadingTag>
+      );
+      continue;
+    }
+
+    const ulMatch = line.match(/^[-*+]\s+(.*)$/);
+    if (ulMatch) {
+      if (listType !== 'ul') {
+        flushList();
+        listType = 'ul';
+        currentList = [];
+      }
+      currentList.push(
+        <li key={i} className="markdown-li">
+          <InlineMarkdown text={ulMatch[1]} />
+        </li>
+      );
+      continue;
+    }
+
+    const olMatch = line.match(/^(\d+)\.\s+(.*)$/);
+    if (olMatch) {
+      if (listType !== 'ol') {
+        flushList();
+        listType = 'ol';
+        currentList = [];
+      }
+      currentList.push(
+        <li key={i} className="markdown-li">
+          <InlineMarkdown text={olMatch[2]} />
+        </li>
+      );
+      continue;
+    }
+
+    if (line.trim() === '') {
+      flushList();
+      renderedElements.push(<div key={i} className="markdown-line-break" />);
+      continue;
+    }
+
+    flushList();
+    renderedElements.push(
+      <p key={i} className="markdown-p">
+        <InlineMarkdown text={line} />
+      </p>
+    );
+  }
+
+  flushList();
+  return <>{renderedElements}</>;
+};
+
+const MarkdownRenderer = ({ text }) => {
+  if (!text) return null;
+  const parts = text.split(/(```[\s\S]*?```)/g);
+  return (
+    <div className="markdown-body">
+      {parts.map((part, idx) => {
+        if (part.startsWith('```')) {
+          const match = part.match(/```(\w*)\n?([\s\S]*?)\n?```/);
+          const lang = match ? match[1] : '';
+          const code = match ? match[2] : part.slice(3, -3);
+          return (
+            <div key={idx} className="markdown-code-block-wrapper">
+              {lang && <div className="markdown-code-block-lang">{lang}</div>}
+              <pre className="markdown-code-block">
+                <code>{code}</code>
+              </pre>
+            </div>
+          );
+        } else {
+          return <MarkdownTextBlock key={idx} text={part} />;
+        }
+      })}
+    </div>
+  );
+};
+
 
 const GOOGLE_IDENTITY_SCRIPT_ID = 'google-identity-services';
 const GOOGLE_ACCOUNT_STORAGE_KEY = 'google_search_account';
@@ -64,7 +216,7 @@ const CenterSearch = ({ onPopupStateChange = () => {} }) => {
   const accountPopupRef = useRef(null);
   const answerPopupRef = useRef(null);
   const googleTokenClientRef = useRef(null);
-  const [isOpen, setIsOpen] = useState(false);
+  const [activePopup, setActivePopup] = useState(null);
   const [query, setQuery] = useState('');
   const [googleAccount, setGoogleAccount] = useState(() => readStoredGoogleAccount());
   const [googleAuthError, setGoogleAuthError] = useState('');
@@ -83,6 +235,31 @@ const CenterSearch = ({ onPopupStateChange = () => {} }) => {
     error: '',
   });
   const [answerInput, setAnswerInput] = useState('');
+  const [chatHistory, setChatHistory] = useState([]);
+  const [isMinimized, setIsMinimized] = useState(false);
+  const [isMaximized, setIsMaximized] = useState(false);
+  const chatBottomRef = useRef(null);
+
+  useEffect(() => {
+    const welcomeText = answerPanel.provider === 'stepfun'
+      ? 'Hello! Nice to meet you 😊 What would you like help with today?'
+      : `Ask a question and ${activeAnswerProvider.label} will answer here.`;
+
+    setChatHistory([
+      { id: 'welcome', sender: 'ai', text: welcomeText }
+    ]);
+  }, [answerPanel.provider]);
+
+  useEffect(() => {
+    if (activePopup === 'stepfun' || activePopup === 'gemini') {
+      setIsMinimized(false);
+      setIsMaximized(false);
+    }
+  }, [activePopup]);
+
+  useEffect(() => {
+    chatBottomRef.current?.scrollIntoView({ behavior: 'smooth' });
+  }, [chatHistory, answerPanel.status]);
 
   const providerMenuRef = useRef(null);
   const activeProvider = providerOptions.find((option) => option.id === searchProvider) || providerOptions[0];
@@ -108,7 +285,7 @@ const CenterSearch = ({ onPopupStateChange = () => {} }) => {
       }
 
       if (wrapperRef.current && !wrapperRef.current.contains(event.target)) {
-        setIsOpen(false);
+        setActivePopup(null);
         setIsAccountMenuOpen(false);
         setIsProviderMenuOpen(false);
         return;
@@ -125,8 +302,8 @@ const CenterSearch = ({ onPopupStateChange = () => {} }) => {
   }, []);
 
   useEffect(() => {
-    onPopupStateChange(isOpen || answerPanel.isOpen);
-  }, [answerPanel.isOpen, isOpen, onPopupStateChange]);
+    onPopupStateChange(activePopup !== null);
+  }, [activePopup, onPopupStateChange]);
 
   useEffect(() => {
     if (!isAccountMenuOpen) {
@@ -347,15 +524,20 @@ const CenterSearch = ({ onPopupStateChange = () => {} }) => {
 
     const providerMeta = providerOptions.find((option) => option.id === providerId) || providerOptions[1];
     saveSearchToHistory(trimmedQuery);
+    setAnswerInput('');
+    setQuery('');
+    setActivePopup(providerId);
 
-    setAnswerPanel({
-      isOpen: true,
+    setAnswerPanel((prev) => ({
+      ...prev,
+      isOpen: false,
       provider: providerId,
-      question: trimmedQuery,
-      answer: '',
       status: 'loading',
       error: '',
-    });
+    }));
+
+    const userMsgId = Math.random().toString();
+    setChatHistory((prev) => [...prev, { id: userMsgId, sender: 'user', text: trimmedQuery }]);
 
     try {
       const response = await fetch(buildApiUrl('/api/ai/respond'), {
@@ -376,24 +558,23 @@ const CenterSearch = ({ onPopupStateChange = () => {} }) => {
         throw new Error(payload.error || `${providerMeta.label} request failed.`);
       }
 
-      setAnswerPanel({
-        isOpen: true,
-        provider: providerId,
-        question: trimmedQuery,
-        answer: payload.answer || '',
+      const aiMsgId = Math.random().toString();
+      setChatHistory((prev) => [...prev, { id: aiMsgId, sender: 'ai', text: payload.answer || '' }]);
+      setAnswerPanel((prev) => ({
+        ...prev,
         status: 'done',
-        error: '',
-      });
-      setAnswerInput('');
+      }));
     } catch (error) {
-      setAnswerPanel({
-        isOpen: true,
-        provider: providerId,
-        question: trimmedQuery,
-        answer: '',
+      const errorMsgId = Math.random().toString();
+      setChatHistory((prev) => [
+        ...prev,
+        { id: errorMsgId, sender: 'ai', text: error.message || `${providerMeta.label} request failed.`, isError: true }
+      ]);
+      setAnswerPanel((prev) => ({
+        ...prev,
         status: 'error',
         error: error.message || `${providerMeta.label} request failed.`,
-      });
+      }));
     }
   };
 
@@ -427,13 +608,16 @@ const CenterSearch = ({ onPopupStateChange = () => {} }) => {
     if (providerId === 'stepfun') {
       setAnswerInput('');
       setAnswerPanel({
-        isOpen: true,
+        isOpen: false,
         provider: 'stepfun',
         question: '',
         answer: '',
         status: 'idle',
         error: '',
       });
+      setActivePopup('stepfun');
+    } else {
+      setActivePopup('search');
     }
   };
 
@@ -509,11 +693,11 @@ const CenterSearch = ({ onPopupStateChange = () => {} }) => {
       )
     : null;
 
-  const answerPanelPopup = answerPanel.isOpen
+  const answerPanelPopup = (activePopup === 'stepfun' || activePopup === 'gemini')
     ? createPortal(
         <div
           ref={answerPopupRef}
-          className="center-search-answer-popup popup-aurora-surface"
+          className={`center-search-answer-popup popup-aurora-surface ${isMinimized ? 'is-minimized' : ''} ${isMaximized ? 'is-maximized' : ''}`}
         >
           <div className="center-search-answer-header">
             <div>
@@ -521,43 +705,67 @@ const CenterSearch = ({ onPopupStateChange = () => {} }) => {
                 <ActiveAnswerIcon size={15} />
                 <span>{activeAnswerProvider.label}</span>
               </div>
-              {answerPanel.question ? (
-                <div className="center-search-answer-question">{answerPanel.question}</div>
-              ) : null}
             </div>
-            <button
-              type="button"
-              className="center-search-answer-close"
-              onClick={() => setAnswerPanel((current) => ({ ...current, isOpen: false }))}
-              aria-label="Close answer popup"
-            >
-              <X size={14} />
-            </button>
+            <div className="center-search-answer-actions">
+              <button
+                type="button"
+                className="center-search-answer-action-btn"
+                onClick={() => {
+                  setIsMinimized(!isMinimized);
+                  if (isMaximized) setIsMaximized(false);
+                }}
+                title={isMinimized ? 'Restore' : 'Minimize'}
+              >
+                <Minus size={13} />
+              </button>
+              <button
+                type="button"
+                className="center-search-answer-action-btn"
+                onClick={() => {
+                  setIsMaximized(!isMaximized);
+                  if (isMinimized) setIsMinimized(false);
+                }}
+                title={isMaximized ? 'Restore' : 'Maximize'}
+              >
+                {isMaximized ? <Minimize2 size={13} /> : <Maximize2 size={13} />}
+              </button>
+              <button
+                type="button"
+                className="center-search-answer-action-btn"
+                onClick={() => setActivePopup(null)}
+                aria-label="Close answer popup"
+              >
+                <X size={13} />
+              </button>
+            </div>
           </div>
 
           <div className="center-search-answer-body">
-            {answerPanel.status === 'idle' ? (
-              <div className="center-search-answer-empty">
-                {answerPanel.provider === 'stepfun'
-                  ? 'Hello! Nice to meet you 😊 What would you like help with today?'
-                  : `Ask a question and ${activeAnswerProvider.label} will answer here.`}
-              </div>
-            ) : null}
+            <div className="chat-messages-container">
+              {chatHistory.map((msg) => (
+                <div key={msg.id} className={`chat-msg ${msg.sender === 'user' ? 'chat-msg-user' : 'chat-msg-ai'} ${msg.isError ? 'chat-msg-error' : ''}`}>
+                  <div className="chat-msg-bubble">
+                    {msg.sender === 'ai' ? (
+                      <MarkdownRenderer text={msg.text} />
+                    ) : (
+                      msg.text
+                    )}
+                  </div>
+                </div>
+              ))}
 
-            {answerPanel.status === 'loading' ? (
-              <div className="center-search-answer-loading">
-                <span className="center-search-answer-loader" />
-                <span>{activeAnswerProvider.label} is thinking...</span>
-              </div>
-            ) : null}
+              {answerPanel.status === 'loading' && (
+                <div className="chat-msg chat-msg-ai">
+                  <div className="typing-indicator">
+                    <span className="typing-dot" />
+                    <span className="typing-dot" />
+                    <span className="typing-dot" />
+                  </div>
+                </div>
+              )}
 
-            {answerPanel.status === 'error' ? (
-              <div className="center-search-answer-error">{answerPanel.error}</div>
-            ) : null}
-
-            {answerPanel.status === 'done' ? (
-              <div className="center-search-answer-text">{answerPanel.answer}</div>
-            ) : null}
+              <div ref={chatBottomRef} />
+            </div>
           </div>
 
           <form
@@ -591,17 +799,17 @@ const CenterSearch = ({ onPopupStateChange = () => {} }) => {
     <div ref={wrapperRef} className="center-search-shell">
       <button
         type="button"
-        className={`flex-center center-search-trigger ${isOpen ? 'is-open' : ''}`}
-        onClick={() => setIsOpen((open) => !open)}
+        className={`flex-center center-search-trigger ${activePopup === 'search' ? 'is-open' : ''}`}
+        onClick={() => setActivePopup((current) => (current === 'search' ? null : 'search'))}
         aria-label="Open search"
       >
         <Search size={14} />
       </button>
 
-      {isOpen && (
+      {activePopup === 'search' && (
         <div className="center-search-popup">
           <div
-            className={`center-search-bar ${isOpen ? 'is-open' : ''}`}
+            className={`center-search-bar ${activePopup === 'search' ? 'is-open' : ''}`}
           >
             <button
               type="button"
@@ -619,7 +827,7 @@ const CenterSearch = ({ onPopupStateChange = () => {} }) => {
                 placeholder={activeProvider.placeholder}
                 value={query}
                 onChange={(e) => setQuery(e.target.value)}
-                onFocus={() => setIsOpen(true)}
+                onFocus={() => setActivePopup('search')}
                 onKeyDown={handleSearchSubmit}
                 className="center-search-input"
               />
