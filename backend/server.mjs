@@ -18,6 +18,7 @@ import { promisify } from 'node:util';
 import XLSX from 'xlsx';
 import User from './models/User.mjs';
 import Company from './models/Company.mjs';
+import ChatTab from './models/ChatTab.mjs';
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
@@ -51,6 +52,8 @@ const STEPFUN_MODEL = process.env.STEPFUN_MODEL || process.env.STEP_FUN_MODEL ||
 const STEPFUN_API_URL = process.env.STEPFUN_API_URL
   || process.env.STEP_FUN_API_URL
   || 'https://api.stepfun.com/v1/chat/completions';
+const MANUS_MODEL = process.env.MANUS_MODEL || 'manus-chat';
+const MANUS_API_URL = process.env.MANUS_API_URL || 'https://api.manus.ai/v1/chat/completions';
 const USERS_XLSX_HEADERS = [
   'Email ID',
   'First Name',
@@ -89,8 +92,8 @@ app.use(cors({
     'http://localhost:5173',
   ],
   credentials: true,
-  methods: ['GET', 'POST', 'OPTIONS'],
-  allowedHeaders: ['Content-Type', 'Authorization'],
+  methods: ['GET', 'POST', 'PATCH', 'DELETE', 'OPTIONS'],
+  allowedHeaders: ['Content-Type', 'Authorization', 'x-device-id'],
 }));
 
 const sanitizeEmail = (value) => String(value || '').trim().toLowerCase();
@@ -181,6 +184,10 @@ const getAiApiKey = (provider) => {
 
   if (provider === 'stepfun') {
     return String(process.env.STEPFUN_API_KEY || process.env.STEP_FUN_API_KEY || '').trim();
+  }
+
+  if (provider === 'manus') {
+    return String(process.env.MANUS_API_KEY || '').trim();
   }
 
   return '';
@@ -358,6 +365,83 @@ const requestStepFunAnswer = async (prompt, apiKey, systemPrompt) => {
   return answer;
 };
 
+const requestManusAnswer = async (prompt, apiKey, systemPrompt) => {
+  const finalSystemPrompt = systemPrompt || 'You are Manus AI, a helpful assistant like ChatGPT. Always answer in English.';
+  const response = await fetch(MANUS_API_URL, {
+    method: 'POST',
+    headers: {
+      Authorization: `Bearer ${apiKey}`,
+      'Content-Type': 'application/json',
+    },
+    body: JSON.stringify({
+      model: MANUS_MODEL,
+      messages: [
+        {
+          role: 'system',
+          content: finalSystemPrompt,
+        },
+        {
+          role: 'user',
+          content: prompt,
+        },
+      ],
+      temperature: 0.7,
+    }),
+  });
+
+  const payload = await response.json().catch(() => null);
+  if (!response.ok) {
+    const errMsg = payload?.error?.message || payload?.message || `HTTP error ${response.status}`;
+    throw new HttpError(response.status, `Manus AI request failed: ${errMsg}`);
+  }
+
+  const answer = String(payload?.choices?.[0]?.message?.content || '').trim();
+  if (!answer) {
+    throw new HttpError(502, 'Manus AI did not return an answer.');
+  }
+
+  return answer;
+};
+
+const LIVE_WEB_SEARCH_SETUP_MESSAGE = 'Live web search is not connected yet. Please connect Google Search API / SerpAPI / Tavily to answer latest questions.';
+
+const isLiveInformationQuery = (prompt) => {
+  const normalized = String(prompt || '').toLowerCase();
+  return /\b(today|yesterday|tomorrow|latest|current|right now|live|breaking|recent)\b/.test(normalized)
+    || /\b(news|weather|sports score|score|stock price|crypto price|price|updates?)\b/.test(normalized)
+    || /\b(2026|this week|this month|this year)\b/.test(normalized);
+};
+
+const getAiSystemPrompt = (provider) => {
+  if (provider === 'manus') {
+    return `You are Manus AI, a helpful assistant like ChatGPT.
+Always answer in English.
+Answer normal questions directly.
+Use clean formatting, headings, points, and code blocks.
+Only require live web search for latest/current/live information.
+If live web search is not available, explain that web search needs to be connected.
+Never show placeholder cards, icon-name cards, or raw internal UI text.`;
+  }
+
+  if (provider === 'stepfun') {
+    return `You are StepFun AI, a helpful assistant like ChatGPT.
+Always answer in English.
+Answer normal questions directly.
+Use clean formatting, headings, points, and code blocks.
+Only require live web search for latest/current/live information.
+If live web search is not available, explain that web search needs to be connected.
+Never show placeholder cards, icon-name cards, or raw internal UI text.`;
+  }
+
+  return `You are Gemini, a helpful assistant like ChatGPT.
+Always answer in English.
+Answer normal questions directly.
+Use clean formatting, headings, points, and code blocks.
+Only require live web search for latest/current/live information.
+If live web search is not available, explain that web search needs to be connected.
+Never show placeholder cards, icon-name cards, or raw internal UI text.`;
+};
+
 const respondWithAi = async ({ provider, prompt }) => {
   const normalizedProvider = sanitizeText(provider, 24).toLowerCase();
   const normalizedPrompt = String(prompt || '').trim();
@@ -366,27 +450,26 @@ const respondWithAi = async ({ provider, prompt }) => {
     throw new HttpError(400, 'Enter a question first.');
   }
 
-  if (!['gemini', 'stepfun'].includes(normalizedProvider)) {
+  if (!['gemini', 'stepfun', 'manus'].includes(normalizedProvider)) {
     throw new HttpError(400, 'Unsupported AI provider.');
   }
 
   const apiKey = getAiApiKey(normalizedProvider);
   if (!apiKey) {
-    const label = normalizedProvider === 'stepfun' ? 'StepFun AI' : 'Gemini';
+    const label = normalizedProvider === 'stepfun' ? 'StepFun AI' : normalizedProvider === 'manus' ? 'Manus AI' : 'Gemini';
     throw new HttpError(503, `${label} is not configured. Add the API key in backend/.env.`);
   }
 
-  const isLiveQuery = /today|yesterday|tomorrow|latest|current|now|recent|news|weather|price|score|update|2026/i.test(normalizedPrompt);
-  console.log("respondWithAi - isLiveQuery:", isLiveQuery, "prompt:", normalizedPrompt);
+  const systemInstruction = getAiSystemPrompt(normalizedProvider);
+  const isLiveQuery = isLiveInformationQuery(normalizedPrompt);
 
   let answer;
   if (isLiveQuery) {
     const searchResults = await searchWeb(normalizedPrompt);
-    console.log("respondWithAi - searchResults count:", searchResults ? searchResults.length : 0);
     if (!searchResults || searchResults.length === 0) {
       return {
         provider: normalizedProvider,
-        answer: "I need live web search to answer this accurately.",
+        answer: LIVE_WEB_SEARCH_SETUP_MESSAGE,
       };
     }
 
@@ -426,7 +509,7 @@ Important rules:
 - Do not show raw source URLs or "Source: ..." text labels in the main answer. Only include markdown links like [Source Name](URL) or raw URLs.
 - Do not use pre-training/old memory for current events.
 - Never invent headlines or make up details.
-- If the search results do not contain relevant information, respond with exactly: "I need live web search to answer this accurately."
+- If the search results do not contain relevant information, respond with exactly: "${LIVE_WEB_SEARCH_SETUP_MESSAGE}"
 - Use only trusted sources present in the search results like PIB, India Today, The Hindu, Indian Express, NDTV, Reuters, BBC, IMD (for weather), or official government websites.
 `;
 
@@ -439,7 +522,7 @@ Do not write everything in one paragraph.
 Use headings, short paragraphs, bullet points, and bold highlights.
 For coding answers, use proper code blocks.
 For current/latest/today/yesterday/news/weather/sports/price questions, use live web search first if available.
-If live web search is not available, do not guess. Say that live data is needed.
+If live web search is not available, say: "${LIVE_WEB_SEARCH_SETUP_MESSAGE}"
 Never mention internal system date setup unless the user asks. Today's date is: ${new Date().toDateString()}. Use natural wording only.
 Do not include labels like “Title:” or “Date:” in answers.
 Do not show raw source URLs in the main answer.
@@ -460,7 +543,7 @@ Do not write everything in one paragraph.
 Use headings, short paragraphs, bullet points, and bold highlights.
 For coding answers, use proper code blocks.
 For current/latest/today/yesterday/news/weather/sports/price questions, use live web search first if available.
-If live web search is not available, do not guess. Say that live data is needed.
+If live web search is not available, say: "${LIVE_WEB_SEARCH_SETUP_MESSAGE}"
 Never mention internal system date setup unless the user asks. Today's date is: ${new Date().toDateString()}. Use natural wording only.
 Do not include labels like “Title:” or “Date:” in answers.
 Do not show raw source URLs in the main answer.
@@ -475,7 +558,11 @@ For sourced answers, return source data separately if possible:
 The frontend will show the URL as a clickable source icon.`;
     }
 
-    if (normalizedProvider === 'stepfun') {
+    systemInstruction = getAiSystemPrompt(normalizedProvider);
+
+    if (normalizedProvider === 'manus') {
+      answer = await requestManusAnswer(currentQueryPrompt, apiKey, systemInstruction);
+    } else if (normalizedProvider === 'stepfun') {
       answer = await requestStepFunAnswer(currentQueryPrompt, apiKey, systemInstruction);
     } else {
       answer = await requestGeminiAnswer(currentQueryPrompt, apiKey, systemInstruction);
@@ -490,7 +577,7 @@ Do not write everything in one paragraph.
 Use headings, short paragraphs, bullet points, and bold highlights.
 For coding answers, use proper code blocks.
 For current/latest/today/yesterday/news/weather/sports/price questions, use live web search first if available.
-If live web search is not available, do not guess. Say that live data is needed.
+If live web search is not available, say: "${LIVE_WEB_SEARCH_SETUP_MESSAGE}"
 Never mention internal system date setup unless the user asks. Today's date is: ${new Date().toDateString()}. Use natural wording only.
 Do not include labels like “Title:” or “Date:” in answers.
 Do not show raw source URLs in the main answer.
@@ -511,7 +598,7 @@ Do not write everything in one paragraph.
 Use headings, short paragraphs, bullet points, and bold highlights.
 For coding answers, use proper code blocks.
 For current/latest/today/yesterday/news/weather/sports/price questions, use live web search first if available.
-If live web search is not available, do not guess. Say that live data is needed.
+If live web search is not available, say: "${LIVE_WEB_SEARCH_SETUP_MESSAGE}"
 Never mention internal system date setup unless the user asks. Today's date is: ${new Date().toDateString()}. Use natural wording only.
 Do not include labels like “Title:” or “Date:” in answers.
 Do not show raw source URLs in the main answer.
@@ -526,9 +613,15 @@ For sourced answers, return source data separately if possible:
 The frontend will show the URL as a clickable source icon.`;
     }
 
-    answer = normalizedProvider === 'stepfun'
-      ? await requestStepFunAnswer(normalizedPrompt, apiKey, systemInstruction)
-      : await requestGeminiAnswer(normalizedPrompt, apiKey, systemInstruction);
+    systemInstruction = getAiSystemPrompt(normalizedProvider);
+
+    if (normalizedProvider === 'manus') {
+      answer = await requestManusAnswer(normalizedPrompt, apiKey, systemInstruction);
+    } else if (normalizedProvider === 'stepfun') {
+      answer = await requestStepFunAnswer(normalizedPrompt, apiKey, systemInstruction);
+    } else {
+      answer = await requestGeminiAnswer(normalizedPrompt, apiKey, systemInstruction);
+    }
   }
 
   return {
@@ -1291,6 +1384,346 @@ app.post('/api/ai/respond', async (request, response, next) => {
     response.json({
       ok: true,
       ...result,
+    });
+  } catch (error) {
+    next(error);
+  }
+});
+
+app.post('/api/gemini/chat', async (req, res, next) => {
+  try {
+    const { prompt } = req.body || {};
+    const normalizedPrompt = String(prompt || '').trim();
+    if (!normalizedPrompt) {
+      return res.status(400).json({ error: 'Enter a question first.' });
+    }
+
+    const apiKey = String(process.env.GEMINI_API_KEY || '').trim();
+    if (!apiKey) {
+      return res.status(503).json({
+        error: 'Gemini API key is not configured. Add the API key in backend/.env.'
+      });
+    }
+
+    try {
+      const systemInstruction = getAiSystemPrompt('gemini');
+      const isLiveQuery = isLiveInformationQuery(normalizedPrompt);
+      let answer;
+
+      if (isLiveQuery) {
+        const searchResults = await searchWeb(normalizedPrompt);
+        if (!searchResults || searchResults.length === 0) {
+          answer = 'I need live web search to answer this accurately.';
+        } else {
+          const currentQueryPrompt = `Here is current live search information:\n${JSON.stringify(searchResults)}\n\nAnswer the user query: ${normalizedPrompt}`;
+          answer = await requestGeminiAnswer(currentQueryPrompt, apiKey, systemInstruction);
+        }
+      } else {
+        answer = await requestGeminiAnswer(normalizedPrompt, apiKey, systemInstruction);
+      }
+
+      res.json({
+        ok: true,
+        provider: 'gemini',
+        answer,
+      });
+    } catch (apiError) {
+      console.error('Gemini API call failed:', apiError);
+      res.status(502).json({
+        error: 'Gemini is not responding right now. Please try again.'
+      });
+    }
+  } catch (error) {
+    next(error);
+  }
+});
+
+app.post('/api/stepfun/chat', async (req, res, next) => {
+  try {
+    const { prompt } = req.body || {};
+    const normalizedPrompt = String(prompt || '').trim();
+    if (!normalizedPrompt) {
+      return res.status(400).json({ error: 'Enter a question first.' });
+    }
+
+    const apiKey = String(process.env.STEPFUN_API_KEY || process.env.STEP_FUN_API_KEY || '').trim();
+    if (!apiKey) {
+      return res.status(503).json({
+        error: 'StepFun AI API key is not configured. Add the API key in backend/.env.'
+      });
+    }
+
+    try {
+      const systemInstruction = getAiSystemPrompt('stepfun');
+      const isLiveQuery = isLiveInformationQuery(normalizedPrompt);
+      let answer;
+
+      if (isLiveQuery) {
+        const searchResults = await searchWeb(normalizedPrompt);
+        if (!searchResults || searchResults.length === 0) {
+          answer = 'I need live web search to answer this accurately.';
+        } else {
+          const currentQueryPrompt = `Here is current live search information:\n${JSON.stringify(searchResults)}\n\nAnswer the user query: ${normalizedPrompt}`;
+          answer = await requestStepFunAnswer(currentQueryPrompt, apiKey, systemInstruction);
+        }
+      } else {
+        answer = await requestStepFunAnswer(normalizedPrompt, apiKey, systemInstruction);
+      }
+
+      res.json({
+        ok: true,
+        provider: 'stepfun',
+        answer,
+      });
+    } catch (apiError) {
+      console.error('StepFun API call failed:', apiError);
+      res.status(502).json({
+        error: 'StepFun AI is not responding right now. Please try again.'
+      });
+    }
+  } catch (error) {
+    next(error);
+  }
+});
+
+app.post('/api/manus/chat', async (req, res, next) => {
+  try {
+    const { prompt } = req.body || {};
+    const normalizedPrompt = String(prompt || '').trim();
+    if (!normalizedPrompt) {
+      return res.status(400).json({ error: 'Enter a question first.' });
+    }
+
+    const apiKey = String(process.env.MANUS_API_KEY || '').trim();
+    if (!apiKey) {
+      return res.status(503).json({
+        error: 'Manus AI API key is not added. Please add MANUS_API_KEY in .env file.'
+      });
+    }
+
+    try {
+      const systemInstruction = getAiSystemPrompt('manus');
+      const isLiveQuery = isLiveInformationQuery(normalizedPrompt);
+      let answer;
+
+      if (isLiveQuery) {
+        const searchResults = await searchWeb(normalizedPrompt);
+        if (!searchResults || searchResults.length === 0) {
+          answer = 'Live web search is not connected yet. Please connect Google Search API / SerpAPI / Tavily to answer latest questions.';
+        } else {
+          const currentQueryPrompt = `Here is current live search information:\n${JSON.stringify(searchResults)}\n\nAnswer the user query: ${normalizedPrompt}`;
+          answer = await requestManusAnswer(currentQueryPrompt, apiKey, systemInstruction);
+        }
+      } else {
+        answer = await requestManusAnswer(normalizedPrompt, apiKey, systemInstruction);
+      }
+
+      res.json({
+        ok: true,
+        provider: 'manus',
+        answer,
+      });
+    } catch (apiError) {
+      console.error('Manus API call failed:', apiError);
+      res.status(502).json({
+        error: 'Manus AI is not responding right now. Please try again.'
+      });
+    }
+  } catch (error) {
+    next(error);
+  }
+});
+
+const getOrGenerateUserId = (req) => {
+  const session = getOptionalSession(req);
+  if (session?.email) {
+    return { userId: session.email, generated: false };
+  }
+  const deviceId = req.headers['x-device-id'] || req.query.deviceId || req.body?.deviceId;
+  if (deviceId && deviceId !== 'null' && deviceId !== 'undefined') {
+    return { userId: String(deviceId).trim(), generated: false };
+  }
+  return { userId: `device_${randomBytes(12).toString('hex')}`, generated: true };
+};
+
+app.get('/api/chats', async (req, res, next) => {
+  try {
+    requireMongoConnection();
+    const { userId, generated } = getOrGenerateUserId(req);
+    const chats = await ChatTab.find({ userId }).sort({ updatedAt: -1 }).lean();
+    res.json({
+      ok: true,
+      chats,
+      userId,
+      generated
+    });
+  } catch (error) {
+    next(error);
+  }
+});
+
+app.post('/api/chats', async (req, res, next) => {
+  try {
+    requireMongoConnection();
+    const { userId, generated } = getOrGenerateUserId(req);
+    const { title = 'New Chat', provider = 'stepfun', messages = [] } = req.body || {};
+    
+    const newChat = new ChatTab({
+      userId,
+      title: sanitizeText(title, 100),
+      provider: sanitizeText(provider, 24),
+      messages: Array.isArray(messages) ? messages : []
+    });
+    await newChat.save();
+    
+    res.status(201).json({
+      ok: true,
+      chat: newChat,
+      userId,
+      generated
+    });
+  } catch (error) {
+    next(error);
+  }
+});
+
+app.get('/api/chats/:chatId', async (req, res, next) => {
+  try {
+    requireMongoConnection();
+    const { chatId } = req.params;
+    const { userId } = getOrGenerateUserId(req);
+    
+    const chat = await ChatTab.findOne({ _id: chatId, userId }).lean();
+    if (!chat) {
+      throw new HttpError(404, 'Chat not found.');
+    }
+    
+    res.json({
+      ok: true,
+      chat
+    });
+  } catch (error) {
+    next(error);
+  }
+});
+
+app.post('/api/chats/:chatId/messages', async (req, res, next) => {
+  try {
+    requireMongoConnection();
+    const { chatId } = req.params;
+    const { messageText } = req.body || {};
+    const { userId } = getOrGenerateUserId(req);
+    
+    if (!messageText || !String(messageText).trim()) {
+      throw new HttpError(400, 'Message text is required.');
+    }
+    
+    const chat = await ChatTab.findOne({ _id: chatId, userId });
+    if (!chat) {
+      throw new HttpError(404, 'Chat not found.');
+    }
+    
+    const userMsg = {
+      role: 'user',
+      content: String(messageText).trim(),
+      provider: chat.provider,
+      createdAt: new Date()
+    };
+    chat.messages.push(userMsg);
+    await chat.save();
+    
+    const aiResult = await respondWithAi({
+      provider: chat.provider,
+      prompt: String(messageText).trim()
+    });
+    
+    const aiResponseText = aiResult.answer || '';
+    
+    const aiMsg = {
+      role: 'assistant',
+      content: aiResponseText,
+      provider: chat.provider,
+      createdAt: new Date()
+    };
+    chat.messages.push(aiMsg);
+    
+    const userMessages = chat.messages.filter(m => m.role === 'user');
+    if (userMessages.length === 1 && chat.title === 'New Chat') {
+      const firstMsgText = userMessages[0].content;
+      chat.title = firstMsgText.slice(0, 20);
+    }
+    
+    await chat.save();
+    
+    res.json({
+      ok: true,
+      chat,
+      userMessage: userMsg,
+      aiMessage: aiMsg
+    });
+  } catch (error) {
+    next(error);
+  }
+});
+
+app.patch('/api/chats/:chatId', async (req, res, next) => {
+  try {
+    requireMongoConnection();
+    const { chatId } = req.params;
+    const { title, provider, messages } = req.body || {};
+    const { userId } = getOrGenerateUserId(req);
+    
+    const updateFields = {};
+    if (title !== undefined) {
+      if (!String(title).trim()) {
+        throw new HttpError(400, 'Title cannot be empty.');
+      }
+      updateFields.title = sanitizeText(title.trim(), 100);
+    }
+    if (provider !== undefined) {
+      updateFields.provider = sanitizeText(provider, 24);
+    }
+    if (messages !== undefined) {
+      updateFields.messages = Array.isArray(messages) ? messages : [];
+    }
+    
+    if (Object.keys(updateFields).length === 0) {
+      throw new HttpError(400, 'No fields to update.');
+    }
+    
+    const chat = await ChatTab.findOneAndUpdate(
+      { _id: chatId, userId },
+      { $set: updateFields },
+      { new: true }
+    );
+    
+    if (!chat) {
+      throw new HttpError(404, 'Chat not found.');
+    }
+    
+    res.json({
+      ok: true,
+      chat
+    });
+  } catch (error) {
+    next(error);
+  }
+});
+
+app.delete('/api/chats/:chatId', async (req, res, next) => {
+  try {
+    requireMongoConnection();
+    const { chatId } = req.params;
+    const { userId } = getOrGenerateUserId(req);
+    
+    const chat = await ChatTab.findOneAndDelete({ _id: chatId, userId });
+    if (!chat) {
+      throw new HttpError(404, 'Chat not found.');
+    }
+    
+    res.json({
+      ok: true,
+      message: 'Chat tab deleted successfully.'
     });
   } catch (error) {
     next(error);
