@@ -291,7 +291,7 @@ const searchWeb = async (query) => {
 };
 
 const requestGeminiAnswer = async (prompt, apiKey, systemPrompt) => {
-  const finalSystemPrompt = systemPrompt || `Today's date is: ${new Date().toDateString()}. Use this date when answering current/latest questions. Never say old dates unless the user asked for old news.`;
+  const finalSystemPrompt = systemPrompt || `You are Gemini, a helpful assistant like ChatGPT. Always reply in English only. Today's date is: ${new Date().toDateString()}. Never mention internal system date setup. Use natural wording only.`;
   const response = await fetch(
     `https://generativelanguage.googleapis.com/v1beta/models/${GEMINI_MODEL}:generateContent?key=${encodeURIComponent(apiKey)}`,
     {
@@ -322,7 +322,7 @@ const requestGeminiAnswer = async (prompt, apiKey, systemPrompt) => {
 };
 
 const requestStepFunAnswer = async (prompt, apiKey, systemPrompt) => {
-  const finalSystemPrompt = systemPrompt || `You are StepFun AI. Always reply in English only. Do not use Chinese. Today's date is: ${new Date().toDateString()}. Use this date when answering current/latest questions. Never say old dates unless the user asked for old news.`;
+  const finalSystemPrompt = systemPrompt || `You are StepFun AI, a helpful assistant like ChatGPT. Always reply in English only. Today's date is: ${new Date().toDateString()}. Never mention internal system date setup. Use natural wording only.`;
   const response = await fetch(STEPFUN_API_URL, {
     method: 'POST',
     headers: {
@@ -376,7 +376,7 @@ const respondWithAi = async ({ provider, prompt }) => {
     throw new HttpError(503, `${label} is not configured. Add the API key in backend/.env.`);
   }
 
-  const isLiveQuery = /today|latest|current|now|recent|news|weather|price|score|update|2026/i.test(normalizedPrompt);
+  const isLiveQuery = /today|yesterday|tomorrow|latest|current|now|recent|news|weather|price|score|update|2026/i.test(normalizedPrompt);
   console.log("respondWithAi - isLiveQuery:", isLiveQuery, "prompt:", normalizedPrompt);
 
   let answer;
@@ -386,7 +386,7 @@ const respondWithAi = async ({ provider, prompt }) => {
     if (!searchResults || searchResults.length === 0) {
       return {
         provider: normalizedProvider,
-        answer: "I could not fetch live data right now. Please try again.",
+        answer: "I need live web search to answer this accurately.",
       };
     }
 
@@ -402,29 +402,78 @@ ${searchResults.map((r, idx) => `[Result ${idx + 1}] Title: ${r.title}\nURL: ${r
 User question:
 ${normalizedPrompt}
 
-Format your answer exactly as follows for news and current events:
-Title: [A descriptive title matching the user's query, e.g., Today’s Top News]
+Format your answer exactly as a JSON array of objects for news and current events, without any extra text or code block wrapping if possible (or as a JSON code block):
+[
+  {
+    "title": "Headline title",
+    "summary": "Short 2–3 line explanation about what happened based on the web results",
+    "url": "https://source-link.com"
+  }
+]
 
-Date: [Today's date]
+If you cannot return a JSON array, format your answer as clean markdown:
+# [Headline title/descriptive title, e.g. Today’s Top News]
+*[Today's date]*
 
-1. [Headline title]
-   [Short 2–3 line explanation about what happened based on the web results]
-   Source: [Source name] [URL]
+1. **[Headline title]** [Source Name](URL)
+   [Short explanation]
 
-2. [Headline title]
-   [Short 2–3 line explanation about what happened based on the web results]
-   Source: [Source name] [URL]
-... (up to 5 headlines)
+2. **[Headline title]** [Source Name](URL)
+   [Short explanation]
 
 Important rules:
+- Do not include labels like "Title:" or "Date:" in your answers.
+- Do not show raw source URLs or "Source: ..." text labels in the main answer. Only include markdown links like [Source Name](URL) or raw URLs.
 - Do not use pre-training/old memory for current events.
 - Never invent headlines or make up details.
-- Every headline/point must have the source name and its actual URL next to it (e.g., Source: Reuters https://news.google.com/...)
-- If the search results do not contain relevant information, respond with exactly: "I could not fetch live data right now. Please try again."
+- If the search results do not contain relevant information, respond with exactly: "I need live web search to answer this accurately."
 - Use only trusted sources present in the search results like PIB, India Today, The Hindu, Indian Express, NDTV, Reuters, BBC, IMD (for weather), or official government websites.
 `;
 
-    const systemInstruction = `You are an AI assistant like ChatGPT. Always answer clearly, helpfully, and in proper format. Do not give generic answers. Do not only provide links. For current/latest/news/weather/price/sports questions, use live web search first and summarize results with source links. For coding questions, use proper code blocks and step-by-step explanation. For normal questions, answer directly and simply. Always use English only. Today's date is: ${new Date().toDateString()}.`;
+    let systemInstruction;
+    if (normalizedProvider === 'stepfun') {
+      systemInstruction = `You are StepFun AI, a helpful assistant like ChatGPT.
+Always answer in English only.
+Give clean, structured, easy-to-read answers.
+Do not write everything in one paragraph.
+Use headings, short paragraphs, bullet points, and bold highlights.
+For coding answers, use proper code blocks.
+For current/latest/today/yesterday/news/weather/sports/price questions, use live web search first if available.
+If live web search is not available, do not guess. Say that live data is needed.
+Never mention internal system date setup unless the user asks. Today's date is: ${new Date().toDateString()}. Use natural wording only.
+Do not include labels like “Title:” or “Date:” in answers.
+Do not show raw source URLs in the main answer.
+For sourced answers, return source data separately if possible:
+[
+  {
+    "title": "headline",
+    "summary": "short explanation",
+    "url": "https://source-link.com"
+  }
+]
+The frontend will show the URL as a clickable source icon.`;
+    } else {
+      systemInstruction = `You are Gemini, a helpful assistant like ChatGPT.
+Always answer in English only.
+Give clean, structured, easy-to-read answers.
+Do not write everything in one paragraph.
+Use headings, short paragraphs, bullet points, and bold highlights.
+For coding answers, use proper code blocks.
+For current/latest/today/yesterday/news/weather/sports/price questions, use live web search first if available.
+If live web search is not available, do not guess. Say that live data is needed.
+Never mention internal system date setup unless the user asks. Today's date is: ${new Date().toDateString()}. Use natural wording only.
+Do not include labels like “Title:” or “Date:” in answers.
+Do not show raw source URLs in the main answer.
+For sourced answers, return source data separately if possible:
+[
+  {
+    "title": "headline",
+    "summary": "short explanation",
+    "url": "https://source-link.com"
+  }
+]
+The frontend will show the URL as a clickable source icon.`;
+    }
 
     if (normalizedProvider === 'stepfun') {
       answer = await requestStepFunAnswer(currentQueryPrompt, apiKey, systemInstruction);
@@ -432,7 +481,50 @@ Important rules:
       answer = await requestGeminiAnswer(currentQueryPrompt, apiKey, systemInstruction);
     }
   } else {
-    const systemInstruction = `You are an AI assistant like ChatGPT. Always answer clearly, helpfully, and in proper format. Do not give generic answers. Do not only provide links. For coding questions, use proper code blocks and step-by-step explanation. For normal questions, answer directly and simply. Always use English only. Today's date is: ${new Date().toDateString()}.`;
+    let systemInstruction;
+    if (normalizedProvider === 'stepfun') {
+      systemInstruction = `You are StepFun AI, a helpful assistant like ChatGPT.
+Always answer in English only.
+Give clean, structured, easy-to-read answers.
+Do not write everything in one paragraph.
+Use headings, short paragraphs, bullet points, and bold highlights.
+For coding answers, use proper code blocks.
+For current/latest/today/yesterday/news/weather/sports/price questions, use live web search first if available.
+If live web search is not available, do not guess. Say that live data is needed.
+Never mention internal system date setup unless the user asks. Today's date is: ${new Date().toDateString()}. Use natural wording only.
+Do not include labels like “Title:” or “Date:” in answers.
+Do not show raw source URLs in the main answer.
+For sourced answers, return source data separately if possible:
+[
+  {
+    "title": "headline",
+    "summary": "short explanation",
+    "url": "https://source-link.com"
+  }
+]
+The frontend will show the URL as a clickable source icon.`;
+    } else {
+      systemInstruction = `You are Gemini, a helpful assistant like ChatGPT.
+Always answer in English only.
+Give clean, structured, easy-to-read answers.
+Do not write everything in one paragraph.
+Use headings, short paragraphs, bullet points, and bold highlights.
+For coding answers, use proper code blocks.
+For current/latest/today/yesterday/news/weather/sports/price questions, use live web search first if available.
+If live web search is not available, do not guess. Say that live data is needed.
+Never mention internal system date setup unless the user asks. Today's date is: ${new Date().toDateString()}. Use natural wording only.
+Do not include labels like “Title:” or “Date:” in answers.
+Do not show raw source URLs in the main answer.
+For sourced answers, return source data separately if possible:
+[
+  {
+    "title": "headline",
+    "summary": "short explanation",
+    "url": "https://source-link.com"
+  }
+]
+The frontend will show the URL as a clickable source icon.`;
+    }
 
     answer = normalizedProvider === 'stepfun'
       ? await requestStepFunAnswer(normalizedPrompt, apiKey, systemInstruction)
