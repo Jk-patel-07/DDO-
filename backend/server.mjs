@@ -22,13 +22,19 @@ import ChatTab from './models/ChatTab.mjs';
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
-dotenv.config({ path: path.join(__dirname, '.env') });
 
 const app = express();
 const execFileAsync = promisify(execFile);
 const HOST = '127.0.0.1';
 const PORT = Number(process.env.PORT || 5000);
 const PROJECT_ROOT = process.cwd();
+[
+  path.join(PROJECT_ROOT, '.env.local'),
+  path.join(PROJECT_ROOT, '.env'),
+  path.join(__dirname, '.env'),
+].forEach((envPath) => {
+  dotenv.config({ path: envPath });
+});
 const PRIVATE_DATA_DIR = path.join(PROJECT_ROOT, 'backend', 'private');
 const USERS_JSON_FILE = path.join(PRIVATE_DATA_DIR, '.ddo-users.json');
 const USERS_XLSX_FILE = path.join(PRIVATE_DATA_DIR, 'users.xlsx');
@@ -413,6 +419,7 @@ const isLiveInformationQuery = (prompt) => {
 };
 
 const getAiSystemPrompt = (provider) => {
+
   if (provider === 'manus') {
     return `You are Manus AI, a helpful assistant like ChatGPT.
 Always answer in English.
@@ -456,8 +463,12 @@ const respondWithAi = async ({ provider, prompt }) => {
 
   const apiKey = getAiApiKey(normalizedProvider);
   if (!apiKey) {
-    const label = normalizedProvider === 'stepfun' ? 'StepFun AI' : normalizedProvider === 'manus' ? 'Manus AI' : 'Gemini';
-    throw new HttpError(503, `${label} is not configured. Add the API key in backend/.env.`);
+    const label = normalizedProvider === 'stepfun'
+        ? 'StepFun AI'
+        : normalizedProvider === 'manus'
+          ? 'Manus AI'
+          : 'Gemini';
+    throw new HttpError(503, `${label} is not configured. Add the API key in the project env file.`);
   }
 
   const systemInstruction = getAiSystemPrompt(normalizedProvider);

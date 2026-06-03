@@ -395,6 +395,8 @@ const providerOptions = [
   { id: 'manus', label: 'Manus AI', icon: Bot, placeholder: 'Ask Manus AI...' },
 ];
 
+const searchProviderOptions = providerOptions;
+
 const parseJwt = (token) => {
   const base64Url = token.split('.')[1];
   const base64 = base64Url.replace(/-/g, '+').replace(/_/g, '/');
@@ -1806,7 +1808,7 @@ const CenterSearch = ({ onPopupStateChange = () => {} }) => {
             left: `${providerMenuPosition.left}px`,
           }}
         >
-          {providerOptions.map(({ id, label, icon: Icon }) => (
+          {searchProviderOptions.map(({ id, label, icon: Icon }) => (
             <button
               key={id}
               type="button"
