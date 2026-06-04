@@ -38,7 +38,8 @@ const SPOTIFY_STORAGE_KEYS = {
   expiresAt: 'spotify_expires_at',
   user: 'spotify_user_profile',
 };
-const COMPANY_LOGIN_API_URL = 'http://127.0.0.1:5000/api/company/login';
+const COMPANY_LOGIN_API_URL = buildApiUrl('/api/company/login');
+const COMPANY_EDIT_ACCESS_TOKEN_KEY = 'ddo_company_edit_access_token';
 
 const readStoredSpotifyUser = () => {
   try {
@@ -287,7 +288,7 @@ async function requestBackendJson(
 
     const payload = await response.json().catch(() => ({}));
     if (!response.ok) {
-      const message = payload.error || fallbackMessage;
+      const message = payload.error || payload.message || fallbackMessage;
       if (response.status === 401) {
         onUnauthorized?.(message);
       }
@@ -403,12 +404,17 @@ const RightTray = ({ onPopupStateChange = () => {} }) => {
   const [deleteAccountError, setDeleteAccountError] = useState('');
   const [deleteAccountStatus, setDeleteAccountStatus] = useState('');
   const [isDeleteAccountSubmitting, setIsDeleteAccountSubmitting] = useState(false);
+  const [isCompanyEditVerifyOpen, setIsCompanyEditVerifyOpen] = useState(false);
+  const [companyEditPassword, setCompanyEditPassword] = useState('');
+  const [companyEditError, setCompanyEditError] = useState('');
+  const [isCompanyEditSubmitting, setIsCompanyEditSubmitting] = useState(false);
   const [passwordVisibility, setPasswordVisibility] = useState({
     loginPassword: false,
     registerPassword: false,
     registerConfirmPassword: false,
     companyPassword: false,
     deleteAccountPassword: false,
+    companyEditPassword: false,
   });
   const [isGoogleSubmitting, setIsGoogleSubmitting] = useState(false);
   const [isNotificationsOpen, setIsNotificationsOpen] = useState(false);
@@ -2651,7 +2657,7 @@ const RightTray = ({ onPopupStateChange = () => {} }) => {
 
     const companyId = companyLoginForm.companyId.trim();
     const companyKey = companyLoginForm.companyKey.trim();
-    const companyPassword = companyLoginForm.companyPassword;
+    const companyPassword = companyLoginForm.companyPassword.trim();
 
     if (!companyId || !companyKey || !companyPassword) {
       setCompanyLoginError('Enter company login details.');
@@ -2663,6 +2669,12 @@ const RightTray = ({ onPopupStateChange = () => {} }) => {
     setCompanyLoginStatus('');
 
     try {
+      console.log('[company-login] frontend request payload', {
+        companyId,
+        companyKey,
+        companyPassword,
+        apiUrl: COMPANY_LOGIN_API_URL,
+      });
       const payload = await requestBackendJson(COMPANY_LOGIN_API_URL, {
         method: 'POST',
         body: JSON.stringify({
@@ -2764,6 +2776,46 @@ const RightTray = ({ onPopupStateChange = () => {} }) => {
       setDeleteAccountError(error.message || 'Unable to delete account right now.');
     } finally {
       setIsDeleteAccountSubmitting(false);
+    }
+  };
+
+  const openCompanyEditVerify = () => {
+    setCompanyEditPassword('');
+    setCompanyEditError('');
+    setIsCompanyEditVerifyOpen(true);
+  };
+
+  const handleCompanyEditVerify = async () => {
+    if (!companyEditPassword.trim()) {
+      setCompanyEditError('Enter your company password to continue.');
+      return;
+    }
+
+    setIsCompanyEditSubmitting(true);
+    setCompanyEditError('');
+
+    try {
+      const payload = await requestBackendJson('/api/cfm/company/edit/verify-password', {
+        method: 'POST',
+        body: JSON.stringify({
+          password: companyEditPassword,
+        }),
+      }, {
+        requiresAuth: true,
+        fallbackMessage: 'Unable to verify the company password.',
+        onUnauthorized: handleProtectedRequestFailure,
+      });
+
+      sessionStorage.setItem(COMPANY_EDIT_ACCESS_TOKEN_KEY, payload.editAccessToken);
+      setIsCompanyEditVerifyOpen(false);
+      setCompanyEditPassword('');
+      setCompanyDashboardSection('none');
+      setIsCompanyDashboardOpen(false);
+      window.location.assign(payload.redirectPath || '/cfm/company-details-edit');
+    } catch (error) {
+      setCompanyEditError(error.message || 'Unable to verify the company password.');
+    } finally {
+      setIsCompanyEditSubmitting(false);
     }
   };
 
@@ -2955,6 +3007,16 @@ const RightTray = ({ onPopupStateChange = () => {} }) => {
               </button>
               <button type="button" className="company-dashboard-action-button is-danger" onClick={() => void handleUserLogout()}>
                 Logout
+              </button>
+            </div>
+          </div>
+          <div className="company-dashboard-card company-dashboard-card-wide">
+            <span>Company Details Edit</span>
+            <strong>Open DDO One edit mode as a full page</strong>
+            <p>Verify the company password, close the popup flow, and continue in the dedicated DDO One edit page.</p>
+            <div className="company-dashboard-settings-actions">
+              <button type="button" className="company-dashboard-action-button" onClick={openCompanyEditVerify}>
+                Verify Password
               </button>
             </div>
           </div>
@@ -5658,6 +5720,60 @@ const RightTray = ({ onPopupStateChange = () => {} }) => {
         )}
       </div>
     </div>
+    {isCompanyEditVerifyOpen && (
+      <div className="user-register-modal" onClick={() => setIsCompanyEditVerifyOpen(false)}>
+        <div className="user-register-card popup-aurora-surface company-edit-verify-modal" onClick={(event) => event.stopPropagation()}>
+          <div className="user-register-header">
+            <div>
+              <h2>Company Details Edit</h2>
+              <p>Verify the company password to open DDO One in full-page edit mode.</p>
+            </div>
+            <button
+              type="button"
+              className="user-login-window-button close"
+              onClick={() => setIsCompanyEditVerifyOpen(false)}
+              aria-label="Close company edit verification popup"
+            >
+              <X size={14} />
+            </button>
+          </div>
+
+          <div className="user-register-form">
+            <label className="user-login-field">
+              <span>Company Password</span>
+              <div className="user-password-input-wrap">
+                <input
+                  type={getPasswordInputType('companyEditPassword')}
+                  placeholder="Enter company password"
+                  value={companyEditPassword}
+                  onChange={(event) => setCompanyEditPassword(event.target.value)}
+                  autoComplete="current-password"
+                />
+                <button
+                  type="button"
+                  className="user-password-toggle"
+                  onClick={() => togglePasswordVisibility('companyEditPassword')}
+                  aria-label={passwordVisibility.companyEditPassword ? 'Hide password' : 'Show password'}
+                >
+                  {passwordVisibility.companyEditPassword ? <EyeOff size={16} /> : <Eye size={16} />}
+                </button>
+              </div>
+            </label>
+
+            {companyEditError ? <div className="spotify-auth-error">{companyEditError}</div> : null}
+
+            <div className="user-register-actions">
+              <button type="button" className="user-login-google" onClick={() => setIsCompanyEditVerifyOpen(false)}>
+                Cancel
+              </button>
+              <button type="button" className="user-login-submit" disabled={isCompanyEditSubmitting} onClick={() => void handleCompanyEditVerify()}>
+                {isCompanyEditSubmitting ? 'Verifying...' : 'Verify'}
+              </button>
+            </div>
+          </div>
+        </div>
+      </div>
+    )}
     {isUserLoginOpen && (
       <div className="user-login-screen popup-aurora-overlay" role="dialog" aria-modal="true">
         <div ref={loginDrag.popupRef} style={loginDrag.dragStyle} className="user-login-shell popup-aurora-surface">

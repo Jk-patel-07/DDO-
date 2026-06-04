@@ -1,4 +1,5 @@
 import dotenv from 'dotenv';
+import OpenAI from 'openai';
 import { compare, hash as bcryptHash } from 'bcrypt';
 import cors from 'cors';
 import express from 'express';
@@ -18,6 +19,7 @@ import { promisify } from 'node:util';
 import XLSX from 'xlsx';
 import User from './models/User.mjs';
 import Company from './models/Company.mjs';
+import CompanyEditRequest from './models/CompanyEditRequest.mjs';
 import ChatTab from './models/ChatTab.mjs';
 
 const __filename = fileURLToPath(import.meta.url);
@@ -53,7 +55,14 @@ const ALLOWED_ORIGINS = new Set([
 const MONGODB_URI = String(process.env.MONGODB_URI || '').trim();
 const AUTH_SECRET = process.env.JWT_SECRET || process.env.APP_AUTH_SECRET || 'ddo-local-auth-secret-change-me';
 const COMPANY_SESSION_TTL_SECONDS = 60 * 30;
+const COMPANY_EDIT_ACCESS_TTL_SECONDS = 60 * 10;
+const COMPANY_EDIT_REQUEST_TTL_MS = 1000 * 60 * 60 * 24 * 7;
+const BACKEND_PUBLIC_BASE_URL = String(process.env.BACKEND_PUBLIC_BASE_URL || `http://${HOST}:${PORT}`).trim();
+const DDO_ADMIN_EMAIL = String(process.env.DDO_ADMIN_EMAIL || process.env.AUTH_EMAIL || '').trim().toLowerCase();
+const EMAIL_FROM = String(process.env.EMAIL_FROM || '').trim();
+const RESEND_API_KEY = String(process.env.RESEND_API_KEY || '').trim();
 const GEMINI_MODEL = process.env.GEMINI_MODEL || 'gemini-2.5-flash';
+const OPENAI_MODEL = process.env.OPENAI_MODEL || 'gpt-4.1-mini';
 const STEPFUN_MODEL = process.env.STEPFUN_MODEL || process.env.STEP_FUN_MODEL || 'step-2-mini';
 const STEPFUN_API_URL = process.env.STEPFUN_API_URL
   || process.env.STEP_FUN_API_URL
@@ -89,7 +98,7 @@ class HttpError extends Error {
   }
 }
 
-app.use(express.json({ limit: '1mb' }));
+app.use(express.json({ limit: '10mb' }));
 app.use(cors({
   origin: [
     'http://127.0.0.1:3000',
@@ -184,6 +193,10 @@ const verifyPassword = (password, storedHash) => {
 };
 
 const getAiApiKey = (provider) => {
+  if (provider === 'chatgpt') {
+    return String(process.env.OPENAI_API_KEY || '').trim();
+  }
+
   if (provider === 'gemini') {
     return String(process.env.GEMINI_API_KEY || '').trim();
   }
@@ -407,6 +420,35 @@ const requestManusAnswer = async (prompt, apiKey, systemPrompt) => {
   }
 
   return answer;
+};
+
+const requestChatGptAnswer = async (message) => {
+  const apiKey = getAiApiKey('chatgpt');
+  if (!apiKey) {
+    throw new HttpError(500, 'OpenAI API key missing in .env');
+  }
+
+  const client = new OpenAI({ apiKey });
+  const completion = await client.chat.completions.create({
+    model: OPENAI_MODEL,
+    messages: [
+      {
+        role: 'system',
+        content: 'You are ChatGPT, a helpful assistant inside the DDO app. Keep answers clear, friendly, and concise.',
+      },
+      {
+        role: 'user',
+        content: message,
+      },
+    ],
+  });
+
+  const reply = String(completion.choices?.[0]?.message?.content || '').trim();
+  if (!reply) {
+    throw new HttpError(502, 'ChatGPT did not return a reply.');
+  }
+
+  return reply;
 };
 
 const LIVE_WEB_SEARCH_SETUP_MESSAGE = 'Live web search is not connected yet. Please connect Google Search API / SerpAPI / Tavily to answer latest questions.';
@@ -900,6 +942,10 @@ const createToken = (user, options = {}) => {
     iat: now,
   };
 
+  if (options.extraClaims && typeof options.extraClaims === 'object') {
+    Object.assign(payloadObject, options.extraClaims);
+  }
+
   if (typeof options.expiresInSeconds === 'number' && options.expiresInSeconds > 0) {
     payloadObject.exp = now + options.expiresInSeconds;
   }
@@ -1130,27 +1176,31 @@ const buildCompanyDashboardPayload = async (company) => {
 };
 
 const verifyCompanyPassword = async (password, company) => {
+  const normalizedPassword = String(password || '').trim();
   const storedHash = String(company?.companyPasswordHash || '').trim();
-  const legacyPlainPassword = typeof company?.companyPassword === 'string'
-    ? company.companyPassword
-    : '';
+  const legacyPlainPassword = [
+    company?.companyPassword,
+    company?.password,
+    company?.companyPass,
+    company?.CompanyPassword,
+  ].find((value) => typeof value === 'string' && value.trim());
 
   if (storedHash) {
     if (storedHash.startsWith('scrypt$')) {
       return {
-        matches: verifyPassword(password, storedHash),
+        matches: verifyPassword(normalizedPassword, storedHash),
         shouldUpgradeHash: false,
       };
     }
 
     if (storedHash.startsWith('$2')) {
       return {
-        matches: await compare(password, storedHash),
+        matches: await compare(normalizedPassword, storedHash),
         shouldUpgradeHash: false,
       };
     }
 
-    const plainMatch = password === storedHash;
+    const plainMatch = normalizedPassword === storedHash;
     return {
       matches: plainMatch,
       shouldUpgradeHash: plainMatch,
@@ -1158,7 +1208,7 @@ const verifyCompanyPassword = async (password, company) => {
   }
 
   if (legacyPlainPassword) {
-    const plainMatch = password === legacyPlainPassword;
+    const plainMatch = normalizedPassword === legacyPlainPassword.trim();
     return {
       matches: plainMatch,
       shouldUpgradeHash: plainMatch,
@@ -1170,6 +1220,281 @@ const verifyCompanyPassword = async (password, company) => {
     shouldUpgradeHash: false,
   };
 };
+
+const normalizeOptionalText = (value, max = 240) => sanitizeText(value, max);
+const normalizeOptionalEmail = (value) => sanitizeEmail(value || '');
+const normalizeOptionalPhone = (value) => validatePhoneNumber(value || '');
+const normalizeOptionalWebsite = (value) => sanitizeText(value, 240);
+const normalizeOptionalPincode = (value) => String(value || '').trim().slice(0, 20);
+
+const normalizeCompanyAsset = (asset, label) => {
+  if (!asset || typeof asset !== 'object') {
+    return null;
+  }
+
+  const name = sanitizeText(asset.name, 160);
+  const mimeType = sanitizeText(asset.mimeType, 120);
+  const dataUrl = String(asset.dataUrl || '').trim();
+  const size = Number(asset.size || 0);
+
+  if (!name && !dataUrl) {
+    return null;
+  }
+
+  if (dataUrl && !/^data:[^;]+;base64,/i.test(dataUrl)) {
+    throw new HttpError(400, `${label} must be uploaded as a valid file.`);
+  }
+
+  if (size > 5 * 1024 * 1024) {
+    throw new HttpError(400, `${label} must be 5MB or smaller.`);
+  }
+
+  return {
+    name,
+    mimeType,
+    size: Number.isFinite(size) ? size : 0,
+    dataUrl,
+  };
+};
+
+const serializeCompanyEditDetails = (company = {}) => ({
+  companyName: sanitizeText(company.companyName, 160),
+  companyWebsite: sanitizeText(company.companyWebsite, 240),
+  companyDetails: sanitizeText(company.companyDetails, 1200),
+  companyEmail: sanitizeEmail(company.companyEmail),
+  companyPhone: sanitizeText(company.companyPhone, 40),
+  companyAddress: sanitizeText(company.companyAddress, 240),
+  city: sanitizeText(company.city, 120),
+  state: sanitizeText(company.state, 120),
+  country: sanitizeText(company.country, 120),
+  pincode: sanitizeText(company.pincode, 20),
+  fillerName: sanitizeText(company.fillerName, 160),
+  fillerEmail: sanitizeEmail(company.fillerEmail),
+  fillerPhone: sanitizeText(company.fillerPhone, 40),
+  companyPosition: sanitizeText(company.companyPosition, 160),
+  companyLogo: normalizeCompanyAsset(company.companyLogo, 'Company logo'),
+  companyPhoto: normalizeCompanyAsset(company.companyPhoto, 'Company photo'),
+  companyRegisteredProof: normalizeCompanyAsset(company.companyRegisteredProof, 'Company registered proof'),
+});
+
+const normalizeCompanyEditRequestBody = (body = {}) => ({
+  companyName: validateRequiredName('Company name', body.companyName),
+  companyWebsite: normalizeOptionalWebsite(body.companyWebsite),
+  companyDetails: normalizeOptionalText(body.companyDetails, 1200),
+  companyEmail: validateEmail(body.companyEmail),
+  companyPhone: normalizeOptionalPhone(body.companyPhone),
+  companyAddress: validateRequiredName('Head office address', body.companyAddress),
+  city: normalizeOptionalText(body.city, 120),
+  state: normalizeOptionalText(body.state, 120),
+  country: normalizeOptionalText(body.country, 120),
+  pincode: normalizeOptionalPincode(body.pincode),
+  fillerName: validateRequiredName('Person or filler name', body.fillerName),
+  fillerEmail: validateEmail(body.fillerEmail),
+  fillerPhone: normalizeOptionalPhone(body.fillerPhone),
+  companyPosition: normalizeOptionalText(body.companyPosition, 160),
+  companyLogo: normalizeCompanyAsset(body.companyLogo, 'Company logo'),
+  companyPhoto: normalizeCompanyAsset(body.companyPhoto, 'Company photo'),
+  companyRegisteredProof: normalizeCompanyAsset(body.companyRegisteredProof, 'Company registered proof'),
+});
+
+const getCompanyEditAccessToken = (company) => createToken(buildCompanySessionUser(company), {
+  expiresInSeconds: COMPANY_EDIT_ACCESS_TTL_SECONDS,
+  extraClaims: {
+    scope: 'company-edit',
+  },
+});
+
+const requireCompanyEditAccess = (request, session) => {
+  const editToken = String(request.headers['x-company-edit-token'] || '').trim();
+  const editSession = verifyToken(editToken);
+
+  if (editSession?.scope !== 'company-edit') {
+    throw new HttpError(403, 'Company edit access is required.');
+  }
+
+  if (session?.companyId && editSession.companyId !== session.companyId) {
+    throw new HttpError(403, 'Company edit token does not match this session.');
+  }
+
+  if (session?.email && sanitizeEmail(editSession.email) !== sanitizeEmail(session.email)) {
+    throw new HttpError(403, 'Company edit token does not match this session.');
+  }
+
+  return editSession;
+};
+
+const hashDecisionToken = (token) => createHash('sha256').update(String(token || '')).digest('hex');
+
+const buildDecisionUrl = (pathName) => new URL(pathName, `${BACKEND_PUBLIC_BASE_URL}/`).toString();
+
+const escapeHtml = (value) => String(value || '')
+  .replaceAll('&', '&amp;')
+  .replaceAll('<', '&lt;')
+  .replaceAll('>', '&gt;')
+  .replaceAll('"', '&quot;')
+  .replaceAll("'", '&#39;');
+
+const companyEditFieldEntries = (details = {}) => [
+  ['Company name', details.companyName],
+  ['Company website URL', details.companyWebsite],
+  ['Company details', details.companyDetails],
+  ['Company email', details.companyEmail],
+  ['Company phone number', details.companyPhone],
+  ['Head office address', details.companyAddress],
+  ['City', details.city],
+  ['State', details.state],
+  ['Country', details.country],
+  ['Pincode', details.pincode],
+  ['Person or filler name', details.fillerName],
+  ['Person or filler email', details.fillerEmail],
+  ['Person or filler phone', details.fillerPhone],
+  ['Company position', details.companyPosition],
+  ['Company logo', details.companyLogo?.name || 'Not provided'],
+  ['Company photo', details.companyPhoto?.name || 'Not provided'],
+  ['Company registered proof', details.companyRegisteredProof?.name || 'Not provided'],
+];
+
+const buildDetailRowsHtml = (details = {}) => companyEditFieldEntries(details)
+  .map(([label, value]) => `
+    <tr>
+      <td style="padding:10px 12px;border:1px solid #d7dde7;font-weight:600;background:#f8fafc;">${escapeHtml(label)}</td>
+      <td style="padding:10px 12px;border:1px solid #d7dde7;">${escapeHtml(value || 'Not provided')}</td>
+    </tr>
+  `)
+  .join('');
+
+const buildCompanyEditApprovalEmail = ({ companyName, beforeDetails, afterDetails, approveUrl, rejectUrl }) => ({
+  subject: `DDO One edit approval needed for ${companyName || 'company account'}`,
+  html: `
+    <div style="font-family:Segoe UI,Arial,sans-serif;color:#111827;line-height:1.5;">
+      <h2 style="margin-bottom:8px;">DDO One company details edit request</h2>
+      <p>Please review the requested company profile changes below.</p>
+      <h3>Old company details</h3>
+      <table style="border-collapse:collapse;width:100%;margin-bottom:20px;">${buildDetailRowsHtml(beforeDetails)}</table>
+      <h3>New edited company details</h3>
+      <table style="border-collapse:collapse;width:100%;margin-bottom:20px;">${buildDetailRowsHtml(afterDetails)}</table>
+      <div style="display:flex;gap:12px;flex-wrap:wrap;margin-top:20px;">
+        <a href="${approveUrl}" style="background:#0f766e;color:#ffffff;padding:12px 18px;border-radius:10px;text-decoration:none;font-weight:700;">Approve</a>
+        <a href="${rejectUrl}" style="background:#b91c1c;color:#ffffff;padding:12px 18px;border-radius:10px;text-decoration:none;font-weight:700;">Reject</a>
+      </div>
+    </div>
+  `,
+  text: [
+    'DDO One company details edit request',
+    '',
+    `Approve: ${approveUrl}`,
+    `Reject: ${rejectUrl}`,
+  ].join('\n'),
+});
+
+const buildCompanyDecisionEmail = ({ companyName, approved }) => ({
+  subject: approved
+    ? `DDO One edit request approved for ${companyName || 'your company'}`
+    : `DDO One edit request rejected for ${companyName || 'your company'}`,
+  html: `
+    <div style="font-family:Segoe UI,Arial,sans-serif;color:#111827;line-height:1.5;">
+      <h2>${approved ? 'Edit request approved' : 'Edit request rejected'}</h2>
+      <p>${approved
+    ? 'Your requested company detail changes were approved and your profile has been updated.'
+    : 'Your requested company detail changes were reviewed and rejected. No company data was changed.'}</p>
+    </div>
+  `,
+  text: approved
+    ? 'Your requested company detail changes were approved and your profile has been updated.'
+    : 'Your requested company detail changes were rejected. No company data was changed.',
+});
+
+const sendTransactionalEmail = async ({ to, subject, html, text }) => {
+  const recipient = sanitizeEmail(to);
+
+  if (!recipient) {
+    throw new HttpError(500, 'Email recipient is not configured.');
+  }
+
+  if (!RESEND_API_KEY || !EMAIL_FROM) {
+    console.warn('[email-preview]', {
+      to: recipient,
+      subject,
+      html,
+      text,
+    });
+    return {
+      delivered: false,
+      previewOnly: true,
+    };
+  }
+
+  const response = await fetch('https://api.resend.com/emails', {
+    method: 'POST',
+    headers: {
+      'Content-Type': 'application/json',
+      Authorization: `Bearer ${RESEND_API_KEY}`,
+    },
+    body: JSON.stringify({
+      from: EMAIL_FROM,
+      to: [recipient],
+      subject,
+      html,
+      text,
+    }),
+  });
+
+  if (!response.ok) {
+    const payload = await response.text().catch(() => '');
+    throw new Error(`Email delivery failed: ${payload || response.statusText}`);
+  }
+
+  return {
+    delivered: true,
+    previewOnly: false,
+  };
+};
+
+const renderDecisionPage = ({ title, message, accent = '#22c55e' }) => `<!DOCTYPE html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>${escapeHtml(title)}</title>
+    <style>
+      body {
+        margin: 0;
+        min-height: 100vh;
+        display: grid;
+        place-items: center;
+        background: radial-gradient(circle at top, rgba(148,163,184,0.18), transparent 30%), #020617;
+        color: #e2e8f0;
+        font-family: "Segoe UI", Arial, sans-serif;
+      }
+      .card {
+        width: min(92vw, 720px);
+        padding: 32px;
+        border-radius: 24px;
+        background: rgba(15, 23, 42, 0.88);
+        border: 1px solid rgba(148, 163, 184, 0.24);
+        box-shadow: 0 24px 70px rgba(15, 23, 42, 0.5);
+      }
+      .badge {
+        display: inline-flex;
+        padding: 6px 12px;
+        border-radius: 999px;
+        background: rgba(255,255,255,0.08);
+        color: ${accent};
+        margin-bottom: 16px;
+        font-weight: 700;
+      }
+      h1 { margin: 0 0 12px; }
+      p { margin: 0; color: rgba(226,232,240,0.82); line-height: 1.7; }
+    </style>
+  </head>
+  <body>
+    <main class="card">
+      <div class="badge">DDO One</div>
+      <h1>${escapeHtml(title)}</h1>
+      <p>${escapeHtml(message)}</p>
+    </main>
+  </body>
+</html>`;
 
 const openWindowsSettings = async () => {
   await execFileAsync('cmd', ['/c', 'start', '', 'ms-settings:'], {
@@ -1541,6 +1866,43 @@ app.post('/api/manus/chat', async (req, res, next) => {
       });
     }
   } catch (error) {
+    next(error);
+  }
+});
+
+app.post('/api/chatgpt/chat', async (req, res, next) => {
+  try {
+    const { message } = req.body || {};
+    const normalizedMessage = String(message || '').trim();
+
+    if (!normalizedMessage) {
+      return res.status(400).json({
+        success: false,
+        message: 'Enter a message first.',
+      });
+    }
+
+    if (!String(process.env.OPENAI_API_KEY || '').trim()) {
+      return res.status(500).json({
+        success: false,
+        message: 'OpenAI API key missing in .env',
+      });
+    }
+
+    const reply = await requestChatGptAnswer(normalizedMessage);
+    res.json({
+      success: true,
+      reply,
+    });
+  } catch (error) {
+    if (error instanceof HttpError) {
+      return res.status(error.statusCode || 500).json({
+        success: false,
+        message: error.message,
+      });
+    }
+
+    console.error('ChatGPT API call failed:', error?.message || error);
     next(error);
   }
 });
@@ -2042,9 +2404,11 @@ app.post('/api/auth/login', async (request, response, next) => {
 app.post('/api/company/login', async (request, response, next) => {
   try {
     requireMongoConnection();
-    const companyId = sanitizeText(request.body?.companyId || '', 120);
-    const companyKey = sanitizeText(request.body?.companyKey || '', 160);
-    const companyPassword = String(request.body?.companyPassword || '');
+    console.log('LOGIN BODY:', request.body);
+
+    const companyId = String(request.body?.companyId || '').trim();
+    const companyKey = String(request.body?.companyKey || '').trim();
+    const companyPassword = String(request.body?.companyPassword || '').trim();
 
     console.log('[company-login] request received', {
       companyId,
@@ -2056,12 +2420,40 @@ app.post('/api/company/login', async (request, response, next) => {
       throw new HttpError(400, 'Wrong company ID/key/password');
     }
 
-    const company = await Company.findOne({ companyId, companyKey }).lean();
+    console.log('Entered ID:', companyId);
+    console.log('Entered Key:', companyKey);
+
+    let company = await Company.findOne({
+      companyId: companyId.trim(),
+      companyKey: companyKey.trim(),
+    }).lean();
+
+    if (!company) {
+      company = await Company.findOne({
+        $or: [
+          { companyId: companyId.trim(), key: companyKey.trim() },
+          { companyID: companyId.trim(), companyKey: companyKey.trim() },
+          { companyID: companyId.trim(), key: companyKey.trim() },
+        ],
+      }).lean();
+      if (company) {
+        console.warn('[company-login] matched legacy company field names in MongoDB');
+      }
+    }
 
     if (!company) {
       console.log('[company-login] company not found');
-      throw new HttpError(404, 'Company not found');
+      return response.status(401).json({ message: 'Company ID or Key not found' });
     }
+
+    console.log('Found Company:', {
+      companyId: company.companyId || company.companyID || '',
+      companyKey: company.companyKey || company.key || '',
+      hasPasswordHash: Boolean(company.companyPasswordHash),
+      hasLegacyPassword: Boolean(
+        company.companyPassword || company.password || company.companyPass || company.CompanyPassword,
+      ),
+    });
 
     console.log('[company-login] company found', {
       companyEmail: company.companyEmail,
@@ -2082,8 +2474,9 @@ app.post('/api/company/login', async (request, response, next) => {
 
     const passwordCheck = await verifyCompanyPassword(companyPassword, company);
     console.log('[company-login] password match', passwordCheck.matches);
+    console.log('Password Match:', passwordCheck.matches);
     if (!passwordCheck.matches) {
-      throw new HttpError(401, 'Wrong company ID/key/password');
+      return response.status(401).json({ message: 'Company password wrong' });
     }
 
     const loginEntry = {
@@ -2123,6 +2516,282 @@ app.post('/api/company/login', async (request, response, next) => {
       user: companyUser,
       company: toPublicCompany(company),
     });
+  } catch (error) {
+    next(error);
+  }
+});
+
+app.post('/api/cfm/company/edit/verify-password', async (request, response, next) => {
+  try {
+    requireMongoConnection();
+    const session = requireCompanyAuth(request);
+    const companyLookup = getCompanyLookupFromSession(session);
+    const company = await Company.findOne(companyLookup).lean();
+
+    if (!company) {
+      throw new HttpError(404, 'Company account not found.');
+    }
+
+    if (!isCompanyApproved(company) || !isCompanyActive(company)) {
+      throw new HttpError(403, 'Company not approved');
+    }
+
+    const password = String(request.body?.password || '');
+    if (!password) {
+      throw new HttpError(400, 'Password is required.');
+    }
+
+    const passwordCheck = await verifyCompanyPassword(password, company);
+    if (!passwordCheck.matches) {
+      throw new HttpError(401, 'Incorrect company password.');
+    }
+
+    response.json({
+      ok: true,
+      message: 'Password verified successfully.',
+      editAccessToken: getCompanyEditAccessToken(company),
+      redirectPath: '/cfm/company-details-edit',
+    });
+  } catch (error) {
+    next(error);
+  }
+});
+
+app.get('/api/cfm/company/edit/current', async (request, response, next) => {
+  try {
+    requireMongoConnection();
+    const session = requireCompanyAuth(request);
+    requireCompanyEditAccess(request, session);
+    const companyLookup = getCompanyLookupFromSession(session);
+    const company = await Company.findOne(companyLookup).lean();
+
+    if (!company) {
+      throw new HttpError(404, 'Company account not found.');
+    }
+
+    if (!isCompanyApproved(company) || !isCompanyActive(company)) {
+      throw new HttpError(403, 'Company not approved');
+    }
+
+    response.json({
+      ok: true,
+      company: serializeCompanyEditDetails(company),
+    });
+  } catch (error) {
+    next(error);
+  }
+});
+
+app.post('/api/cfm/company/edit/request', async (request, response, next) => {
+  try {
+    requireMongoConnection();
+    const session = requireCompanyAuth(request);
+    requireCompanyEditAccess(request, session);
+    const companyLookup = getCompanyLookupFromSession(session);
+    const company = await Company.findOne(companyLookup).lean();
+
+    if (!company) {
+      throw new HttpError(404, 'Company account not found.');
+    }
+
+    if (!isCompanyApproved(company) || !isCompanyActive(company)) {
+      throw new HttpError(403, 'Company not approved');
+    }
+
+    const beforeDetails = serializeCompanyEditDetails(company);
+    const afterDetails = normalizeCompanyEditRequestBody(request.body);
+
+    if (JSON.stringify(beforeDetails) === JSON.stringify(afterDetails)) {
+      throw new HttpError(400, 'Please change at least one field before submitting an edit request.');
+    }
+
+    const decisionToken = randomBytes(32).toString('hex');
+    const decisionTokenHash = hashDecisionToken(decisionToken);
+    const approveUrl = buildDecisionUrl(`/api/cfm/company/edit/approve/${decisionToken}`);
+    const rejectUrl = buildDecisionUrl(`/api/cfm/company/edit/reject/${decisionToken}`);
+
+    const editRequest = await CompanyEditRequest.create({
+      companyObjectId: company._id,
+      companyId: sanitizeText(company.companyId || '', 120),
+      companyEmail: sanitizeEmail(company.companyEmail),
+      adminEmail: DDO_ADMIN_EMAIL,
+      status: 'pending',
+      decisionTokenHash,
+      beforeDetails,
+      afterDetails,
+      requestedAt: new Date(),
+    });
+
+    await Company.updateOne(
+      { _id: company._id },
+      {
+        $push: {
+          submittedForms: {
+            title: 'Company Details Edit Request',
+            status: 'Pending Approval',
+            submittedAt: new Date(),
+          },
+        },
+      },
+    );
+
+    let emailState = {
+      delivered: false,
+      previewOnly: true,
+    };
+
+    const emailPayload = buildCompanyEditApprovalEmail({
+      companyName: beforeDetails.companyName,
+      beforeDetails,
+      afterDetails,
+      approveUrl,
+      rejectUrl,
+    });
+
+    try {
+      emailState = await sendTransactionalEmail({
+        to: DDO_ADMIN_EMAIL,
+        ...emailPayload,
+      });
+    } catch (error) {
+      console.error('[company-edit-request] email delivery failed:', error instanceof Error ? error.message : String(error));
+    }
+
+    response.status(201).json({
+      ok: true,
+      message: emailState.delivered
+        ? 'Edit request submitted for admin approval.'
+        : 'Edit request created. Email delivery is not configured, so approval links were logged on the server.',
+      requestId: String(editRequest._id),
+      approvalPreview: emailState.delivered
+        ? null
+        : {
+          approveUrl,
+          rejectUrl,
+        },
+    });
+  } catch (error) {
+    next(error);
+  }
+});
+
+app.get('/api/cfm/company/edit/approve/:token', async (request, response, next) => {
+  try {
+    requireMongoConnection();
+    const tokenHash = hashDecisionToken(request.params.token || '');
+    const editRequest = await CompanyEditRequest.findOne({ decisionTokenHash: tokenHash });
+
+    if (!editRequest) {
+      response.status(404).send(renderDecisionPage({
+        title: 'Approval link invalid',
+        message: 'This company edit approval link is invalid or no longer exists.',
+        accent: '#ef4444',
+      }));
+      return;
+    }
+
+    if (editRequest.status !== 'pending') {
+      response.status(200).send(renderDecisionPage({
+        title: 'Request already processed',
+        message: `This company edit request was already ${editRequest.status}.`,
+        accent: editRequest.status === 'approved' ? '#22c55e' : '#f97316',
+      }));
+      return;
+    }
+
+    if (Date.now() - new Date(editRequest.requestedAt).getTime() > COMPANY_EDIT_REQUEST_TTL_MS) {
+      editRequest.status = 'expired';
+      editRequest.decidedAt = new Date();
+      await editRequest.save();
+      response.status(410).send(renderDecisionPage({
+        title: 'Approval link expired',
+        message: 'This company edit approval link has expired. Please ask the company to submit a new request.',
+        accent: '#f97316',
+      }));
+      return;
+    }
+
+    const company = await Company.findById(editRequest.companyObjectId);
+    if (!company) {
+      throw new HttpError(404, 'Company account not found.');
+    }
+
+    Object.assign(company, editRequest.afterDetails.toObject ? editRequest.afterDetails.toObject() : editRequest.afterDetails);
+    await company.save();
+
+    editRequest.status = 'approved';
+    editRequest.decidedAt = new Date();
+    editRequest.decisionBy = DDO_ADMIN_EMAIL;
+    await editRequest.save();
+
+    try {
+      await sendTransactionalEmail({
+        to: editRequest.companyEmail,
+        ...buildCompanyDecisionEmail({
+          companyName: editRequest.afterDetails.companyName,
+          approved: true,
+        }),
+      });
+    } catch (error) {
+      console.error('[company-edit-approve] company email failed:', error instanceof Error ? error.message : String(error));
+    }
+
+    response.status(200).send(renderDecisionPage({
+      title: 'Company edit approved',
+      message: 'The requested company detail changes were approved and MongoDB has been updated successfully.',
+      accent: '#22c55e',
+    }));
+  } catch (error) {
+    next(error);
+  }
+});
+
+app.get('/api/cfm/company/edit/reject/:token', async (request, response, next) => {
+  try {
+    requireMongoConnection();
+    const tokenHash = hashDecisionToken(request.params.token || '');
+    const editRequest = await CompanyEditRequest.findOne({ decisionTokenHash: tokenHash });
+
+    if (!editRequest) {
+      response.status(404).send(renderDecisionPage({
+        title: 'Reject link invalid',
+        message: 'This company edit rejection link is invalid or no longer exists.',
+        accent: '#ef4444',
+      }));
+      return;
+    }
+
+    if (editRequest.status !== 'pending') {
+      response.status(200).send(renderDecisionPage({
+        title: 'Request already processed',
+        message: `This company edit request was already ${editRequest.status}.`,
+        accent: editRequest.status === 'approved' ? '#22c55e' : '#f97316',
+      }));
+      return;
+    }
+
+    editRequest.status = 'rejected';
+    editRequest.decidedAt = new Date();
+    editRequest.decisionBy = DDO_ADMIN_EMAIL;
+    await editRequest.save();
+
+    try {
+      await sendTransactionalEmail({
+        to: editRequest.companyEmail,
+        ...buildCompanyDecisionEmail({
+          companyName: editRequest.afterDetails.companyName,
+          approved: false,
+        }),
+      });
+    } catch (error) {
+      console.error('[company-edit-reject] company email failed:', error instanceof Error ? error.message : String(error));
+    }
+
+    response.status(200).send(renderDecisionPage({
+      title: 'Company edit rejected',
+      message: 'The request was rejected. No company data was changed in MongoDB.',
+      accent: '#f97316',
+    }));
   } catch (error) {
     next(error);
   }

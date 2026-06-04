@@ -8,12 +8,13 @@ pnpm-debug.log*
 lerna-debug.log*
 
 node_modules
+# Local environment secrets
+.env
+.env.local
 dist
 build
 dist-ssr
 *.local
-.env
-.env.local
 .env.development
 .env.production
 .env.*

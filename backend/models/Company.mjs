@@ -1,5 +1,15 @@
 import mongoose from 'mongoose';
 
+const companyAssetSchema = new mongoose.Schema(
+  {
+    name: { type: String, default: '', trim: true },
+    mimeType: { type: String, default: '', trim: true },
+    size: { type: Number, default: 0 },
+    dataUrl: { type: String, default: '' },
+  },
+  { _id: false },
+);
+
 const companySchema = new mongoose.Schema(
   {
     companyName: {
@@ -28,6 +38,64 @@ const companySchema = new mongoose.Schema(
       type: String,
       default: '',
       trim: true,
+    },
+    companyDetails: {
+      type: String,
+      default: '',
+      trim: true,
+    },
+    city: {
+      type: String,
+      default: '',
+      trim: true,
+    },
+    state: {
+      type: String,
+      default: '',
+      trim: true,
+    },
+    country: {
+      type: String,
+      default: '',
+      trim: true,
+    },
+    pincode: {
+      type: String,
+      default: '',
+      trim: true,
+    },
+    fillerName: {
+      type: String,
+      default: '',
+      trim: true,
+    },
+    fillerEmail: {
+      type: String,
+      default: '',
+      trim: true,
+      lowercase: true,
+    },
+    fillerPhone: {
+      type: String,
+      default: '',
+      trim: true,
+    },
+    companyPosition: {
+      type: String,
+      default: '',
+      trim: true,
+    },
+    companyLogo: {
+      type: companyAssetSchema,
+      default: null,
+    },
+    companyPhoto: {
+      type: companyAssetSchema,
+      default: null,
+    },
+    companyRegisteredProof: {
+      type: companyAssetSchema,
+      default: null,
     },
     status: {
       type: String,
