@@ -1,5 +1,4 @@
 import dotenv from 'dotenv';
-import OpenAI from 'openai';
 import { compare, hash as bcryptHash } from 'bcrypt';
 import cors from 'cors';
 import express from 'express';
@@ -62,7 +61,6 @@ const DDO_ADMIN_EMAIL = String(process.env.DDO_ADMIN_EMAIL || process.env.AUTH_E
 const EMAIL_FROM = String(process.env.EMAIL_FROM || '').trim();
 const RESEND_API_KEY = String(process.env.RESEND_API_KEY || '').trim();
 const GEMINI_MODEL = process.env.GEMINI_MODEL || 'gemini-2.5-flash';
-const OPENAI_MODEL = process.env.OPENAI_MODEL || 'gpt-4.1-mini';
 const STEPFUN_MODEL = process.env.STEPFUN_MODEL || process.env.STEP_FUN_MODEL || 'step-2-mini';
 const STEPFUN_API_URL = process.env.STEPFUN_API_URL
   || process.env.STEP_FUN_API_URL
@@ -193,10 +191,6 @@ const verifyPassword = (password, storedHash) => {
 };
 
 const getAiApiKey = (provider) => {
-  if (provider === 'chatgpt') {
-    return String(process.env.OPENAI_API_KEY || '').trim();
-  }
-
   if (provider === 'gemini') {
     return String(process.env.GEMINI_API_KEY || '').trim();
   }
@@ -420,35 +414,6 @@ const requestManusAnswer = async (prompt, apiKey, systemPrompt) => {
   }
 
   return answer;
-};
-
-const requestChatGptAnswer = async (message) => {
-  const apiKey = getAiApiKey('chatgpt');
-  if (!apiKey) {
-    throw new HttpError(500, 'OpenAI API key missing in .env');
-  }
-
-  const client = new OpenAI({ apiKey });
-  const completion = await client.chat.completions.create({
-    model: OPENAI_MODEL,
-    messages: [
-      {
-        role: 'system',
-        content: 'You are ChatGPT, a helpful assistant inside the DDO app. Keep answers clear, friendly, and concise.',
-      },
-      {
-        role: 'user',
-        content: message,
-      },
-    ],
-  });
-
-  const reply = String(completion.choices?.[0]?.message?.content || '').trim();
-  if (!reply) {
-    throw new HttpError(502, 'ChatGPT did not return a reply.');
-  }
-
-  return reply;
 };
 
 const LIVE_WEB_SEARCH_SETUP_MESSAGE = 'Live web search is not connected yet. Please connect Google Search API / SerpAPI / Tavily to answer latest questions.';
@@ -1866,43 +1831,6 @@ app.post('/api/manus/chat', async (req, res, next) => {
       });
     }
   } catch (error) {
-    next(error);
-  }
-});
-
-app.post('/api/chatgpt/chat', async (req, res, next) => {
-  try {
-    const { message } = req.body || {};
-    const normalizedMessage = String(message || '').trim();
-
-    if (!normalizedMessage) {
-      return res.status(400).json({
-        success: false,
-        message: 'Enter a message first.',
-      });
-    }
-
-    if (!String(process.env.OPENAI_API_KEY || '').trim()) {
-      return res.status(500).json({
-        success: false,
-        message: 'OpenAI API key missing in .env',
-      });
-    }
-
-    const reply = await requestChatGptAnswer(normalizedMessage);
-    res.json({
-      success: true,
-      reply,
-    });
-  } catch (error) {
-    if (error instanceof HttpError) {
-      return res.status(error.statusCode || 500).json({
-        success: false,
-        message: error.message,
-      });
-    }
-
-    console.error('ChatGPT API call failed:', error?.message || error);
     next(error);
   }
 });

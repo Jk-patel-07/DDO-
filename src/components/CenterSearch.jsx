@@ -386,17 +386,16 @@ const readStoredSearchProvider = () => {
   }
 };
 
-const AI_PROVIDER_IDS = new Set(['chatgpt', 'gemini', 'stepfun', 'manus']);
+const AI_PROVIDER_IDS = new Set(['gemini', 'stepfun', 'manus']);
 
 const providerOptions = [
   { id: 'google', label: 'Google', icon: Search, placeholder: 'Search Google' },
-  { id: 'chatgpt', label: 'ChatGPT', icon: Bot, placeholder: 'Ask ChatGPT...' },
   { id: 'gemini', label: 'Gemini', icon: Sparkles, placeholder: 'Ask Gemini' },
   { id: 'stepfun', label: 'StepFun AI', icon: Bot, placeholder: 'Ask StepFun AI...' },
   { id: 'manus', label: 'Manus AI', icon: Bot, placeholder: 'Ask Manus AI...' },
 ];
 
-const searchProviderOptions = providerOptions.filter((option) => option.id !== 'chatgpt');
+const searchProviderOptions = providerOptions;
 
 const parseJwt = (token) => {
   const base64Url = token.split('.')[1];
@@ -411,9 +410,6 @@ const parseJwt = (token) => {
   return JSON.parse(json);
 };
 const TabProviderIcon = ({ provider, size = 12 }) => {
-  if (provider === 'chatgpt') {
-    return <Bot size={size} style={{ color: '#10b981' }} />;
-  }
   if (provider === 'gemini') {
     return <Sparkles size={size} style={{ color: '#a78bfa' }} />;
   }
@@ -539,31 +535,9 @@ const CenterSearch = ({ onPopupStateChange = () => {} }) => {
   const videoRef = useRef(null);
 
   const PROVIDER_CAPABILITIES = {
-    chatgpt: { image: false, camera: false, file: false, video: false, link: false },
     gemini: { image: true, camera: true, file: true, video: true, link: true },
     stepfun: { image: true, camera: true, file: false, video: false, link: true },
     manus: { image: true, camera: true, file: true, video: true, link: true }
-  };
-
-  const openChatGptPopup = () => {
-    setIsAttachmentMenuOpen(false);
-    setAttachment(null);
-    setAnswerInput('');
-    setAnswerPanel((prev) => ({
-      ...prev,
-      provider: 'chatgpt',
-      status: 'idle',
-      error: '',
-    }));
-    setActivePopup('chatgpt');
-
-    const matchingTab = chatTabs.find((tab) => tab.provider === 'chatgpt');
-    if (matchingTab) {
-      handleSwitchTab(matchingTab.id);
-      return;
-    }
-
-    handleCreateNewTab('chatgpt');
   };
 
   const handleTriggerUpload = (type) => {
@@ -781,7 +755,7 @@ const CenterSearch = ({ onPopupStateChange = () => {} }) => {
     return {
       id: 'welcome_' + Date.now(),
       sender: 'ai',
-      text: provider === 'chatgpt' || provider === 'stepfun' || provider === 'manus'
+      text: provider === 'stepfun' || provider === 'manus'
         ? `Hello! I am ${label}. What would you like help with today?`
         : `Ask a question and ${label} will answer here.`
     };
@@ -1486,17 +1460,7 @@ const CenterSearch = ({ onPopupStateChange = () => {} }) => {
     }));
 
     let route = '/api/ai/respond';
-    let requestBody = {
-      provider: providerId,
-      prompt: finalPrompt,
-    };
-
-    if (providerId === 'chatgpt') {
-      route = '/api/chatgpt/chat';
-      requestBody = {
-        message: finalPrompt,
-      };
-    } else if (providerId === 'gemini') {
+    if (providerId === 'gemini') {
       route = '/api/gemini/chat';
     } else if (providerId === 'stepfun') {
       route = '/api/stepfun/chat';
@@ -1510,16 +1474,19 @@ const CenterSearch = ({ onPopupStateChange = () => {} }) => {
         headers: createAuthHeaders({
           'Content-Type': 'application/json',
         }),
-        body: JSON.stringify(requestBody),
+        body: JSON.stringify({
+          provider: providerId,
+          prompt: finalPrompt,
+        }),
       });
 
       const payload = await response.json().catch(() => ({}));
       if (!response.ok) {
-        throw new Error(payload.message || payload.error || `${providerMeta.label} request failed.`);
+        throw new Error(payload.error || `${providerMeta.label} request failed.`);
       }
 
       const aiMsgId = 'msg_' + Date.now() + '_' + Math.random().toString(36).substr(2, 5);
-      const aiMsg = { id: aiMsgId, sender: 'ai', text: payload.reply || payload.answer || '' };
+      const aiMsg = { id: aiMsgId, sender: 'ai', text: payload.answer || '' };
 
       // Add AI reply to tab
       setChatTabs(prev => prev.map(t => {
@@ -1546,9 +1513,7 @@ const CenterSearch = ({ onPopupStateChange = () => {} }) => {
 
       const textToShow = isQuota
         ? "Gemini limit reached. Please retry later."
-        : providerId === 'chatgpt'
-          ? 'ChatGPT not connected. Check backend or API key.'
-          : errorMsg;
+        : errorMsg;
 
       const errorMsgId = 'msg_' + Date.now() + '_' + Math.random().toString(36).substr(2, 5);
       const errorMsgObj = { id: errorMsgId, sender: 'ai', text: textToShow, isError: true };
@@ -2335,9 +2300,9 @@ const CenterSearch = ({ onPopupStateChange = () => {} }) => {
                 </button>
                 {isAttachmentMenuOpen && (
                   <div className="attachment-menu-popup popup-aurora-surface">
-                    <button type="button" className="attachment-menu-item" onClick={openChatGptPopup}>
-                      <Bot size={13} style={{ opacity: 0.8, color: '#10b981' }} />
-                      <span>ChatGPT</span>
+                    <button type="button" className="attachment-menu-item" onClick={openOpenRouterPopup}>
+                      <Bot size={13} style={{ opacity: 0.8, color: '#22c55e' }} />
+                      <span>OpenRouter</span>
                     </button>
                     <button type="button" className="attachment-menu-item" onClick={() => handleTriggerUpload('image')}>
                       <Image size={13} style={{ opacity: 0.8 }} />
