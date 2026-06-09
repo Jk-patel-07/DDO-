@@ -1,10 +1,11 @@
 import { useState, useEffect, useRef, useCallback } from 'react';
 import { createPortal } from 'react-dom';
-import { Wifi, Bluetooth, Bell, X, User, Phone, Mail, Users, Briefcase, Plus, ChevronDown, Smartphone, MoreVertical, Zap, HeartPulse, Gauge, Clock3, Leaf, Thermometer, Square, Lock, Check, LoaderCircle, RefreshCw, LayoutGrid, Search as SearchIcon, Settings, Music4, Volume, Volume1, Volume2, VolumeX, Shield, TriangleAlert, Eye, EyeOff, LogOut } from 'lucide-react';
+import { Wifi, Bluetooth, Bell, X, User, Phone, Mail, Users, Briefcase, Plus, ChevronDown, Smartphone, MoreVertical, Zap, HeartPulse, Gauge, Clock3, Leaf, Thermometer, Square, Lock, Check, LoaderCircle, RefreshCw, LayoutGrid, Search as SearchIcon, Settings, Music4, Volume, Volume1, Volume2, VolumeX, Shield, TriangleAlert, Eye, EyeOff, LogOut, Calculator as CalculatorIcon } from 'lucide-react';
 import { FaWhatsapp, FaSpotify } from 'react-icons/fa';
 import CenterSearch from './CenterSearch';
 import BrandLogo from './BrandLogo';
 import { useDraggablePopup } from '../utils/useDraggablePopup';
+import Calculator from '../../calculator/Calculator';
 import {
   clearStoredAuthSession,
   createAuthHeaders,
@@ -480,6 +481,10 @@ const RightTray = ({ onPopupStateChange = () => {} }) => {
   const [appBoxSettings, setAppBoxSettings] = useState(() => readStoredAppBoxSettings());
   const [appPrivacySettings, setAppPrivacySettings] = useState(() => readStoredAppBoxPrivacySettings());
   const [privacyPinDraft, setPrivacyPinDraft] = useState(() => readStoredAppBoxPrivacySettings().pin || '');
+
+  // Calculator Popup States
+  const [isCalcOpen, setIsCalcOpen] = useState(false);
+  const calcPopupRef = useRef(null);
 
   // WhatsApp Popup States
   const [isWaOpen, setIsWaOpen] = useState(false);
@@ -1390,6 +1395,19 @@ const RightTray = ({ onPopupStateChange = () => {} }) => {
     };
   }, [isAppSecurityOpen]);
 
+  // Calculator Popup Click Outside
+  useEffect(() => {
+    const handleCalcClickOutside = (event) => {
+      if (calcPopupRef.current && !calcPopupRef.current.contains(event.target)) {
+        setIsCalcOpen(false);
+      }
+    };
+    document.addEventListener('mousedown', handleCalcClickOutside);
+    return () => {
+      document.removeEventListener('mousedown', handleCalcClickOutside);
+    };
+  }, []);
+
   // WhatsApp Popup Click Outside
   useEffect(() => {
     const handleWaClickOutside = (event) => {
@@ -1661,6 +1679,28 @@ const RightTray = ({ onPopupStateChange = () => {} }) => {
     setShowSpotifyNowPlayingPopup(false);
     setShowSpotifyPopup((open) => !open);
   }
+
+  const toggleCalculator = () => {
+    if (!isCalcOpen) {
+      setIsWaOpen(false);
+      setIsWaSendMsgOpen(false);
+      setIsAddContactOpen(false);
+      setActiveMenuContact(null);
+      setDetailsContact(null);
+      closeSpotifyPopups();
+      setIsWifiDropdownOpen(false);
+      setIsBluetoothPopupOpen(false);
+      setIsNotificationsOpen(false);
+      setIsTimePopupOpen(false);
+      setIsUsStatusPopupOpen(false);
+      setIsAppLauncherOpen(false);
+      setIsAppPickerOpen(false);
+      setIsAppSettingsOpen(false);
+      setIsAppPrivacyOpen(false);
+      setIsAppSecurityOpen(false);
+    }
+    setIsCalcOpen(!isCalcOpen);
+  };
 
   function toggleSpotifyNowPlayingPopup() {
     setShowSpotifyPopup(false);
@@ -3143,6 +3183,54 @@ const RightTray = ({ onPopupStateChange = () => {} }) => {
 
         <CenterSearch onPopupStateChange={setIsSearchPopupOpen} />
         
+        {/* Calculator Icon with Popup */}
+        <div style={{ position: 'relative' }} ref={calcPopupRef}>
+          <div 
+            className="flex-center icon-item" 
+            onClick={toggleCalculator}
+            style={{ background: isCalcOpen ? 'var(--hover-bg)' : 'transparent' }}
+            title="Calculator"
+          >
+            <CalculatorIcon size={14} color="white" />
+          </div>
+
+          {/* Calculator Popup Dropdown */}
+          <div className="popup-aurora-surface" style={{
+            position: 'absolute',
+            top: '100%',
+            right: -80, // Center relative to icon
+            marginTop: '10px',
+            background: 'var(--menu-bg)',
+            backdropFilter: 'blur(30px)',
+            WebkitBackdropFilter: 'blur(30px)',
+            borderRadius: '16px',
+            border: '1px solid var(--menu-border)',
+            padding: '12px',
+            boxShadow: '0 10px 30px rgba(0,0,0,0.6)',
+            opacity: isCalcOpen ? 1 : 0,
+            visibility: isCalcOpen ? 'visible' : 'hidden',
+            transform: isCalcOpen ? 'translateY(0) scale(1)' : 'translateY(-10px) scale(0.95)',
+            transition: 'all 0.25s cubic-bezier(0.16, 1, 0.3, 1)',
+            pointerEvents: isCalcOpen ? 'auto' : 'none',
+            zIndex: 100,
+            display: 'flex',
+            flexDirection: 'column',
+            gap: '8px'
+          }}>
+            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', padding: '0 4px', color: 'rgba(255,255,255,0.7)' }}>
+              <span style={{ fontSize: '12px', fontWeight: '500' }}>Calculator</span>
+              <button 
+                type="button"
+                onClick={() => setIsCalcOpen(false)}
+                style={{ cursor: 'pointer', background: 'rgba(255,255,255,0.1)', border: 'none', borderRadius: '50%', padding: '4px', display: 'flex', alignItems: 'center', justifyContent: 'center', color: 'white' }}
+              >
+                <X size={12} />
+              </button>
+            </div>
+            <Calculator />
+          </div>
+        </div>
+
         {/* WhatsApp Icon with Popup */}
         <div style={{ position: 'relative' }} ref={waPopupRef}>
           <div 

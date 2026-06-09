@@ -1,0 +1,132 @@
+/* macOS Inspired Glassmorphic Calculator Styles */
+
+.mac-calc-container {
+  width: 232px;
+  background: rgba(30, 30, 30, 0.45);
+  backdrop-filter: blur(25px);
+  -webkit-backdrop-filter: blur(25px);
+  border-radius: 18px;
+  padding: 14px;
+  color: white;
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  user-select: none;
+}
+
+.mac-calc-screen {
+  display: flex;
+  flex-direction: column;
+  justify-content: flex-end;
+  align-items: flex-end;
+  height: 64px;
+  padding: 0 8px;
+  text-align: right;
+}
+
+.mac-calc-equation {
+  font-size: 11px;
+  color: rgba(255, 255, 255, 0.5);
+  min-height: 14px;
+  font-weight: 400;
+  letter-spacing: 0.5px;
+}
+
+.mac-calc-display {
+  font-size: 36px;
+  font-weight: 300;
+  color: #fff;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: clip;
+  width: 100%;
+}
+
+.mac-calc-buttons {
+  display: grid;
+  grid-template-columns: repeat(4, 1fr);
+  gap: 8px;
+}
+
+.calc-btn {
+  border: none;
+  outline: none;
+  height: 44px;
+  width: 44px;
+  border-radius: 50%;
+  font-size: 17px;
+  font-weight: 400;
+  display: flex;
+  justify-content: center;
+  align-items: center;
+  cursor: pointer;
+  transition: all 0.2s cubic-bezier(0.16, 1, 0.3, 1);
+  color: #ffffff;
+}
+
+/* Zero button spanning 2 columns */
+.calc-btn.zero {
+  grid-column: span 2;
+  width: auto;
+  border-radius: 22px;
+  justify-content: flex-start;
+  padding-left: 17px;
+}
+
+/* Digits styling (0-9, .) */
+.calc-btn.digit {
+  background: rgba(255, 255, 255, 0.08);
+}
+.calc-btn.digit:hover {
+  background: rgba(255, 255, 255, 0.16);
+}
+.calc-btn.digit:active {
+  background: rgba(255, 255, 255, 0.25);
+  transform: scale(0.96);
+}
+
+/* Utility styling (AC, ±, %) */
+.calc-btn.utility {
+  background: rgba(255, 255, 255, 0.18);
+  color: #ffffff;
+  font-size: 15px;
+}
+.calc-btn.utility:hover {
+  background: rgba(255, 255, 255, 0.26);
+}
+.calc-btn.utility:active {
+  background: rgba(255, 255, 255, 0.35);
+  transform: scale(0.96);
+}
+
+/* Operator styling (/, *, -, +, =) */
+.calc-btn.operator {
+  background: #ff9f0a;
+  color: white;
+  font-size: 20px;
+  font-weight: 500;
+}
+.calc-btn.operator:hover {
+  background: #ffb340;
+}
+.calc-btn.operator:active {
+  background: #cc7f08;
+  transform: scale(0.96);
+}
+
+/* Active operator indicator */
+.calc-btn.operator.active {
+  background: #ffffff;
+  color: #ff9f0a;
+}
+
+/* Equals operator accent */
+.calc-btn.operator.equal {
+  background: #ff9f0a;
+}
+.calc-btn.operator.equal:hover {
+  background: #ffb340;
+}
+.calc-btn.operator.equal:active {
+  background: #cc7f08;
+}
