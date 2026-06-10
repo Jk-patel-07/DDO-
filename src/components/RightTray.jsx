@@ -3298,7 +3298,7 @@ const RightTray = ({ onPopupStateChange = () => {} }) => {
             WebkitBackdropFilter: 'blur(30px)',
             borderRadius: '16px',
             border: '1px solid var(--menu-border)',
-            padding: '12px',
+            padding: '0',
             boxShadow: '0 10px 30px rgba(0,0,0,0.6)',
             opacity: isTranslatorOpen ? 1 : 0,
             visibility: isTranslatorOpen ? 'visible' : 'hidden',
@@ -3308,18 +3308,8 @@ const RightTray = ({ onPopupStateChange = () => {} }) => {
             zIndex: 100,
             display: 'flex',
             flexDirection: 'column',
-            gap: '8px'
+            gap: '0'
           }}>
-            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', padding: '0 4px', color: 'rgba(255,255,255,0.7)' }}>
-              <span style={{ fontSize: '12px', fontWeight: '500' }}>Translator</span>
-              <button 
-                type="button"
-                onClick={() => setIsTranslatorOpen(false)}
-                style={{ cursor: 'pointer', background: 'rgba(255,255,255,0.1)', border: 'none', borderRadius: '50%', padding: '4px', display: 'flex', alignItems: 'center', justifyContent: 'center', color: 'white' }}
-              >
-                <X size={12} />
-              </button>
-            </div>
             <Translator onVisibilityChange={setIsTranslatorOpen} />
           </div>
         </div>
