@@ -3088,12 +3088,6 @@ const AiChatPopup = ({
     }
   };
 
-  if (!isOpen) return null;
-
-  const activeTab = chatTabs.find(t => t.id === activeTabId);
-  const initialDraft = activeTab ? activeTab.draft : '';
-  const initialAttachment = activeTab ? activeTab.pendingAttachment : null;
-
   const handleDraftChange = useCallback((text, attach) => {
     currentDraftRef.current = text;
     currentAttachmentRef.current = attach;
@@ -3126,6 +3120,12 @@ const AiChatPopup = ({
     setChatTabs(prev => prev.map(t => t.id === activeTabId ? { ...t, draft: '', pendingAttachment: null } : t));
     void submitAiPrompt(provider, text, attach);
   }, [provider, activeTabId, submitAiPrompt]);
+
+  if (!isOpen) return null;
+
+  const activeTab = chatTabs.find(t => t.id === activeTabId);
+  const initialDraft = activeTab ? activeTab.draft : '';
+  const initialAttachment = activeTab ? activeTab.pendingAttachment : null;
 
   return createPortal(
     <div
