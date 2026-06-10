@@ -488,15 +488,12 @@ const MessageAttachmentRenderer = ({ attachment }) => {
 
   return null;
 };
-
 const CenterSearch = ({ onPopupStateChange = () => {} }) => {
   const wrapperRef = useRef(null);
   const providerTriggerRef = useRef(null);
   const accountTriggerRef = useRef(null);
   const accountPopupRef = useRef(null);
   const searchDrag = useDraggablePopup('search');
-  const answerDrag = useDraggablePopup('answer');
-  const answerPopupRef = answerDrag.popupRef;
   const googleTokenClientRef = useRef(null);
   const [activePopup, setActivePopup] = useState(null);
   const [query, setQuery] = useState('');
@@ -508,570 +505,22 @@ const CenterSearch = ({ onPopupStateChange = () => {} }) => {
   const [isProviderMenuOpen, setIsProviderMenuOpen] = useState(false);
   const [providerMenuPosition, setProviderMenuPosition] = useState({ top: 0, left: 0 });
   const [searchProvider, setSearchProvider] = useState(() => readStoredSearchProvider());
-  const [answerPanel, setAnswerPanel] = useState({
-    isOpen: false,
-    provider: 'gemini',
-    question: '',
-    answer: '',
-    status: 'idle',
-    error: '',
-  });
-  const [answerInput, setAnswerInput] = useState('');
-  const [chatHistory, setChatHistory] = useState([]);
-  const [tabErrors, setTabErrors] = useState({});
-  const [isMinimized, setIsMinimized] = useState(false);
-  const [isMaximized, setIsMaximized] = useState(false);
-  const chatBottomRef = useRef(null);
 
-  const [isAttachmentMenuOpen, setIsAttachmentMenuOpen] = useState(false);
-  const [attachment, setAttachment] = useState(null);
-  const [toastMessage, setToastMessage] = useState('');
-  const attachmentFileInputRef = useRef(null);
+  // Independent open/close states
+  const [isGeminiOpen, setIsGeminiOpen] = useState(false);
+  const [isStepFunOpen, setIsStepFunOpen] = useState(false);
+  const [isManusOpen, setIsManusOpen] = useState(false);
 
-  // Camera & Link dialog state triggers
-  const [isCameraActive, setIsCameraActive] = useState(false);
-  const [isLinkInputActive, setIsLinkInputActive] = useState(false);
-  const [linkUrlInput, setLinkUrlInput] = useState('https://');
-  const [linkTitleInput, setLinkTitleInput] = useState('');
-  const videoRef = useRef(null);
+  // Independent pending prompt states
+  const [geminiPendingPrompt, setGeminiPendingPrompt] = useState(null);
+  const [stepfunPendingPrompt, setStepfunPendingPrompt] = useState(null);
+  const [manusPendingPrompt, setManusPendingPrompt] = useState(null);
 
-  const PROVIDER_CAPABILITIES = {
-    gemini: { image: true, camera: true, file: true, video: true, link: true },
-    stepfun: { image: true, camera: true, file: false, video: false, link: true },
-    manus: { image: true, camera: true, file: true, video: true, link: true }
-  };
-
-  const handleTriggerUpload = (type) => {
-    setIsAttachmentMenuOpen(false);
-    if (type === 'camera') {
-      setIsCameraActive(true);
-      return;
-    }
-    if (type === 'link') {
-      setLinkUrlInput('https://');
-      setLinkTitleInput('');
-      setIsLinkInputActive(true);
-      return;
-    }
-
-    if (attachmentFileInputRef.current) {
-      if (type === 'image') {
-        attachmentFileInputRef.current.accept = 'image/png, image/jpeg, image/jpg, image/webp';
-      } else if (type === 'video') {
-        attachmentFileInputRef.current.accept = 'video/mp4, video/quicktime, video/webm';
-      } else if (type === 'file') {
-        attachmentFileInputRef.current.accept = '.pdf, .docx, .txt, .zip, .json, .csv';
-      }
-      attachmentFileInputRef.current.dataset.uploadType = type;
-      attachmentFileInputRef.current.click();
-    }
-  };
-
-  const startUploadSimulation = (uploadId) => {
-    let currentProgress = 0;
-    const interval = setInterval(() => {
-      currentProgress += 10;
-      setAttachment(prev => {
-        if (prev && prev.uploadId === uploadId) {
-          if (currentProgress >= 100) {
-            clearInterval(interval);
-            return { ...prev, progress: null };
-          }
-          return { ...prev, progress: currentProgress };
-        }
-        clearInterval(interval);
-        return prev;
-      });
-    }, 120);
-  };
-
-  const handleFileChange = (e) => {
-    const file = e.target.files[0];
-    if (!file) return;
-
-    const uploadType = attachmentFileInputRef.current.dataset.uploadType || 'file';
-
-    // Verify Size Limits
-    if (uploadType === 'image' && file.size > 10 * 1024 * 1024) {
-      setToastMessage("Photo exceeds the 10 MB size limit.");
-      setTimeout(() => setToastMessage(''), 4000);
-      e.target.value = '';
-      return;
-    }
-    if (uploadType === 'video' && file.size > 100 * 1024 * 1024) {
-      setToastMessage("Video exceeds the 100 MB size limit.");
-      setTimeout(() => setToastMessage(''), 4000);
-      e.target.value = '';
-      return;
-    }
-    if (uploadType === 'file' && file.size > 25 * 1024 * 1024) {
-      setToastMessage("File exceeds the 25 MB size limit.");
-      setTimeout(() => setToastMessage(''), 4000);
-      e.target.value = '';
-      return;
-    }
-
-    const uploadId = 'upload_' + Date.now();
-    const objectUrl = URL.createObjectURL(file);
-
-    const newAttachment = {
-      uploadId,
-      type: uploadType,
-      name: file.name,
-      size: file.size,
-      url: objectUrl,
-      progress: 0
-    };
-
-    setAttachment(newAttachment);
-    startUploadSimulation(uploadId);
-    e.target.value = '';
-  };
-
-  // Mount/Unmount stream track cleanup for webcam modal
-  useEffect(() => {
-    if (!isCameraActive) return;
-    
-    let activeStream = null;
-    navigator.mediaDevices.getUserMedia({ video: { facingMode: 'user' } })
-      .then(stream => {
-        activeStream = stream;
-        if (videoRef.current) {
-          videoRef.current.srcObject = stream;
-        }
-      })
-      .catch(err => {
-        console.error("Camera access error:", err);
-        setToastMessage("Failed to access camera.");
-        setTimeout(() => setToastMessage(''), 4000);
-        setIsCameraActive(false);
-      });
-      
-    return () => {
-      if (activeStream) {
-        activeStream.getTracks().forEach(track => track.stop());
-      }
-    };
-  }, [isCameraActive]);
-
-  const handleCapturePhoto = () => {
-    if (!videoRef.current) return;
-    try {
-      const canvas = document.createElement('canvas');
-      canvas.width = videoRef.current.videoWidth || 640;
-      canvas.height = videoRef.current.videoHeight || 480;
-      const ctx = canvas.getContext('2d');
-      ctx.drawImage(videoRef.current, 0, 0, canvas.width, canvas.height);
-      const dataUrl = canvas.toDataURL('image/png');
-      
-      const uploadId = 'upload_' + Date.now();
-      const newAttachment = {
-        uploadId,
-        type: 'camera',
-        name: 'Camera_Capture_' + new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit', second: '2-digit' }).replace(/\s/g, '') + '.png',
-        size: Math.round(dataUrl.length * 0.75),
-        url: dataUrl,
-        progress: 0
-      };
-      
-      setAttachment(newAttachment);
-      startUploadSimulation(uploadId);
-    } catch (e) {
-      console.error("Capture photo error:", e);
-      setToastMessage("Failed to capture photo.");
-      setTimeout(() => setToastMessage(''), 4000);
-    }
-    setIsCameraActive(false);
-  };
-
-  const handleSubmitLink = (e) => {
-    if (e) e.preventDefault();
-    if (!linkUrlInput || !linkUrlInput.trim() || linkUrlInput.trim() === 'https://') {
-      setToastMessage("Please enter a valid link.");
-      setTimeout(() => setToastMessage(''), 4000);
-      return;
-    }
-    
-    let url = linkUrlInput.trim();
-    if (!/^https?:\/\//i.test(url)) {
-      url = 'https://' + url;
-    }
-    
-    const uploadId = 'upload_' + Date.now();
-    const name = linkTitleInput.trim() || url.replace(/^https?:\/\/(www\.)?/, '').slice(0, 30);
-    
-    const newAttachment = {
-      uploadId,
-      type: 'link',
-      name,
-      url,
-      size: null,
-      progress: 0
-    };
-    
-    setAttachment(newAttachment);
-    startUploadSimulation(uploadId);
-    setIsLinkInputActive(false);
-  };
-
-  useEffect(() => {
-    if (!isAttachmentMenuOpen) return;
-    const handleOutsideClick = (e) => {
-      if (!e.target.closest('.center-search-answer-plus-btn') && !e.target.closest('.attachment-menu-popup')) {
-        setIsAttachmentMenuOpen(false);
-      }
-    };
-    window.addEventListener('mousedown', handleOutsideClick);
-    return () => window.removeEventListener('mousedown', handleOutsideClick);
-  }, [isAttachmentMenuOpen]);
-
-  const [activeMenuMsgId, setActiveMenuMsgId] = useState(null);
-  const [activeSourcesMsgId, setActiveSourcesMsgId] = useState(null);
-  const [speakingMsgId, setSpeakingMsgId] = useState(null);
-
-  const [chatTabs, setChatTabs] = useState(() => {
-    try {
-      const saved = localStorage.getItem('ddo_chat_sessions');
-      return saved ? JSON.parse(saved) : [];
-    } catch {
-      return [];
-    }
-  });
-
-  const [activeTabId, setActiveTabId] = useState(() => {
-    try {
-      return localStorage.getItem('ddo_active_tab_id') || '';
-    } catch {
-      return '';
-    }
-  });
-
-  const [renamingTabId, setRenamingTabId] = useState(null);
-  const [renamingTitle, setRenamingTitle] = useState('');
-  const [contextMenu, setContextMenu] = useState(null);
-  const [closingTabIds, setClosingTabIds] = useState([]);
-
-  const getWelcomeMessage = (provider) => {
-    const label = providerOptions.find((option) => option.id === provider)?.label || 'AI';
-    return {
-      id: 'welcome_' + Date.now(),
-      sender: 'ai',
-      text: provider === 'stepfun' || provider === 'manus'
-        ? `Hello! I am ${label}. What would you like help with today?`
-        : `Ask a question and ${label} will answer here.`
-    };
-  };
-
-  const handleCreateNewTab = (provider = answerPanel.provider || 'stepfun') => {
-    const newId = 'tab_' + Date.now() + '_' + Math.random().toString(36).substr(2, 9);
-    const newTab = {
-      id: newId,
-      provider: provider,
-      title: 'New Chat',
-      messages: [getWelcomeMessage(provider)],
-      draft: '',
-      pendingAttachment: null
-    };
-    setChatTabs(prev => {
-      const withDraft = prev.map(t => t.id === activeTabId ? { ...t, draft: answerInput, pendingAttachment: attachment } : t);
-      return [...withDraft, newTab];
-    });
-    setAnswerInput('');
-    setAttachment(null);
-    setActiveTabId(newId);
-    if (newTab.provider) {
-      setAnswerPanel(prev => ({ ...prev, provider: newTab.provider }));
-      setActivePopup(newTab.provider);
-    }
-    return newTab;
-  };
-
-  const handleSwitchTab = (tabId) => {
-    if (tabId === activeTabId) return;
-    setChatTabs(prev => {
-      const updated = prev.map(t => t.id === activeTabId ? { ...t, draft: answerInput, pendingAttachment: attachment } : t);
-      const nextTab = updated.find(t => t.id === tabId);
-      if (nextTab) {
-        setAnswerInput(nextTab.draft || '');
-        setAttachment(nextTab.pendingAttachment || null);
-      } else {
-        setAnswerInput('');
-        setAttachment(null);
-      }
-      return updated;
-    });
-    setActiveTabId(tabId);
-    const tab = chatTabs.find(t => t.id === tabId);
-    if (tab && tab.provider) {
-      setAnswerPanel(prev => ({ ...prev, provider: tab.provider }));
-      setActivePopup(tab.provider);
-    }
-  };
-
-  const handleCloseTab = (e, tabId) => {
-    if (e) e.stopPropagation();
-    
-    setClosingTabIds(prev => [...prev, tabId]);
-    
-    setTimeout(() => {
-      setChatTabs(prevTabs => {
-        const remaining = prevTabs.filter(t => t.id !== tabId);
-        
-        if (activeTabId === tabId) {
-          if (remaining.length > 0) {
-            const closedIndex = prevTabs.findIndex(t => t.id === tabId);
-            const newActiveIndex = Math.min(closedIndex, remaining.length - 1);
-            const nextTab = remaining[newActiveIndex];
-            setActiveTabId(nextTab.id);
-            if (nextTab.provider) {
-              setAnswerPanel(prev => ({ ...prev, provider: nextTab.provider }));
-              setActivePopup(nextTab.provider);
-            }
-            setAnswerInput(nextTab.draft || '');
-            setAttachment(nextTab.pendingAttachment || null);
-          } else {
-            const newId = 'tab_' + Date.now() + '_' + Math.random().toString(36).substr(2, 9);
-            const provider = answerPanel.provider || 'stepfun';
-            const freshTab = {
-              id: newId,
-              provider: provider,
-              title: 'New Chat',
-              messages: [getWelcomeMessage(provider)],
-              draft: '',
-              pendingAttachment: null
-            };
-            setActiveTabId(newId);
-            setAnswerInput('');
-            setAttachment(null);
-            return [freshTab];
-          }
-        }
-        return remaining;
-      });
-      setClosingTabIds(prev => prev.filter(id => id !== tabId));
-    }, 200);
-  };
-
-  const handleDuplicateTab = (tabId) => {
-    const tabToDup = chatTabs.find(t => t.id === tabId);
-    if (!tabToDup) return;
-    
-    const newId = 'tab_' + Date.now() + '_' + Math.random().toString(36).substr(2, 9);
-    const dupTab = {
-      id: newId,
-      provider: tabToDup.provider,
-      title: tabToDup.title === 'New Chat' ? 'New Chat' : tabToDup.title + ' Copy',
-      messages: JSON.parse(JSON.stringify(tabToDup.messages || [])),
-      draft: tabToDup.id === activeTabId ? answerInput : (tabToDup.draft || ''),
-      pendingAttachment: tabToDup.id === activeTabId ? attachment : (tabToDup.pendingAttachment || null)
-    };
-    
-    setChatTabs(prev => {
-      const idx = prev.findIndex(t => t.id === tabId);
-      const updated = [...prev];
-      updated.splice(idx + 1, 0, dupTab);
-      return updated;
-    });
-    setActiveTabId(newId);
-    setAnswerInput(dupTab.draft || '');
-    setAttachment(dupTab.pendingAttachment || null);
-    if (dupTab.provider) {
-      setAnswerPanel(prev => ({ ...prev, provider: dupTab.provider }));
-      setActivePopup(dupTab.provider);
-    }
-  };
-
-  const handleRenameTab = (tabId, newTitle) => {
-    if (!newTitle.trim()) return;
-    setChatTabs(prev => prev.map(t => t.id === tabId ? { ...t, title: newTitle.trim().slice(0, 20) } : t));
-    setRenamingTabId(null);
-  };
-
-  const handleCloseOtherTabs = (tabId) => {
-    const targetTab = chatTabs.find(t => t.id === tabId);
-    if (!targetTab) return;
-    
-    setChatTabs([targetTab]);
-    setActiveTabId(tabId);
-    if (targetTab.provider) {
-      setAnswerPanel(prev => ({ ...prev, provider: targetTab.provider }));
-      setActivePopup(targetTab.provider);
-    }
-    setAnswerInput(targetTab.draft || '');
-    setAttachment(targetTab.pendingAttachment || null);
-  };
-
-  useEffect(() => {
-    localStorage.setItem('ddo_chat_sessions', JSON.stringify(chatTabs));
-  }, [chatTabs]);
-
-  useEffect(() => {
-    if (activeTabId) {
-      localStorage.setItem('ddo_active_tab_id', activeTabId);
-    }
-  }, [activeTabId]);
-
-  useEffect(() => {
-    const activeTab = chatTabs.find(t => t.id === activeTabId);
-    if (activeTab) {
-      setChatHistory(activeTab.messages || []);
-    }
-  }, [activeTabId, chatTabs]);
-
-  useEffect(() => {
-    window.speechSynthesis?.cancel();
-    setSpeakingMsgId(null);
-  }, [activeTabId]);
-
-  useEffect(() => {
-    if (chatTabs.length === 0) {
-      const newId = 'tab_' + Date.now() + '_' + Math.random().toString(36).substr(2, 9);
-      const provider = answerPanel.provider || 'stepfun';
-      const initialTab = {
-        id: newId,
-        provider: provider,
-        title: 'New Chat',
-        messages: [getWelcomeMessage(provider)],
-        draft: '',
-        pendingAttachment: null
-      };
-      setChatTabs([initialTab]);
-      setActiveTabId(newId);
-    } else {
-      const savedActiveId = localStorage.getItem('ddo_active_tab_id');
-      const activeExists = chatTabs.some(t => t.id === savedActiveId);
-      if (activeExists && savedActiveId) {
-        setActiveTabId(savedActiveId);
-        const activeTab = chatTabs.find(t => t.id === savedActiveId);
-        if (activeTab) {
-          if (activeTab.provider) {
-            setAnswerPanel(prev => ({ ...prev, provider: activeTab.provider }));
-          }
-          setAnswerInput(activeTab.draft || '');
-          setAttachment(activeTab.pendingAttachment || null);
-        }
-      } else {
-        const firstTab = chatTabs[0];
-        setActiveTabId(firstTab.id);
-        if (firstTab) {
-          if (firstTab.provider) {
-            setAnswerPanel(prev => ({ ...prev, provider: firstTab.provider }));
-          }
-          setAnswerInput(firstTab.draft || '');
-          setAttachment(firstTab.pendingAttachment || null);
-        }
-      }
-    }
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, []);
-
-  useEffect(() => {
-    if (!contextMenu) return;
-    const handleOutsideClick = () => {
-      setContextMenu(null);
-    };
-    window.addEventListener('click', handleOutsideClick);
-    window.addEventListener('contextmenu', handleOutsideClick);
-    return () => {
-      window.removeEventListener('click', handleOutsideClick);
-      window.removeEventListener('contextmenu', handleOutsideClick);
-    };
-  }, [contextMenu]);
-
-  useEffect(() => {
-    if (activeMenuMsgId === null) return;
-    const handleOutsideClick = (e) => {
-      if (!e.target.closest('.chat-msg-menu-container')) {
-        setActiveMenuMsgId(null);
-      }
-    };
-    window.addEventListener('click', handleOutsideClick);
-    return () => window.removeEventListener('click', handleOutsideClick);
-  }, [activeMenuMsgId]);
-
-  useEffect(() => {
-    return () => {
-      window.speechSynthesis?.cancel();
-    };
-  }, []);
-
-  const [geminiCooldownUntil, setGeminiCooldownUntil] = useState(() => {
-    try {
-      return Number(localStorage.getItem("geminiCooldownUntil")) || 0;
-    } catch {
-      return 0;
-    }
-  });
-  const [cooldownSecondsLeft, setCooldownSecondsLeft] = useState(0);
-
-  useEffect(() => {
-    if (geminiCooldownUntil <= Date.now()) {
-      setCooldownSecondsLeft(0);
-      return;
-    }
-
-    const updateCooldown = () => {
-      const remaining = Math.max(0, Math.ceil((geminiCooldownUntil - Date.now()) / 1000));
-      setCooldownSecondsLeft(remaining);
-      if (remaining === 0) {
-        setGeminiCooldownUntil(0);
-        try {
-          localStorage.removeItem("geminiCooldownUntil");
-        } catch (e) {
-          // ignore
-        }
-      }
-    };
-
-    updateCooldown();
-    const interval = setInterval(updateCooldown, 1000);
-    return () => clearInterval(interval);
-  }, [geminiCooldownUntil]);
-
-  const handleGeminiError = (errorText) => {
-    const isQuotaError =
-      errorText.toLowerCase().includes("quota") ||
-      errorText.toLowerCase().includes("rate-limit") ||
-      errorText.toLowerCase().includes("rate limit") ||
-      errorText.toLowerCase().includes("free_tier_requests") ||
-      errorText.toLowerCase().includes("limit reached") ||
-      errorText.toLowerCase().includes("exceeded");
-
-    if (!isQuotaError) return false;
-
-    const retryMatch = errorText.match(/retry in ([\d.]+)s/i) || 
-                       errorText.match(/retry after ([\d.]+)s/i) || 
-                       errorText.match(/retry in ([\d.]+) seconds/i) ||
-                       errorText.match(/retry after ([\d.]+) seconds/i);
-    const retrySeconds = retryMatch ? Math.ceil(Number(retryMatch[1])) : 35;
-
-    const cooldownUntil = Date.now() + retrySeconds * 1000;
-    setGeminiCooldownUntil(cooldownUntil);
-    try {
-      localStorage.setItem("geminiCooldownUntil", String(cooldownUntil));
-    } catch (e) {
-      // ignore
-    }
-    return true;
-  };
-
-
-
-  useEffect(() => {
-    if (AI_PROVIDER_IDS.has(activePopup)) {
-      setIsMinimized(false);
-      setIsMaximized(false);
-    }
-  }, [activePopup]);
-
-  useEffect(() => {
-    chatBottomRef.current?.scrollIntoView({ behavior: 'smooth' });
-  }, [chatHistory, answerPanel.status]);
+  // Focus z-index state
+  const [frontProvider, setFrontProvider] = useState('gemini');
 
   const providerMenuRef = useRef(null);
   const activeProvider = providerOptions.find((option) => option.id === searchProvider) || providerOptions[0];
-  const activeAnswerProvider = providerOptions.find((option) => option.id === answerPanel.provider) || providerOptions[1];
-  const ActiveAnswerIcon = activeAnswerProvider.icon;
 
   const googleEmail = googleAccount?.email || 'Not signed in';
   const googleAvatar = googleAccount?.picture || '';
@@ -1085,9 +534,13 @@ const CenterSearch = ({ onPopupStateChange = () => {} }) => {
       const clickedAccountPopup = accountPopupRef.current?.contains(event.target);
       const clickedProviderTrigger = providerTriggerRef.current?.contains(event.target);
       const clickedProviderMenu = providerMenuRef.current?.contains(event.target);
-      const clickedAnswerPopup = answerPopupRef.current?.contains(event.target);
+      
+      const clickedGeminiPopup = document.querySelector('.center-search-answer-popup[data-provider="gemini"]')?.contains(event.target);
+      const clickedStepFunPopup = document.querySelector('.center-search-answer-popup[data-provider="stepfun"]')?.contains(event.target);
+      const clickedManusPopup = document.querySelector('.center-search-answer-popup[data-provider="manus"]')?.contains(event.target);
 
-      if (clickedAccountTrigger || clickedAccountPopup || clickedProviderTrigger || clickedProviderMenu || clickedAnswerPopup) {
+      if (clickedAccountTrigger || clickedAccountPopup || clickedProviderTrigger || clickedProviderMenu || 
+          clickedGeminiPopup || clickedStepFunPopup || clickedManusPopup) {
         return;
       }
 
@@ -1108,9 +561,10 @@ const CenterSearch = ({ onPopupStateChange = () => {} }) => {
     };
   }, []);
 
+  const isAnyPopupOpen = activePopup !== null || isGeminiOpen || isStepFunOpen || isManusOpen;
   useEffect(() => {
-    onPopupStateChange(activePopup !== null);
-  }, [activePopup, onPopupStateChange]);
+    onPopupStateChange(isAnyPopupOpen);
+  }, [isAnyPopupOpen, onPopupStateChange]);
 
   useEffect(() => {
     if (!isAccountMenuOpen) {
@@ -1323,408 +777,29 @@ const CenterSearch = ({ onPopupStateChange = () => {} }) => {
     setSearchHistory([]);
   };
 
-  const submitAiPrompt = async (providerId, promptText, customAttachment = null) => {
-    if (answerPanel.status === 'loading') {
-      return;
-    }
-
-    const trimmedQuery = promptText.trim();
-    if (!trimmedQuery) {
-      return;
-    }
-
-    const providerMeta = providerOptions.find((option) => option.id === providerId) || providerOptions[1];
-    saveSearchToHistory(trimmedQuery);
-    setAnswerInput('');
-    setQuery('');
-    setActivePopup(providerId);
-
-    setAnswerPanel((prev) => ({
-      ...prev,
-      isOpen: false,
-      provider: providerId,
-      status: 'loading',
-      error: '',
-    }));
-
-    let currentTabId = activeTabId;
-    if (!currentTabId) {
-      const newTab = handleCreateNewTab(providerId);
-      currentTabId = newTab.id;
-    }
-
-    setTabErrors(prev => {
-      const next = { ...prev };
-      delete next[currentTabId];
-      return next;
-    });
-
-    let finalPrompt = trimmedQuery;
-    let committedAttachment = null;
-
-    const activeAttachment = customAttachment || attachment;
-    if (activeAttachment) {
-      const providerCaps = PROVIDER_CAPABILITIES[providerId] || { image: true, camera: true, link: true };
-      if (!providerCaps[activeAttachment.type]) {
-        // Show compatibility error inside the bubble
-        const userMsgId = 'msg_' + Date.now() + '_' + Math.random().toString(36).substr(2, 5);
-        const userMsg = {
-          id: userMsgId,
-          sender: 'user',
-          text: trimmedQuery,
-          attachment: { ...activeAttachment }
-        };
-
-        setChatTabs(prev => prev.map(t => {
-          if (t.id === currentTabId) {
-            const updatedMsgs = [...(t.messages || []), userMsg];
-            let newTitle = t.title;
-            if (t.title === 'New Chat') {
-              const words = trimmedQuery.trim().split(/\s+/);
-              newTitle = words.slice(0, 4).join(' ').slice(0, 20) || 'New Chat';
-            }
-            return {
-              ...t,
-              title: newTitle,
-              messages: updatedMsgs
-            };
-          }
-          return t;
-        }));
-
-        const aiMsgId = 'msg_' + Date.now() + '_' + Math.random().toString(36).substr(2, 5);
-        const aiMsg = {
-          id: aiMsgId,
-          sender: 'ai',
-          text: 'This AI does not support this attachment type yet.',
-          isError: true
-        };
-
-        setTimeout(() => {
-          setChatTabs(prev => prev.map(t => {
-            if (t.id === currentTabId) {
-              return {
-                ...t,
-                messages: [...(t.messages || []), aiMsg]
-              };
-            }
-            return t;
-          }));
-
-          setAnswerPanel((prev) => ({
-            ...prev,
-            status: 'done',
-          }));
-        }, 600);
-
-        if (!customAttachment) {
-          setAttachment(null);
-        }
-        return;
-      }
-
-      // If supported, commit the attachment metadata to the user's bubble
-      committedAttachment = {
-        type: activeAttachment.type,
-        name: activeAttachment.name,
-        size: activeAttachment.size,
-        url: activeAttachment.url
-      };
-
-      // Format final prompt textually
-      if (activeAttachment.type === 'link') {
-        finalPrompt = `[Attached Link: ${activeAttachment.name}] (${activeAttachment.url})\n\n${trimmedQuery}`;
-      } else if (activeAttachment.type === 'image' || activeAttachment.type === 'camera') {
-        finalPrompt = `[Attached Photo: ${activeAttachment.name}]\n\n${trimmedQuery}`;
-      } else if (activeAttachment.type === 'video') {
-        finalPrompt = `[Attached Video: ${activeAttachment.name}]\n\n${trimmedQuery}`;
-      } else {
-        finalPrompt = `[Attached Document: ${activeAttachment.name}]\n\n${trimmedQuery}`;
-      }
-
-      if (!customAttachment) {
-        setAttachment(null);
-      }
-    }
-
-    const userMsgId = 'msg_' + Date.now() + '_' + Math.random().toString(36).substr(2, 5);
-    const userMsg = { id: userMsgId, sender: 'user', text: trimmedQuery, attachment: committedAttachment };
-
-    // Optimistically add user message to tab and auto-rename if it was 'New Chat'
-    setChatTabs(prev => prev.map(t => {
-      if (t.id === currentTabId) {
-        const updatedMsgs = [...(t.messages || []), userMsg];
-        let newTitle = t.title;
-        if (t.title === 'New Chat') {
-          const words = trimmedQuery.trim().split(/\s+/);
-          newTitle = words.slice(0, 4).join(' ').slice(0, 20) || 'New Chat';
-        }
-        return {
-          ...t,
-          title: newTitle,
-          messages: updatedMsgs
-        };
-      }
-      return t;
-    }));
-
-    let route = '/api/ai/respond';
-    if (providerId === 'gemini') {
-      route = '/api/gemini/chat';
-    } else if (providerId === 'stepfun') {
-      route = '/api/stepfun/chat';
-    } else if (providerId === 'manus') {
-      route = '/api/manus/chat';
-    }
-
-    try {
-      const response = await fetch(buildApiUrl(route), {
-        method: 'POST',
-        headers: createAuthHeaders({
-          'Content-Type': 'application/json',
-        }),
-        body: JSON.stringify({
-          provider: providerId,
-          prompt: finalPrompt,
-        }),
-      });
-
-      const payload = await response.json().catch(() => ({}));
-      if (!response.ok) {
-        throw new Error(payload.error || `${providerMeta.label} request failed.`);
-      }
-
-      const aiMsgId = 'msg_' + Date.now() + '_' + Math.random().toString(36).substr(2, 5);
-      const aiMsg = { id: aiMsgId, sender: 'ai', text: payload.answer || '' };
-
-      // Add AI reply to tab
-      setChatTabs(prev => prev.map(t => {
-        if (t.id === currentTabId) {
-          return {
-            ...t,
-            messages: [...(t.messages || []), aiMsg]
-          };
-        }
-        return t;
-      }));
-
-      setAnswerPanel((prev) => ({
-        ...prev,
-        status: 'done',
-      }));
-    } catch (error) {
-      const errorMsg = error.message || `${providerMeta.label} request failed.`;
-
-      let isQuota = false;
-      if (providerId === 'gemini') {
-        isQuota = handleGeminiError(errorMsg);
-      }
-
-      const textToShow = isQuota
-        ? "Gemini limit reached. Please retry later."
-        : errorMsg;
-
-      console.error('AI request failed:', error);
-
-      // Save error transiently per-tab
-      setTabErrors(prev => ({
-        ...prev,
-        [currentTabId]: textToShow
-      }));
-
-      setAnswerPanel((prev) => ({
-        ...prev,
-        status: 'error',
-        error: textToShow,
-      }));
-    }
-  };
-
-  const handleRetryLastPrompt = () => {
-    const activeTab = chatTabs.find(t => t.id === activeTabId);
-    if (!activeTab) return;
-
-    const lastUserMsg = [...(activeTab.messages || [])].reverse().find(m => m.sender === 'user');
-    if (!lastUserMsg) return;
-
-    setTabErrors(prev => {
-      const next = { ...prev };
-      delete next[activeTabId];
-      return next;
-    });
-
-    void submitAiPrompt(activeTab.provider, lastUserMsg.text, lastUserMsg.attachment);
-  };
-
-  const handleRegenerate = async (msgId) => {
-    const activeTab = chatTabs.find(t => t.id === activeTabId);
-    if (!activeTab) return;
-
-    const msgIdx = activeTab.messages.findIndex((m) => m.id === msgId);
-    if (msgIdx === -1) return;
-
-    let userMsgIdx = -1;
-    for (let i = msgIdx - 1; i >= 0; i--) {
-      if (activeTab.messages[i].sender === 'user') {
-        userMsgIdx = i;
-        break;
-      }
-    }
-
-    if (userMsgIdx === -1) return;
-
-    const providerId = answerPanel.provider;
-    const promptText = activeTab.messages[userMsgIdx].text;
-    const originalAttachment = activeTab.messages[userMsgIdx].attachment;
-
-    // Truncate locally in active tab messages
-    setChatTabs(prev => prev.map(t => {
-      if (t.id === activeTabId) {
-        return {
-          ...t,
-          messages: t.messages.slice(0, userMsgIdx)
-        };
-      }
-      return t;
-    }));
-
-    void submitAiPrompt(providerId, promptText, originalAttachment);
-  };
-
-  const handleLikeMessage = (msgId) => {
-    setChatTabs(prev => prev.map(t => {
-      if (t.id === activeTabId) {
-        return {
-          ...t,
-          messages: t.messages.map(m => m.id === msgId ? { ...m, feedback: m.feedback === 'like' ? null : 'like' } : m)
-        };
-      }
-      return t;
-    }));
-  };
-
-  const handleDislikeMessage = (msgId) => {
-    setChatTabs(prev => prev.map(t => {
-      if (t.id === activeTabId) {
-        return {
-          ...t,
-          messages: t.messages.map(m => m.id === msgId ? { ...m, feedback: m.feedback === 'dislike' ? null : 'dislike' } : m)
-        };
-      }
-      return t;
-    }));
-  };
-
-  const handleReadAloud = (msg) => {
-    if (speakingMsgId === msg.id) {
-      window.speechSynthesis?.cancel();
-      setSpeakingMsgId(null);
-      return;
-    }
-    window.speechSynthesis?.cancel();
-    const textToSpeak = cleanAiMessageText(msg.text);
-    const utterance = new SpeechSynthesisUtterance(textToSpeak);
-    utterance.onend = () => setSpeakingMsgId(null);
-    utterance.onerror = () => setSpeakingMsgId(null);
-    window.speechSynthesis?.speak(utterance);
-    setSpeakingMsgId(msg.id);
-  };
-
-  const extractSourcesFromText = (text) => {
-    if (!text) return [];
-    const sources = [];
-    const cleaned = cleanAiMessageText(text);
-    let isJsonArray = false;
-    let jsonItems = [];
-    const trimmed = cleaned.trim();
-    let jsonText = trimmed;
-    if (jsonText.startsWith('```json')) {
-      jsonText = jsonText.replace(/^```json\s*/, '').replace(/\s*```$/, '');
-    } else if (jsonText.startsWith('```')) {
-      jsonText = jsonText.replace(/^```\s*/, '').replace(/\s*```$/, '');
-    }
-    try {
-      const parsed = JSON.parse(jsonText.trim());
-      if (Array.isArray(parsed)) {
-        isJsonArray = true;
-        jsonItems = parsed;
-      }
-    } catch (e) {}
-
-    if (isJsonArray) {
-      jsonItems.forEach(item => {
-        if (item.url) {
-          if (Array.isArray(item.url)) {
-            item.url.forEach(u => {
-              sources.push({ title: item.title || item.headline || 'Source', url: u });
-            });
-          } else {
-            sources.push({ title: item.title || item.headline || 'Source', url: item.url });
-          }
-        }
-      });
-      return sources;
-    }
-
-    const linkRegex = /\[([^\]]+)\]\((https?:\/\/[^\s)]+)\)|(https?:\/\/[^\s)]+)/g;
-    let match;
-    while ((match = linkRegex.exec(text)) !== null) {
-      if (match[1] && match[2]) {
-        sources.push({ title: match[1], url: match[2] });
-      } else if (match[3]) {
-        sources.push({ title: 'Source', url: match[3] });
-      }
-    }
-    return sources;
-  };
-
-  const handleViewSources = (msgId) => {
-    setActiveSourcesMsgId(activeSourcesMsgId === msgId ? null : msgId);
-  };
-
-  const handleBranchChat = (aiMsg) => {
-    const msgIdx = chatHistory.findIndex((m) => m.id === aiMsg.id);
-    if (msgIdx === -1) return;
-
-    let userMsg = null;
-    for (let i = msgIdx - 1; i >= 0; i--) {
-      if (chatHistory[i].sender === 'user') {
-        userMsg = chatHistory[i];
-        break;
-      }
-    }
-
-    if (!userMsg) return;
-
-    // Slice history up to userMsg and then add aiMsg
-    const prefixMessages = chatHistory.slice(0, msgIdx + 1);
-
-    const newId = 'tab_' + Date.now() + '_' + Math.random().toString(36).substr(2, 9);
-    const newTab = {
-      id: newId,
-      provider: answerPanel.provider,
-      title: 'Branch: ' + (userMsg.text.slice(0, 20) || 'New Chat'),
-      messages: JSON.parse(JSON.stringify(prefixMessages)),
-      draft: ''
-    };
-
-    setChatTabs(prev => {
-      const withDraft = prev.map(t => t.id === activeTabId ? { ...t, draft: answerInput } : t);
-      return [newTab, ...withDraft];
-    });
-    setAnswerInput('');
-    setActiveTabId(newId);
-    setChatHistory(newTab.messages);
-  };
-
   const submitQuery = async () => {
     const trimmedQuery = query.trim();
     if (!trimmedQuery) {
       return;
     }
 
-    if (AI_PROVIDER_IDS.has(searchProvider)) {
-      await submitAiPrompt(searchProvider, trimmedQuery);
+    if (searchProvider === 'gemini') {
+      setIsGeminiOpen(true);
+      setFrontProvider('gemini');
+      setGeminiPendingPrompt({ text: trimmedQuery, timestamp: Date.now() });
+      setQuery('');
+      return;
+    } else if (searchProvider === 'stepfun') {
+      setIsStepFunOpen(true);
+      setFrontProvider('stepfun');
+      setStepfunPendingPrompt({ text: trimmedQuery, timestamp: Date.now() });
+      setQuery('');
+      return;
+    } else if (searchProvider === 'manus') {
+      setIsManusOpen(true);
+      setFrontProvider('manus');
+      setManusPendingPrompt({ text: trimmedQuery, timestamp: Date.now() });
+      setQuery('');
       return;
     }
 
@@ -1744,27 +819,18 @@ const CenterSearch = ({ onPopupStateChange = () => {} }) => {
     setSearchProvider(providerId);
     setIsProviderMenuOpen(false);
 
-    if (AI_PROVIDER_IDS.has(providerId)) {
-      setAnswerInput('');
-      setAnswerPanel({
-        isOpen: false,
-        provider: providerId,
-        question: '',
-        answer: '',
-        status: 'idle',
-        error: '',
-      });
-      setActivePopup(providerId);
-
-      const matchingTab = chatTabs.find(t => t.provider === providerId);
-      if (matchingTab) {
-        handleSwitchTab(matchingTab.id);
-      } else {
-        handleCreateNewTab(providerId);
-      }
-
-      if (providerId === 'manus' && query.trim()) {
-        void submitAiPrompt(providerId, query);
+    if (providerId === 'gemini') {
+      setIsGeminiOpen(true);
+      setFrontProvider('gemini');
+    } else if (providerId === 'stepfun') {
+      setIsStepFunOpen(true);
+      setFrontProvider('stepfun');
+    } else if (providerId === 'manus') {
+      setIsManusOpen(true);
+      setFrontProvider('manus');
+      if (query.trim()) {
+        setManusPendingPrompt({ text: query, timestamp: Date.now() });
+        setQuery('');
       }
     } else {
       setActivePopup('search');
@@ -1782,34 +848,24 @@ const CenterSearch = ({ onPopupStateChange = () => {} }) => {
             right: `${accountPopupPosition.right}px`,
           }}
         >
-          <div className="center-search-account-popup-header">
+          <div className="center-search-profile">
             {googleAvatar ? (
-              <img
-                src={googleAvatar}
-                alt={googleEmail}
-                className="center-search-account-popup-avatar"
-              />
+              <img src={googleAvatar} alt={googleEmail} className="center-search-profile-avatar" />
             ) : (
-              <span className="center-search-account-popup-avatar center-search-account-popup-avatar-fallback">
-                {googleEmailInitial}
-              </span>
+              <span className="center-search-profile-initial">{googleEmailInitial}</span>
             )}
-
-            <div className="center-search-account-popup-copy">
-              <strong>{googleEmail}</strong>
-              <span>Google Account</span>
+            <div className="center-search-profile-info">
+              <div className="center-search-profile-name">{googleAccount.name || 'Google User'}</div>
+              <div className="center-search-profile-email">{googleEmail}</div>
             </div>
           </div>
-
-          <div className="center-search-account-popup-divider" />
-
           <button
             type="button"
-            className="center-search-account-popup-action"
+            className="center-search-signout-btn"
             onClick={handleGoogleLogout}
           >
-            <LogOut size={13} />
-            <span>Log out</span>
+            <LogOut size={14} />
+            <span>Sign out</span>
           </button>
         </div>,
         document.body,
@@ -1838,641 +894,6 @@ const CenterSearch = ({ onPopupStateChange = () => {} }) => {
               <span>{label}</span>
             </button>
           ))}
-        </div>,
-        document.body,
-      )
-    : null;
-
-  const answerPanelPopup = AI_PROVIDER_IDS.has(activePopup)
-    ? createPortal(
-        <div
-          ref={answerPopupRef}
-          style={answerDrag.dragStyle}
-          className={`center-search-answer-popup popup-aurora-surface ${isMinimized ? 'is-minimized' : ''} ${isMaximized ? 'is-maximized' : ''}`}
-        >
-          <div className="center-search-answer-header">
-            <div style={{ display: 'flex', alignItems: 'center', gap: '10px' }}>
-              <div className="center-search-answer-title">
-                <ActiveAnswerIcon size={15} />
-                <span>{activeAnswerProvider.label}</span>
-              </div>
-            </div>
-            <div className="center-search-answer-actions">
-              <button
-                type="button"
-                className="center-search-answer-action-btn popup-drag-btn"
-                {...answerDrag.dragProps}
-              >
-                ⠿
-              </button>
-              <button
-                type="button"
-                className="center-search-answer-action-btn"
-                onClick={() => {
-                  setIsMinimized(!isMinimized);
-                  if (isMaximized) setIsMaximized(false);
-                }}
-                title={isMinimized ? 'Restore' : 'Minimize'}
-              >
-                <Minus size={13} />
-              </button>
-              <button
-                type="button"
-                className="center-search-answer-action-btn"
-                onClick={() => {
-                  setIsMaximized(!isMaximized);
-                  if (isMinimized) setIsMinimized(false);
-                }}
-                title={isMaximized ? 'Restore' : 'Maximize'}
-              >
-                {isMaximized ? <Minimize2 size={13} /> : <Maximize2 size={13} />}
-              </button>
-              <button
-                type="button"
-                className="center-search-answer-action-btn"
-                onClick={() => setActivePopup(null)}
-                aria-label="Close answer popup"
-              >
-                <X size={13} />
-              </button>
-            </div>
-          </div>
-
-          {/* Chrome-style AI chat tabs */}
-          <div className="ai-chat-tabs-bar">
-            <div className="ai-chat-tabs-list">
-              {chatTabs.map((tab) => {
-                const isActive = tab.id === activeTabId;
-                const isRenaming = renamingTabId === tab.id;
-                const isClosing = closingTabIds.includes(tab.id);
-                
-                return (
-                  <div
-                    key={tab.id}
-                    className={`ai-chat-tab ${isActive ? 'is-active' : ''} ${isClosing ? 'is-closing' : ''}`}
-                    onClick={() => handleSwitchTab(tab.id)}
-                    onContextMenu={(e) => {
-                      e.preventDefault();
-                      setContextMenu({ x: e.clientX, y: e.clientY, tabId: tab.id });
-                    }}
-                  >
-                    <span className="ai-chat-tab-icon">
-                      <TabProviderIcon provider={tab.provider} />
-                    </span>
-                    
-                    {isRenaming ? (
-                      <input
-                        type="text"
-                        className="ai-chat-tab-rename-input"
-                        value={renamingTitle}
-                        onChange={(e) => setRenamingTitle(e.target.value)}
-                        onBlur={() => handleRenameTab(tab.id, renamingTitle)}
-                        onKeyDown={(e) => {
-                          if (e.key === 'Enter') handleRenameTab(tab.id, renamingTitle);
-                          if (e.key === 'Escape') setRenamingTabId(null);
-                        }}
-                        autoFocus
-                        onClick={(e) => e.stopPropagation()}
-                      />
-                    ) : (
-                      <span
-                        className="ai-chat-tab-title"
-                        title={tab.title}
-                        onDoubleClick={(e) => {
-                          e.stopPropagation();
-                          setRenamingTabId(tab.id);
-                          setRenamingTitle(tab.title || 'New Chat');
-                        }}
-                      >
-                        {tab.title || 'New Chat'}
-                      </span>
-                    )}
-                    
-                    <button
-                      type="button"
-                      className="ai-chat-tab-close"
-                      onClick={(e) => handleCloseTab(e, tab.id)}
-                      title="Close tab"
-                    >
-                      <X size={10} />
-                    </button>
-                  </div>
-                );
-              })}
-            </div>
-            
-            <button
-              type="button"
-              className="ai-chat-tab-add-btn"
-              onClick={() => handleCreateNewTab(answerPanel.provider)}
-              title="New chat tab"
-            >
-              <Plus size={12} />
-            </button>
-          </div>
-
-          {contextMenu && (
-            <div
-              className="tab-context-menu"
-              style={{ top: contextMenu.y, left: contextMenu.x }}
-              onClick={(e) => e.stopPropagation()}
-            >
-              <div
-                className="tab-context-menu-item"
-                onClick={() => {
-                  setRenamingTabId(contextMenu.tabId);
-                  const tab = chatTabs.find(t => t.id === contextMenu.tabId);
-                  setRenamingTitle(tab ? tab.title : 'New Chat');
-                  setContextMenu(null);
-                }}
-              >
-                <Edit2 size={11} />
-                <span>Rename tab</span>
-              </div>
-              <div
-                className="tab-context-menu-item"
-                onClick={() => {
-                  handleDuplicateTab(contextMenu.tabId);
-                  setContextMenu(null);
-                }}
-              >
-                <Copy size={11} />
-                <span>Duplicate tab</span>
-              </div>
-              <div
-                className="tab-context-menu-item"
-                onClick={(e) => {
-                  handleCloseTab(e, contextMenu.tabId);
-                  setContextMenu(null);
-                }}
-              >
-                <X size={11} />
-                <span>Close tab</span>
-              </div>
-              <div
-                className="tab-context-menu-item"
-                onClick={() => {
-                  handleCloseOtherTabs(contextMenu.tabId);
-                  setContextMenu(null);
-                }}
-              >
-                <Layers size={11} />
-                <span>Close other tabs</span>
-              </div>
-            </div>
-          )}
-
-          <div className="center-search-answer-body">
-            <div className="chat-messages-container">
-              {chatHistory.map((msg) => (
-                <div key={msg.id} className={`chat-msg ${msg.sender === 'user' ? 'chat-msg-user' : 'chat-msg-ai'} ${msg.isError ? 'chat-msg-error' : ''}`}>
-                  <div className="chat-msg-wrapper">
-                    <div className="chat-msg-bubble">
-                      {msg.sender === 'ai' ? (
-                        <div className="chat-msg-ai-card">
-                          <div className="chat-msg-content">
-                            <MarkdownRenderer text={msg.text} />
-                          </div>
-                        </div>
-                      ) : (
-                        <div className="chat-msg-user-content-wrapper">
-                          <MessageAttachmentRenderer attachment={msg.attachment} />
-                          {msg.text && <div className="chat-msg-user-text">{msg.text}</div>}
-                        </div>
-                      )}
-                    </div>
-                    {msg.sender === 'ai' && msg.id !== 'welcome' && (
-                      <>
-                        <div className="chat-msg-actions-row-icons">
-                          <ActionCopyButton text={cleanAiMessageText(msg.text)} />
-                          
-                          <button
-                            type="button"
-                            className={`chat-msg-action-icon-btn ${msg.feedback === 'like' ? 'is-active' : ''}`}
-                            onClick={(e) => {
-                              e.stopPropagation();
-                              handleLikeMessage(msg.id);
-                            }}
-                            title="Like response"
-                          >
-                            <ThumbsUp size={13} fill={msg.feedback === 'like' ? 'currentColor' : 'none'} />
-                          </button>
-
-                          <button
-                            type="button"
-                            className={`chat-msg-action-icon-btn ${msg.feedback === 'dislike' ? 'is-active' : ''}`}
-                            onClick={(e) => {
-                              e.stopPropagation();
-                              handleDislikeMessage(msg.id);
-                            }}
-                            title="Dislike response"
-                          >
-                            <ThumbsDown size={13} fill={msg.feedback === 'dislike' ? 'currentColor' : 'none'} />
-                          </button>
-
-                          <button
-                            type="button"
-                            className="chat-msg-action-icon-btn"
-                            onClick={(e) => {
-                              e.stopPropagation();
-                              handleBranchChat(msg);
-                            }}
-                            title="Branch in new chat"
-                          >
-                            <FolderPlus size={13} />
-                          </button>
-
-                          <button
-                            type="button"
-                            className="chat-msg-action-icon-btn"
-                            onClick={(e) => {
-                              e.stopPropagation();
-                              handleRegenerate(msg.id);
-                            }}
-                            disabled={answerPanel.status === 'loading'}
-                            title="Regenerate response"
-                          >
-                            <RotateCw size={13} />
-                          </button>
-
-                          <div className="chat-msg-menu-container">
-                            <button
-                              type="button"
-                              className={`chat-msg-action-icon-btn ${activeMenuMsgId === msg.id ? 'is-active' : ''}`}
-                              onClick={(e) => {
-                                e.stopPropagation();
-                                setActiveMenuMsgId(activeMenuMsgId === msg.id ? null : msg.id);
-                              }}
-                              title="More options"
-                            >
-                              <MoreHorizontal size={13} />
-                            </button>
-                            {activeMenuMsgId === msg.id && (
-                              <div className="chat-msg-floating-menu">
-                                <div className="chat-msg-menu-header">
-                                  {new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}, Today
-                                </div>
-                                <button
-                                  type="button"
-                                  className="chat-msg-menu-item"
-                                  disabled={extractSourcesFromText(msg.text).length === 0}
-                                  onClick={(e) => {
-                                    e.stopPropagation();
-                                    handleViewSources(msg.id);
-                                    setActiveMenuMsgId(null);
-                                  }}
-                                >
-                                  <BookOpen size={14} />
-                                  <span>View sources</span>
-                                </button>
-                                <button
-                                  type="button"
-                                  className="chat-msg-menu-item"
-                                  onClick={(e) => {
-                                    e.stopPropagation();
-                                    handleBranchChat(msg);
-                                    setActiveMenuMsgId(null);
-                                  }}
-                                >
-                                  <GitBranch size={14} />
-                                  <span>Branch in new chat</span>
-                                </button>
-                                <button
-                                  type="button"
-                                  className="chat-msg-menu-item"
-                                  onClick={(e) => {
-                                    e.stopPropagation();
-                                    handleReadAloud(msg);
-                                    setActiveMenuMsgId(null);
-                                  }}
-                                >
-                                  {speakingMsgId === msg.id ? <VolumeX size={14} /> : <Volume2 size={14} />}
-                                  <span>{speakingMsgId === msg.id ? 'Stop reading' : 'Read aloud'}</span>
-                                </button>
-                              </div>
-                            )}
-                          </div>
-                        </div>
-
-                        {activeSourcesMsgId === msg.id && (
-                          <div className="chat-msg-sources-container">
-                            <div className="chat-msg-sources-header">
-                              <span>Sourced Links</span>
-                              <button
-                                type="button"
-                                className="chat-msg-sources-close"
-                                onClick={() => setActiveSourcesMsgId(null)}
-                              >
-                                <X size={10} />
-                              </button>
-                            </div>
-                            <div className="chat-msg-sources-list">
-                              {extractSourcesFromText(msg.text).map((source, sIdx) => (
-                                <div
-                                  key={sIdx}
-                                  className="chat-msg-source-card"
-                                  onClick={() => openSourceUrl(source.url)}
-                                  title={source.url}
-                                >
-                                  <span className="chat-msg-source-card-icon">🔗</span>
-                                  <div className="chat-msg-source-card-info">
-                                    <span className="chat-msg-source-card-title">{source.title || 'Source'}</span>
-                                    <span className="chat-msg-source-card-url">{source.url}</span>
-                                  </div>
-                                </div>
-                              ))}
-                            </div>
-                          </div>
-                        )}
-                      </>
-                    )}
-                  </div>
-                </div>
-              ))}
-              {answerPanel.status === 'loading' && (
-                <div className="chat-msg chat-msg-ai">
-                  <div className="chat-msg-wrapper">
-                    <div className="typing-indicator">
-                      <span className="typing-dot" />
-                      <span className="typing-dot" />
-                      <span className="typing-dot" />
-                    </div>
-                  </div>
-                </div>
-              )}
-
-              {tabErrors[activeTabId] && (
-                <div className="chat-msg chat-msg-ai chat-msg-error">
-                  <div className="chat-msg-wrapper">
-                    <div className="chat-msg-bubble">
-                      <div className="chat-msg-error-content">
-                        <span>{tabErrors[activeTabId]}</span>
-                        <button
-                          type="button"
-                          className="chat-msg-error-retry-btn"
-                          onClick={handleRetryLastPrompt}
-                          title="Retry last query"
-                        >
-                          <RotateCw size={11} />
-                          <span>Retry</span>
-                        </button>
-                      </div>
-                    </div>
-                  </div>
-                </div>
-              )}
-
-              <div ref={chatBottomRef} />
-            </div>
-          </div>
-
-          {answerPanel.provider === 'gemini' && cooldownSecondsLeft > 0 && (
-            <div 
-              className="gemini-quota-card"
-              style={{
-                margin: '8px 12px',
-                padding: '10px 12px',
-                border: '1px solid #f87171',
-                borderRadius: '6px',
-                background: 'rgba(239, 68, 68, 0.15)',
-                color: '#fca5a5',
-                fontSize: '11px',
-                lineHeight: '1.4',
-                display: 'flex',
-                flexDirection: 'column',
-                gap: '4px',
-              }}
-            >
-              <div style={{ fontWeight: 'bold', fontSize: '12px', color: '#f87171' }}>
-                Gemini limit reached
-              </div>
-              <div>Model: gemini-2.5-flash</div>
-              <div>Free requests limit: 20</div>
-              <div>Retry after: {cooldownSecondsLeft} seconds</div>
-              <div style={{ color: '#ffffff', fontWeight: '500', marginTop: '2px' }}>
-                Retry available in: {cooldownSecondsLeft}s
-              </div>
-              <div style={{ fontSize: '10px', color: '#94a3b8' }}>
-                Gemini available again at {new Date(geminiCooldownUntil).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit', second: '2-digit' })}
-              </div>
-              <div style={{ marginTop: '6px' }}>
-                <button
-                  type="button"
-                  style={{
-                    background: 'rgba(255, 255, 255, 0.1)',
-                    border: '1px solid rgba(255, 255, 255, 0.2)',
-                    borderRadius: '4px',
-                    color: 'white',
-                    padding: '3px 6px',
-                    cursor: 'pointer',
-                    fontSize: '10px',
-                  }}
-                  onClick={() => {
-                    setActivePopup('stepfun');
-                    setAnswerPanel((prev) => ({
-                      ...prev,
-                      provider: 'stepfun',
-                      status: 'idle',
-                      error: '',
-                    }));
-                  }}
-                >
-                  Use StepFun AI instead
-                </button>
-              </div>
-            </div>
-          )}
-          {toastMessage && (
-            <div className="chat-popup-toast">
-              {toastMessage}
-            </div>
-          )}
-
-          {attachment && (
-            <div className="attachment-preview-container">
-              <div className="attachment-preview-item">
-                <span className="attachment-preview-icon">
-                  {attachment.type === 'image' && <Image size={12} />}
-                  {attachment.type === 'video' && <Video size={12} />}
-                  {attachment.type === 'file' && <FileText size={12} />}
-                  {attachment.type === 'camera' && <Camera size={12} />}
-                  {attachment.type === 'link' && <Link size={12} />}
-                </span>
-                <div style={{ display: 'flex', flexDirection: 'column', flex: 1, minWidth: 0, gap: '2px' }}>
-                  <span className="attachment-preview-name" title={attachment.name}>
-                    {attachment.name}
-                  </span>
-                  {attachment.progress !== null && (
-                    <div className="attachment-upload-progress-container">
-                      <div className="attachment-upload-progress-bar" style={{ width: `${attachment.progress}%` }} />
-                      <span className="attachment-upload-progress-text">{attachment.progress}%</span>
-                    </div>
-                  )}
-                </div>
-                <button
-                  type="button"
-                  className="attachment-preview-remove"
-                  onClick={() => setAttachment(null)}
-                  title="Remove attachment"
-                >
-                  <X size={10} />
-                </button>
-              </div>
-            </div>
-          )}
-
-          <form
-            className="center-search-answer-form"
-            onSubmit={(event) => {
-              event.preventDefault();
-              void submitAiPrompt(answerPanel.provider, answerInput);
-            }}
-          >
-            {AI_PROVIDER_IDS.has(answerPanel.provider) && (
-              <div className="plus-button-wrapper" style={{ position: 'relative', display: 'flex', alignItems: 'center' }}>
-                <button
-                  type="button"
-                  className="center-search-answer-plus-btn"
-                  onClick={() => setIsAttachmentMenuOpen(!isAttachmentMenuOpen)}
-                  title="Add attachment"
-                >
-                  <Plus size={15} />
-                </button>
-                {isAttachmentMenuOpen && (
-                  <div className="attachment-menu-popup popup-aurora-surface">
-                    <button type="button" className="attachment-menu-item" onClick={openOpenRouterPopup}>
-                      <Bot size={13} style={{ opacity: 0.8, color: '#22c55e' }} />
-                      <span>OpenRouter</span>
-                    </button>
-                    <button type="button" className="attachment-menu-item" onClick={() => handleTriggerUpload('image')}>
-                      <Image size={13} style={{ opacity: 0.8 }} />
-                      <span>Photo</span>
-                    </button>
-                    <button type="button" className="attachment-menu-item" onClick={() => handleTriggerUpload('video')}>
-                      <Video size={13} style={{ opacity: 0.8 }} />
-                      <span>Video</span>
-                    </button>
-                    <button type="button" className="attachment-menu-item" onClick={() => handleTriggerUpload('file')}>
-                      <FileText size={13} style={{ opacity: 0.8 }} />
-                      <span>File</span>
-                    </button>
-                    <button type="button" className="attachment-menu-item" onClick={() => handleTriggerUpload('camera')}>
-                      <Camera size={13} style={{ opacity: 0.8 }} />
-                      <span>Camera</span>
-                    </button>
-                    <button type="button" className="attachment-menu-item" onClick={() => handleTriggerUpload('link')}>
-                      <Link size={13} style={{ opacity: 0.8 }} />
-                      <span>Link</span>
-                    </button>
-                  </div>
-                )}
-              </div>
-            )}
-
-            <input
-              type="text"
-              className="center-search-answer-input"
-              value={answerInput}
-              onChange={(event) => setAnswerInput(event.target.value)}
-              placeholder={`Ask ${activeAnswerProvider.label}...`}
-              disabled={answerPanel.provider === 'gemini' && cooldownSecondsLeft > 0}
-            />
-            <button
-              type="submit"
-              className="center-search-answer-send"
-              disabled={
-                (!answerInput.trim() && !attachment) || 
-                (attachment && attachment.progress !== null) ||
-                answerPanel.status === 'loading' || 
-                (answerPanel.provider === 'gemini' && cooldownSecondsLeft > 0)
-              }
-            >
-              {answerPanel.provider === 'gemini' && cooldownSecondsLeft > 0
-                ? `Wait ${cooldownSecondsLeft}s`
-                : 'Send'}
-            </button>
-          </form>
-
-          <input
-            type="file"
-            ref={attachmentFileInputRef}
-            style={{ display: 'none' }}
-            onChange={handleFileChange}
-          />
-
-          {/* Custom In-App Camera modal */}
-          {isCameraActive && (
-            <div className="camera-modal-overlay">
-              <div className="camera-modal-content popup-aurora-surface">
-                <div className="camera-modal-header">
-                  <span>Webcam Capture</span>
-                  <button type="button" className="camera-modal-close" onClick={() => setIsCameraActive(false)}>
-                    <X size={14} />
-                  </button>
-                </div>
-                <div className="camera-video-container">
-                  <video ref={videoRef} autoPlay playsInline className="camera-video-element" />
-                </div>
-                <div className="camera-modal-actions">
-                  <button type="button" className="camera-modal-btn camera-capture-btn" onClick={handleCapturePhoto}>
-                    <Camera size={12} />
-                    <span>Capture Photo</span>
-                  </button>
-                  <button type="button" className="camera-modal-btn camera-cancel-btn" onClick={() => setIsCameraActive(false)}>
-                    Cancel
-                  </button>
-                </div>
-              </div>
-            </div>
-          )}
-
-          {/* Custom Link dialog modal */}
-          {isLinkInputActive && (
-            <div className="link-modal-overlay" onClick={() => setIsLinkInputActive(false)}>
-              <form 
-                className="link-modal-content popup-aurora-surface" 
-                onClick={(e) => e.stopPropagation()}
-                onSubmit={handleSubmitLink}
-              >
-                <div className="link-modal-header">
-                  <span>Add Link Attachment</span>
-                  <button type="button" className="link-modal-close" onClick={() => setIsLinkInputActive(false)}>
-                    <X size={14} />
-                  </button>
-                </div>
-                <div className="link-modal-body">
-                  <div className="link-modal-input-wrap">
-                    <label>Link URL</label>
-                    <input 
-                      type="text" 
-                      value={linkUrlInput} 
-                      onChange={(e) => setLinkUrlInput(e.target.value)} 
-                      placeholder="https://example.com"
-                      autoFocus
-                      required
-                    />
-                  </div>
-                  <div className="link-modal-input-wrap">
-                    <label>Link Title (Optional)</label>
-                    <input 
-                      type="text" 
-                      value={linkTitleInput} 
-                      onChange={(e) => setLinkTitleInput(e.target.value)} 
-                      placeholder="e.g. Documentation, Video, Website"
-                    />
-                  </div>
-                </div>
-                <div className="link-modal-actions">
-                  <button type="submit" className="link-modal-btn link-submit-btn">
-                    Add Link
-                  </button>
-                  <button type="button" className="link-modal-btn link-cancel-btn" onClick={() => setIsLinkInputActive(false)}>
-                    Cancel
-                  </button>
-                </div>
-              </form>
-            </div>
-          )}
         </div>,
         document.body,
       )
@@ -2642,8 +1063,1697 @@ const CenterSearch = ({ onPopupStateChange = () => {} }) => {
       )}
       {accountPopup}
       {providerMenu}
-      {answerPanelPopup}
+      <AiChatPopup
+        provider="gemini"
+        isOpen={isGeminiOpen}
+        onClose={() => setIsGeminiOpen(false)}
+        frontProvider={frontProvider}
+        onFocus={() => setFrontProvider('gemini')}
+        onSaveSearchToHistory={saveSearchToHistory}
+        pendingPrompt={geminiPendingPrompt}
+        onClearPendingPrompt={() => setGeminiPendingPrompt(null)}
+        onSwitchToStepFun={() => {
+          setIsStepFunOpen(true);
+          setFrontProvider('stepfun');
+        }}
+      />
+      <AiChatPopup
+        provider="stepfun"
+        isOpen={isStepFunOpen}
+        onClose={() => setIsStepFunOpen(false)}
+        frontProvider={frontProvider}
+        onFocus={() => setFrontProvider('stepfun')}
+        onSaveSearchToHistory={saveSearchToHistory}
+        pendingPrompt={stepfunPendingPrompt}
+        onClearPendingPrompt={() => setStepfunPendingPrompt(null)}
+      />
+      <AiChatPopup
+        provider="manus"
+        isOpen={isManusOpen}
+        onClose={() => setIsManusOpen(false)}
+        frontProvider={frontProvider}
+        onFocus={() => setFrontProvider('manus')}
+        onSaveSearchToHistory={saveSearchToHistory}
+        pendingPrompt={manusPendingPrompt}
+        onClearPendingPrompt={() => setManusPendingPrompt(null)}
+      />
     </div>
+  );
+};
+
+/* ==========================================================================
+   Independent AI Chat Popup Component
+   ========================================================================== */
+const AiChatPopup = ({
+  provider,
+  isOpen,
+  onClose,
+  frontProvider,
+  onFocus,
+  onSaveSearchToHistory,
+  pendingPrompt,
+  onClearPendingPrompt,
+  onSwitchToStepFun,
+}) => {
+
+  // eslint-disable-next-line react-hooks/rules-of-hooks
+  const drag = useDraggablePopup(provider);
+  // eslint-disable-next-line react-hooks/refs
+  const answerPopupRef = drag.popupRef;
+  // eslint-disable-next-line react-hooks/rules-of-hooks
+  const chatBottomRef = useRef(null);
+  // eslint-disable-next-line react-hooks/rules-of-hooks
+  const attachmentFileInputRef = useRef(null);
+  // eslint-disable-next-line react-hooks/rules-of-hooks
+  const videoRef = useRef(null);
+
+  // eslint-disable-next-line react-hooks/rules-of-hooks
+  const [chatTabs, setChatTabs] = useState(() => {
+    try {
+      const saved = localStorage.getItem(`ddo_chat_sessions_${provider}`);
+      return saved ? JSON.parse(saved) : [];
+    } catch {
+      return [];
+    }
+  });
+
+  // eslint-disable-next-line react-hooks/rules-of-hooks
+  const [activeTabId, setActiveTabId] = useState(() => {
+    try {
+      return localStorage.getItem(`ddo_active_tab_id_${provider}`) || '';
+    } catch {
+      return '';
+    }
+  });
+
+  // eslint-disable-next-line react-hooks/rules-of-hooks
+  const [chatHistory, setChatHistory] = useState([]);
+  // eslint-disable-next-line react-hooks/rules-of-hooks
+  const [answerInput, setAnswerInput] = useState('');
+  // eslint-disable-next-line react-hooks/rules-of-hooks
+  const [answerPanel, setAnswerPanel] = useState({
+    isOpen: false,
+    provider: provider,
+    question: '',
+    answer: '',
+    status: 'idle',
+    error: '',
+  });
+
+  // eslint-disable-next-line react-hooks/rules-of-hooks
+  const [tabErrors, setTabErrors] = useState({});
+  // eslint-disable-next-line react-hooks/rules-of-hooks
+  const [isMinimized, setIsMinimized] = useState(false);
+  // eslint-disable-next-line react-hooks/rules-of-hooks
+  const [isMaximized, setIsMaximized] = useState(false);
+
+  // eslint-disable-next-line react-hooks/rules-of-hooks
+  const [isAttachmentMenuOpen, setIsAttachmentMenuOpen] = useState(false);
+  // eslint-disable-next-line react-hooks/rules-of-hooks
+  const [attachment, setAttachment] = useState(null);
+  // eslint-disable-next-line react-hooks/rules-of-hooks
+  const [toastMessage, setToastMessage] = useState('');
+
+  // Camera & Link dialog state triggers
+  // eslint-disable-next-line react-hooks/rules-of-hooks
+  const [isCameraActive, setIsCameraActive] = useState(false);
+  // eslint-disable-next-line react-hooks/rules-of-hooks
+  const [isLinkInputActive, setIsLinkInputActive] = useState(false);
+  // eslint-disable-next-line react-hooks/rules-of-hooks
+  const [linkUrlInput, setLinkUrlInput] = useState('https://');
+  // eslint-disable-next-line react-hooks/rules-of-hooks
+  const [linkTitleInput, setLinkTitleInput] = useState('');
+
+  // eslint-disable-next-line react-hooks/rules-of-hooks
+  const [activeMenuMsgId, setActiveMenuMsgId] = useState(null);
+  // eslint-disable-next-line react-hooks/rules-of-hooks
+  const [activeSourcesMsgId, setActiveSourcesMsgId] = useState(null);
+  // eslint-disable-next-line react-hooks/rules-of-hooks
+  const [speakingMsgId, setSpeakingMsgId] = useState(null);
+
+  // eslint-disable-next-line react-hooks/rules-of-hooks
+  const [renamingTabId, setRenamingTabId] = useState(null);
+  // eslint-disable-next-line react-hooks/rules-of-hooks
+  const [renamingTitle, setRenamingTitle] = useState('');
+  // eslint-disable-next-line react-hooks/rules-of-hooks
+  const [contextMenu, setContextMenu] = useState(null);
+  // eslint-disable-next-line react-hooks/rules-of-hooks
+  const [closingTabIds, setClosingTabIds] = useState([]);
+
+  // eslint-disable-next-line react-hooks/rules-of-hooks
+  const [geminiCooldownUntil, setGeminiCooldownUntil] = useState(() => {
+    try {
+      return Number(localStorage.getItem(`geminiCooldownUntil_${provider}`)) || 0;
+    } catch {
+      return 0;
+    }
+  });
+  // eslint-disable-next-line react-hooks/rules-of-hooks
+  const [cooldownSecondsLeft, setCooldownSecondsLeft] = useState(0);
+
+  const PROVIDER_CAPABILITIES = {
+    gemini: { image: true, camera: true, file: true, video: true, link: true },
+    stepfun: { image: true, camera: true, file: false, video: false, link: true },
+    manus: { image: true, camera: true, file: true, video: true, link: true }
+  };
+
+  const startUploadSimulation = (uploadId) => {
+    let currentProgress = 0;
+    const interval = setInterval(() => {
+      currentProgress += 10;
+      setAttachment(prev => {
+        if (prev && prev.uploadId === uploadId) {
+          if (currentProgress >= 100) {
+            clearInterval(interval);
+            return { ...prev, progress: null };
+          }
+          return { ...prev, progress: currentProgress };
+        }
+        clearInterval(interval);
+        return prev;
+      });
+    }, 120);
+  };
+
+  const handleTriggerUpload = (type) => {
+    setIsAttachmentMenuOpen(false);
+    if (type === 'camera') {
+      setIsCameraActive(true);
+      return;
+    }
+    if (type === 'link') {
+      setLinkUrlInput('https://');
+      setLinkTitleInput('');
+      setIsLinkInputActive(true);
+      return;
+    }
+
+    if (attachmentFileInputRef.current) {
+      if (type === 'image') {
+        attachmentFileInputRef.current.accept = 'image/png, image/jpeg, image/jpg, image/webp';
+      } else if (type === 'video') {
+        attachmentFileInputRef.current.accept = 'video/mp4, video/quicktime, video/webm';
+      } else if (type === 'file') {
+        attachmentFileInputRef.current.accept = '.pdf, .docx, .txt, .zip, .json, .csv';
+      }
+      attachmentFileInputRef.current.dataset.uploadType = type;
+      attachmentFileInputRef.current.click();
+    }
+  };
+
+  const handleFileChange = (e) => {
+    const file = e.target.files[0];
+    if (!file) return;
+
+    const uploadType = attachmentFileInputRef.current.dataset.uploadType || 'file';
+
+    if (uploadType === 'image' && file.size > 10 * 1024 * 1024) {
+      setToastMessage("Photo exceeds the 10 MB size limit.");
+      setTimeout(() => setToastMessage(''), 4000);
+      e.target.value = '';
+      return;
+    }
+    if (uploadType === 'video' && file.size > 50 * 1024 * 1024) {
+      setToastMessage("Video exceeds the 50 MB size limit.");
+      setTimeout(() => setToastMessage(''), 4000);
+      e.target.value = '';
+      return;
+    }
+    if (uploadType === 'file' && file.size > 15 * 1024 * 1024) {
+      setToastMessage("Document exceeds the 15 MB size limit.");
+      setTimeout(() => setToastMessage(''), 4000);
+      e.target.value = '';
+      return;
+    }
+
+    // eslint-disable-next-line react-hooks/purity
+    const uploadId = 'up_' + Date.now() + '_' + Math.random().toString(36).substr(2, 5);
+    const mockUrl = URL.createObjectURL(file);
+
+    setAttachment({
+      uploadId,
+      type: uploadType,
+      name: file.name,
+      size: (file.size / (1024 * 1024)).toFixed(1) + ' MB',
+      url: mockUrl,
+      progress: 0
+    });
+
+    startUploadSimulation(uploadId);
+    e.target.value = '';
+  };
+
+  const handleCapturePhoto = () => {
+    if (videoRef.current) {
+      const canvas = document.createElement('canvas');
+      canvas.width = videoRef.current.videoWidth || 640;
+      canvas.height = videoRef.current.videoHeight || 480;
+      const ctx = canvas.getContext('2d');
+      ctx.drawImage(videoRef.current, 0, 0, canvas.width, canvas.height);
+      const dataUrl = canvas.toDataURL('image/jpeg');
+
+      // eslint-disable-next-line react-hooks/purity
+      const uploadId = 'up_' + Date.now() + '_' + Math.random().toString(36).substr(2, 5);
+      setAttachment({
+        uploadId,
+        type: 'camera',
+        name: `snapshot_${new Date().toLocaleTimeString().replace(/\s+/g, '')}.jpg`,
+        size: 'Captured',
+        url: dataUrl,
+        progress: 0
+      });
+
+      startUploadSimulation(uploadId);
+      setIsCameraActive(false);
+    }
+  };
+
+  const handleSubmitLink = (e) => {
+    e.preventDefault();
+    const urlVal = linkUrlInput.trim();
+    if (!urlVal || urlVal === 'https://') return;
+
+    let displayTitle = linkTitleInput.trim();
+    if (!displayTitle) {
+      try {
+        const u = new URL(urlVal);
+        displayTitle = u.hostname;
+      } catch {
+        displayTitle = 'External Link';
+      }
+    }
+
+    // eslint-disable-next-line react-hooks/purity
+    const uploadId = 'up_' + Date.now() + '_' + Math.random().toString(36).substr(2, 5);
+    setAttachment({
+      uploadId,
+      type: 'link',
+      name: displayTitle,
+      size: 'URL Link',
+      url: urlVal,
+      progress: null
+    });
+
+    setIsLinkInputActive(false);
+  };
+
+  const getWelcomeMessage = (prov) => {
+    const label = providerOptions.find((option) => option.id === prov)?.label || 'AI';
+    return {
+      // eslint-disable-next-line react-hooks/purity
+      id: 'welcome_' + Date.now(),
+      sender: 'ai',
+      text: prov === 'stepfun' || prov === 'manus'
+        ? `Hello! I am ${label}. What would you like help with today?`
+        : `Ask a question and ${label} will answer here.`
+    };
+  };
+
+  const handleCreateNewTab = (prov = provider) => {
+    // eslint-disable-next-line react-hooks/purity
+    const newId = 'tab_' + Date.now() + '_' + Math.random().toString(36).substr(2, 9);
+    const newTab = {
+      id: newId,
+      provider: prov,
+      title: 'New Chat',
+      messages: [getWelcomeMessage(prov)],
+      draft: '',
+      pendingAttachment: null
+    };
+    setChatTabs(prev => {
+      const withDraft = prev.map(t => t.id === activeTabId ? { ...t, draft: answerInput, pendingAttachment: attachment } : t);
+      return [...withDraft, newTab];
+    });
+    setAnswerInput('');
+    setAttachment(null);
+    setActiveTabId(newId);
+    setAnswerPanel(prev => ({ ...prev, provider: prov }));
+    return newTab;
+  };
+
+  const handleSwitchTab = (tabId) => {
+    if (tabId === activeTabId) return;
+    setChatTabs(prev => {
+      const updated = prev.map(t => t.id === activeTabId ? { ...t, draft: answerInput, pendingAttachment: attachment } : t);
+      const nextTab = updated.find(t => t.id === tabId);
+      if (nextTab) {
+        setAnswerInput(nextTab.draft || '');
+        setAttachment(nextTab.pendingAttachment || null);
+      } else {
+        setAnswerInput('');
+        setAttachment(null);
+      }
+      return updated;
+    });
+    setActiveTabId(tabId);
+    const tab = chatTabs.find(t => t.id === tabId);
+    if (tab && tab.provider) {
+      setAnswerPanel(prev => ({ ...prev, provider: tab.provider }));
+    }
+  };
+
+  const handleCloseTab = (e, tabId) => {
+    if (e) e.stopPropagation();
+    setClosingTabIds(prev => [...prev, tabId]);
+
+    setTimeout(() => {
+      setChatTabs(prevTabs => {
+        const remaining = prevTabs.filter(t => t.id !== tabId);
+        if (activeTabId === tabId) {
+          if (remaining.length > 0) {
+            const closedIndex = prevTabs.findIndex(t => t.id === tabId);
+            const newActiveIndex = Math.min(closedIndex, remaining.length - 1);
+            const nextTab = remaining[newActiveIndex];
+            setActiveTabId(nextTab.id);
+            if (nextTab.provider) {
+              setAnswerPanel(prev => ({ ...prev, provider: nextTab.provider }));
+            }
+            setAnswerInput(nextTab.draft || '');
+            setAttachment(nextTab.pendingAttachment || null);
+          } else {
+            // eslint-disable-next-line react-hooks/purity
+            const newId = 'tab_' + Date.now() + '_' + Math.random().toString(36).substr(2, 9);
+            const prov = provider;
+            const freshTab = {
+              id: newId,
+              provider: prov,
+              title: 'New Chat',
+              messages: [getWelcomeMessage(prov)],
+              draft: '',
+              pendingAttachment: null
+            };
+            setActiveTabId(newId);
+            setAnswerInput('');
+            setAttachment(null);
+            return [freshTab];
+          }
+        }
+        return remaining;
+      });
+      setClosingTabIds(prev => prev.filter(id => id !== tabId));
+    }, 200);
+  };
+
+  const handleDuplicateTab = (tabId) => {
+    const tabToDup = chatTabs.find(t => t.id === tabId);
+    if (!tabToDup) return;
+
+    // eslint-disable-next-line react-hooks/purity
+    const newId = 'tab_' + Date.now() + '_' + Math.random().toString(36).substr(2, 9);
+    const dupTab = {
+      id: newId,
+      provider: tabToDup.provider,
+      title: tabToDup.title === 'New Chat' ? 'New Chat' : tabToDup.title + ' Copy',
+      messages: JSON.parse(JSON.stringify(tabToDup.messages || [])),
+      draft: tabToDup.id === activeTabId ? answerInput : (tabToDup.draft || ''),
+      pendingAttachment: tabToDup.id === activeTabId ? attachment : (tabToDup.pendingAttachment || null)
+    };
+
+    setChatTabs(prev => {
+      const idx = prev.findIndex(t => t.id === tabId);
+      const updated = [...prev];
+      updated.splice(idx + 1, 0, dupTab);
+      return updated;
+    });
+    setActiveTabId(newId);
+    setAnswerInput(dupTab.draft || '');
+    setAttachment(dupTab.pendingAttachment || null);
+    if (dupTab.provider) {
+      setAnswerPanel(prev => ({ ...prev, provider: dupTab.provider }));
+    }
+  };
+
+  const handleRenameTab = (tabId, newTitle) => {
+    if (!newTitle.trim()) return;
+    setChatTabs(prev => prev.map(t => t.id === tabId ? { ...t, title: newTitle.trim().slice(0, 20) } : t));
+    setRenamingTabId(null);
+  };
+
+  const handleCloseOtherTabs = (tabId) => {
+    const targetTab = chatTabs.find(t => t.id === tabId);
+    if (!targetTab) return;
+
+    setChatTabs([targetTab]);
+    setActiveTabId(tabId);
+    if (targetTab.provider) {
+      setAnswerPanel(prev => ({ ...prev, provider: targetTab.provider }));
+    }
+    setAnswerInput(targetTab.draft || '');
+    setAttachment(targetTab.pendingAttachment || null);
+  };
+
+  const handleLikeMessage = (msgId) => {
+    setChatTabs(prev => prev.map(t => {
+      if (t.id === activeTabId) {
+        return {
+          ...t,
+          messages: t.messages.map(m => m.id === msgId ? { ...m, feedback: m.feedback === 'like' ? null : 'like' } : m)
+        };
+      }
+      return t;
+    }));
+  };
+
+  const handleDislikeMessage = (msgId) => {
+    setChatTabs(prev => prev.map(t => {
+      if (t.id === activeTabId) {
+        return {
+          ...t,
+          messages: t.messages.map(m => m.id === msgId ? { ...m, feedback: m.feedback === 'dislike' ? null : 'dislike' } : m)
+        };
+      }
+      return t;
+    }));
+  };
+
+  const handleBranchChat = (aiMsg) => {
+    const activeTab = chatTabs.find(t => t.id === activeTabId);
+    if (!activeTab) return;
+
+    const msgIdx = activeTab.messages.findIndex(m => m.id === aiMsg.id);
+    if (msgIdx === -1) return;
+
+    const prefixMessages = activeTab.messages.slice(0, msgIdx + 1);
+
+    // eslint-disable-next-line react-hooks/purity
+    const newId = 'tab_' + Date.now() + '_' + Math.random().toString(36).substr(2, 9);
+    const branchedTab = {
+      id: newId,
+      provider: activeTab.provider,
+      title: activeTab.title === 'New Chat' ? 'New Chat' : activeTab.title + ' Branch',
+      messages: JSON.parse(JSON.stringify(prefixMessages)),
+      draft: '',
+      pendingAttachment: null
+    };
+
+    setChatTabs(prev => {
+      const idx = prev.findIndex(t => t.id === activeTabId);
+      const updated = [...prev];
+      updated.splice(idx + 1, 0, branchedTab);
+      return updated;
+    });
+    setActiveTabId(newId);
+    setAnswerInput('');
+    setAttachment(null);
+  };
+
+  const handleReadAloud = (msg) => {
+    if (speakingMsgId === msg.id) {
+      window.speechSynthesis?.cancel();
+      setSpeakingMsgId(null);
+      return;
+    }
+    window.speechSynthesis?.cancel();
+
+    const textToSpeak = msg.text.replace(/<[^>]*>/g, '').replace(/```[\s\S]*?```/g, '[code block]').replace(/`[^`]+`/g, 'code');
+    const utterance = new SpeechSynthesisUtterance(textToSpeak);
+    utterance.onend = () => {
+      setSpeakingMsgId(null);
+    };
+    utterance.onerror = () => {
+      setSpeakingMsgId(null);
+    };
+
+    setSpeakingMsgId(msg.id);
+    window.speechSynthesis?.speak(utterance);
+  };
+
+  const handleViewSources = (msgId) => {
+    setActiveSourcesMsgId(activeSourcesMsgId === msgId ? null : msgId);
+  };
+
+  const openOpenRouterPopup = () => {
+    console.log('OpenRouter popup clicked');
+  };
+
+  const handleRetryLastPrompt = () => {
+    const activeTab = chatTabs.find(t => t.id === activeTabId);
+    if (!activeTab) return;
+
+    const lastUserMsg = [...(activeTab.messages || [])].reverse().find(m => m.sender === 'user');
+    if (!lastUserMsg) return;
+
+    setTabErrors(prev => {
+      const next = { ...prev };
+      delete next[activeTabId];
+      return next;
+    });
+
+    void submitAiPrompt(activeTab.provider, lastUserMsg.text, lastUserMsg.attachment, true);
+  };
+
+  const handleRegenerate = async (msgId) => {
+    const activeTab = chatTabs.find(t => t.id === activeTabId);
+    if (!activeTab) return;
+
+    const msgIdx = activeTab.messages.findIndex((m) => m.id === msgId);
+    if (msgIdx === -1) return;
+
+    let userMsgIdx = -1;
+    for (let i = msgIdx - 1; i >= 0; i--) {
+      if (activeTab.messages[i].sender === 'user') {
+        userMsgIdx = i;
+        break;
+      }
+    }
+
+    if (userMsgIdx === -1) return;
+
+    const originalUserMsg = activeTab.messages[userMsgIdx];
+
+    setChatTabs(prev => prev.map(t => {
+      if (t.id === activeTabId) {
+        return {
+          ...t,
+          messages: t.messages.slice(0, userMsgIdx + 1)
+        };
+      }
+      return t;
+    }));
+
+    void submitAiPrompt(activeTab.provider, originalUserMsg.text, originalUserMsg.attachment, true);
+  };
+
+  const handleGeminiError = (errorText) => {
+    const isQuotaError =
+      errorText.toLowerCase().includes("quota") ||
+      errorText.toLowerCase().includes("rate-limit") ||
+      errorText.toLowerCase().includes("rate limit") ||
+      errorText.toLowerCase().includes("free_tier_requests") ||
+      errorText.toLowerCase().includes("limit reached") ||
+      errorText.toLowerCase().includes("exceeded");
+
+    if (!isQuotaError) return false;
+
+    const retryMatch = errorText.match(/retry in ([\d.]+)s/i) || 
+                       errorText.match(/retry after ([\d.]+)s/i) || 
+                       errorText.match(/retry in ([\d.]+) seconds/i) ||
+                       errorText.match(/retry after ([\d.]+) seconds/i);
+    const retrySeconds = retryMatch ? Math.ceil(Number(retryMatch[1])) : 35;
+
+    // eslint-disable-next-line react-hooks/purity
+    const cooldownUntil = Date.now() + retrySeconds * 1000;
+    setGeminiCooldownUntil(cooldownUntil);
+    try {
+      localStorage.setItem(`geminiCooldownUntil_${provider}`, String(cooldownUntil));
+    } catch (e) {
+      // ignore
+    }
+    return true;
+  };
+
+  const submitAiPrompt = async (providerId, promptText, customAttachment = null, isRetry = false) => {
+    if (answerPanel.status === 'loading') {
+      return;
+    }
+
+    const trimmedQuery = promptText.trim();
+    if (!trimmedQuery) {
+      return;
+    }
+
+    const providerMeta = providerOptions.find((option) => option.id === providerId) || providerOptions[1];
+    if (onSaveSearchToHistory) {
+      onSaveSearchToHistory(trimmedQuery);
+    }
+    setAnswerInput('');
+
+    setAnswerPanel((prev) => ({
+      ...prev,
+      isOpen: false,
+      provider: providerId,
+      status: 'loading',
+      error: '',
+    }));
+
+    let currentTabId = activeTabId;
+    if (!currentTabId) {
+      const newTab = handleCreateNewTab(providerId);
+      currentTabId = newTab.id;
+    }
+
+    setTabErrors(prev => {
+      const next = { ...prev };
+      delete next[currentTabId];
+      return next;
+    });
+
+    let finalPrompt = trimmedQuery;
+    let committedAttachment = null;
+
+    const activeAttachment = customAttachment || attachment;
+    if (activeAttachment) {
+      const providerCaps = PROVIDER_CAPABILITIES[providerId] || { image: true, camera: true, link: true };
+      if (!providerCaps[activeAttachment.type]) {
+        // Show compatibility error inside the bubble
+        // eslint-disable-next-line react-hooks/purity
+        const userMsgId = 'msg_' + Date.now() + '_' + Math.random().toString(36).substr(2, 5);
+        const userMsg = {
+          id: userMsgId,
+          sender: 'user',
+          text: trimmedQuery,
+          attachment: { ...activeAttachment }
+        };
+
+        setChatTabs(prev => prev.map(t => {
+          if (t.id === currentTabId) {
+            const updatedMsgs = [...(t.messages || []), userMsg];
+            let newTitle = t.title;
+            if (t.title === 'New Chat') {
+              const words = trimmedQuery.trim().split(/\s+/);
+              newTitle = words.slice(0, 4).join(' ').slice(0, 20) || 'New Chat';
+            }
+            return {
+              ...t,
+              title: newTitle,
+              messages: updatedMsgs
+            };
+          }
+          return t;
+        }));
+
+        // eslint-disable-next-line react-hooks/purity
+        const aiMsgId = 'msg_' + Date.now() + '_' + Math.random().toString(36).substr(2, 5);
+        const aiMsg = {
+          id: aiMsgId,
+          sender: 'ai',
+          text: 'This AI does not support this attachment type yet.',
+          isError: true
+        };
+
+        setTimeout(() => {
+          setChatTabs(prev => prev.map(t => {
+            if (t.id === currentTabId) {
+              return {
+                ...t,
+                messages: [...(t.messages || []), aiMsg]
+              };
+            }
+            return t;
+          }));
+
+          setAnswerPanel((prev) => ({
+            ...prev,
+            status: 'done',
+          }));
+        }, 600);
+
+        if (!customAttachment) {
+          setAttachment(null);
+        }
+        return;
+      }
+
+      committedAttachment = {
+        type: activeAttachment.type,
+        name: activeAttachment.name,
+        size: activeAttachment.size,
+        url: activeAttachment.url
+      };
+
+      if (activeAttachment.type === 'link') {
+        finalPrompt = `[Attached Link: ${activeAttachment.name}] (${activeAttachment.url})\n\n${trimmedQuery}`;
+      } else if (activeAttachment.type === 'image' || activeAttachment.type === 'camera') {
+        finalPrompt = `[Attached Photo: ${activeAttachment.name}]\n\n${trimmedQuery}`;
+      } else if (activeAttachment.type === 'video') {
+        finalPrompt = `[Attached Video: ${activeAttachment.name}]\n\n${trimmedQuery}`;
+      } else {
+        finalPrompt = `[Attached Document: ${activeAttachment.name}]\n\n${trimmedQuery}`;
+      }
+
+      if (!customAttachment) {
+        setAttachment(null);
+      }
+    }
+
+    // eslint-disable-next-line react-hooks/purity
+    const userMsgId = 'msg_' + Date.now() + '_' + Math.random().toString(36).substr(2, 5);
+    const userMsg = { id: userMsgId, sender: 'user', text: trimmedQuery, attachment: committedAttachment };
+
+    if (!isRetry) {
+      setChatTabs(prev => prev.map(t => {
+        if (t.id === currentTabId) {
+          const updatedMsgs = [...(t.messages || []), userMsg];
+          let newTitle = t.title;
+          if (t.title === 'New Chat') {
+            const words = trimmedQuery.trim().split(/\s+/);
+            newTitle = words.slice(0, 4).join(' ').slice(0, 20) || 'New Chat';
+          }
+          return {
+            ...t,
+            title: newTitle,
+            messages: updatedMsgs
+          };
+        }
+        return t;
+      }));
+    }
+
+    let route = '/api/ai/respond';
+    if (providerId === 'gemini') {
+      route = '/api/gemini/chat';
+    } else if (providerId === 'stepfun') {
+      route = '/api/stepfun/chat';
+    } else if (providerId === 'manus') {
+      route = '/api/manus/chat';
+    }
+
+    try {
+      const response = await fetch(buildApiUrl(route), {
+        method: 'POST',
+        headers: createAuthHeaders({
+          'Content-Type': 'application/json',
+        }),
+        body: JSON.stringify({
+          provider: providerId,
+          prompt: finalPrompt,
+        }),
+      });
+
+      const payload = await response.json().catch(() => ({}));
+      if (!response.ok) {
+        throw new Error(payload.error || `${providerMeta.label} request failed.`);
+      }
+
+      // eslint-disable-next-line react-hooks/purity
+      const aiMsgId = 'msg_' + Date.now() + '_' + Math.random().toString(36).substr(2, 5);
+      const aiMsg = { id: aiMsgId, sender: 'ai', text: payload.answer || '' };
+
+      setChatTabs(prev => prev.map(t => {
+        if (t.id === currentTabId) {
+          return {
+            ...t,
+            messages: [...(t.messages || []), aiMsg]
+          };
+        }
+        return t;
+      }));
+
+      setAnswerPanel((prev) => ({
+        ...prev,
+        status: 'done',
+      }));
+    } catch (error) {
+      const errorMsg = error.message || `${providerMeta.label} request failed.`;
+
+      let isQuota = false;
+      if (providerId === 'gemini') {
+        isQuota = handleGeminiError(errorMsg);
+      }
+
+      const textToShow = isQuota
+        ? "Gemini limit reached. Please retry later."
+        : errorMsg;
+
+      console.error('AI request failed:', error);
+
+      setTabErrors(prev => ({
+        ...prev,
+        [currentTabId]: textToShow
+      }));
+
+      setAnswerPanel((prev) => ({
+        ...prev,
+        status: 'error',
+        error: textToShow,
+      }));
+    }
+  };
+
+  const extractSourcesFromText = (text) => {
+    if (!text) return [];
+    const sources = [];
+    const cleaned = cleanAiMessageText(text);
+    let isJsonArray = false;
+    let jsonItems = [];
+    const trimmed = cleaned.trim();
+    let jsonText = trimmed;
+    if (jsonText.startsWith('```json')) {
+      jsonText = jsonText.replace(/^```json\s*/, '').replace(/\s*```$/, '');
+    } else if (jsonText.startsWith('```')) {
+      jsonText = jsonText.replace(/^```\s*/, '').replace(/\s*```$/, '');
+    }
+    try {
+      const parsed = JSON.parse(jsonText.trim());
+      if (Array.isArray(parsed)) {
+        isJsonArray = true;
+        jsonItems = parsed;
+      }
+    } catch (e) {}
+
+    if (isJsonArray) {
+      jsonItems.forEach(item => {
+        if (item.url) {
+          if (Array.isArray(item.url)) {
+            item.url.forEach(u => {
+              sources.push({ title: item.title || item.headline || 'Source', url: u });
+            });
+          } else {
+            sources.push({ title: item.title || item.headline || 'Source', url: item.url });
+          }
+        }
+      });
+      return sources;
+    }
+
+    const linkRegex = /\[([^\]]+)\]\((https?:\/\/[^\s)]+)\)|(https?:\/\/[^\s)]+)/g;
+    let match;
+    while ((match = linkRegex.exec(text)) !== null) {
+      if (match[1] && match[2]) {
+        sources.push({ title: match[1], url: match[2] });
+      } else if (match[3]) {
+        sources.push({ title: 'Source', url: match[3] });
+      }
+    }
+    return sources;
+  };
+
+  // eslint-disable-next-line react-hooks/rules-of-hooks
+  useEffect(() => {
+    if (pendingPrompt && pendingPrompt.text) {
+      void submitAiPrompt(provider, pendingPrompt.text);
+      if (onClearPendingPrompt) {
+        onClearPendingPrompt();
+      }
+    }
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [pendingPrompt]);
+
+  // eslint-disable-next-line react-hooks/rules-of-hooks
+  useEffect(() => {
+    localStorage.setItem(`ddo_chat_sessions_${provider}`, JSON.stringify(chatTabs));
+  }, [chatTabs, provider]);
+
+  // eslint-disable-next-line react-hooks/rules-of-hooks
+  useEffect(() => {
+    if (activeTabId) {
+      localStorage.setItem(`ddo_active_tab_id_${provider}`, activeTabId);
+    }
+  }, [activeTabId, provider]);
+
+  // eslint-disable-next-line react-hooks/rules-of-hooks
+  useEffect(() => {
+    const activeTab = chatTabs.find(t => t.id === activeTabId);
+    if (activeTab) {
+      setChatHistory(activeTab.messages || []);
+    }
+  }, [activeTabId, chatTabs]);
+
+  // eslint-disable-next-line react-hooks/rules-of-hooks
+  useEffect(() => {
+    window.speechSynthesis?.cancel();
+    setSpeakingMsgId(null);
+  }, [activeTabId]);
+
+  // eslint-disable-next-line react-hooks/rules-of-hooks
+  useEffect(() => {
+    if (chatTabs.length === 0) {
+      // eslint-disable-next-line react-hooks/purity
+      const newId = 'tab_' + Date.now() + '_' + Math.random().toString(36).substr(2, 9);
+      const prov = provider;
+      const initialTab = {
+        id: newId,
+        provider: prov,
+        title: 'New Chat',
+        messages: [getWelcomeMessage(prov)],
+        draft: '',
+        pendingAttachment: null
+      };
+      setChatTabs([initialTab]);
+      setActiveTabId(newId);
+    } else {
+      const savedActiveId = localStorage.getItem(`ddo_active_tab_id_${provider}`);
+      const activeExists = chatTabs.some(t => t.id === savedActiveId);
+      if (activeExists && savedActiveId) {
+        setActiveTabId(savedActiveId);
+        const activeTab = chatTabs.find(t => t.id === savedActiveId);
+        if (activeTab) {
+          setAnswerInput(activeTab.draft || '');
+          setAttachment(activeTab.pendingAttachment || null);
+        }
+      } else {
+        const firstTab = chatTabs[0];
+        setActiveTabId(firstTab.id);
+        if (firstTab) {
+          setAnswerInput(firstTab.draft || '');
+          setAttachment(firstTab.pendingAttachment || null);
+        }
+      }
+    }
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+
+  // eslint-disable-next-line react-hooks/rules-of-hooks
+  useEffect(() => {
+    if (!contextMenu) return;
+    const handleOutsideClick = () => {
+      setContextMenu(null);
+    };
+    window.addEventListener('click', handleOutsideClick);
+    window.addEventListener('contextmenu', handleOutsideClick);
+    return () => {
+      window.removeEventListener('click', handleOutsideClick);
+      window.removeEventListener('contextmenu', handleOutsideClick);
+    };
+  }, [contextMenu]);
+
+  // eslint-disable-next-line react-hooks/rules-of-hooks
+  useEffect(() => {
+    const handleOutsideClick = (e) => {
+      if (!e.target.closest('.center-search-answer-plus-btn') && !e.target.closest('.attachment-menu-popup')) {
+        setIsAttachmentMenuOpen(false);
+      }
+    };
+    window.addEventListener('mousedown', handleOutsideClick);
+    return () => window.removeEventListener('mousedown', handleOutsideClick);
+  }, [isAttachmentMenuOpen]);
+
+  // eslint-disable-next-line react-hooks/rules-of-hooks
+  useEffect(() => {
+    const updateCooldown = () => {
+      // eslint-disable-next-line react-hooks/purity
+      if (geminiCooldownUntil <= Date.now()) {
+        setCooldownSecondsLeft(0);
+        return;
+      }
+      // eslint-disable-next-line react-hooks/purity
+      setCooldownSecondsLeft(Math.ceil((geminiCooldownUntil - Date.now()) / 1000));
+    };
+
+    updateCooldown();
+    const interval = setInterval(updateCooldown, 1000);
+    return () => clearInterval(interval);
+  }, [geminiCooldownUntil]);
+
+  // eslint-disable-next-line react-hooks/rules-of-hooks
+  useEffect(() => {
+    const timer = setTimeout(() => {
+      chatBottomRef.current?.scrollIntoView({ behavior: 'smooth' });
+    }, 50);
+    return () => clearTimeout(timer);
+  }, [chatHistory, answerPanel.status, tabErrors]);
+
+  // eslint-disable-next-line react-hooks/rules-of-hooks
+  useEffect(() => {
+    if (!isCameraActive) return;
+    
+    let activeStream = null;
+    navigator.mediaDevices.getUserMedia({ video: { facingMode: 'user' } })
+      .then(stream => {
+        activeStream = stream;
+        if (videoRef.current) {
+          videoRef.current.srcObject = stream;
+        }
+      })
+      .catch(err => {
+        console.error("Camera access error:", err);
+        setToastMessage("Failed to access camera.");
+        setTimeout(() => setToastMessage(''), 4000);
+        setIsCameraActive(false);
+      });
+      
+    return () => {
+      if (activeStream) {
+        activeStream.getTracks().forEach(track => track.stop());
+      }
+    };
+  }, [isCameraActive]);
+
+  // eslint-disable-next-line react-hooks/rules-of-hooks
+  useEffect(() => {
+    if (activeMenuMsgId === null) return;
+    const handleOutsideClick = (e) => {
+      if (!e.target.closest('.chat-msg-menu-container')) {
+        setActiveMenuMsgId(null);
+      }
+    };
+    window.addEventListener('click', handleOutsideClick);
+    return () => window.removeEventListener('click', handleOutsideClick);
+  }, [activeMenuMsgId]);
+
+  // eslint-disable-next-line react-hooks/rules-of-hooks
+  useEffect(() => {
+    return () => {
+      window.speechSynthesis?.cancel();
+    };
+  }, []);
+
+  const activeAnswerProvider = providerOptions.find((option) => option.id === provider) || providerOptions[1];
+  const ActiveAnswerIcon = activeAnswerProvider.icon;
+
+  const defaultPopupStyle = provider === 'stepfun'
+    ? { top: '78px', right: '418px' }
+    : provider === 'manus'
+      ? { top: '78px', right: '818px' }
+      : { top: '78px', right: '18px' };
+
+  const mergedStyle = {
+    ...defaultPopupStyle,
+    ...drag.dragStyle,
+    zIndex: frontProvider === provider ? 10001 : 10000,
+  };
+
+  const handlePopupMouseDown = () => {
+    if (onFocus) {
+      onFocus();
+    }
+  };
+
+  if (!isOpen) return null;
+
+  return createPortal(
+    <div
+      ref={answerPopupRef}
+      style={mergedStyle}
+      onMouseDown={handlePopupMouseDown}
+      className={`center-search-answer-popup popup-aurora-surface ${isMinimized ? 'is-minimized' : ''} ${isMaximized ? 'is-maximized' : ''}`}
+      data-provider={provider}
+    >
+      <div className="center-search-answer-header">
+        <div style={{ display: 'flex', alignItems: 'center', gap: '10px' }}>
+          <div className="center-search-answer-title">
+            <ActiveAnswerIcon size={15} />
+            <span>{activeAnswerProvider.label}</span>
+          </div>
+        </div>
+        <div className="center-search-answer-actions">
+          <button
+            type="button"
+            className="center-search-answer-action-btn popup-drag-btn"
+            {...drag.dragProps}
+          >
+            ⠿
+          </button>
+          <button
+            type="button"
+            className="center-search-answer-action-btn"
+            onClick={() => {
+              setIsMinimized(!isMinimized);
+              if (isMaximized) setIsMaximized(false);
+            }}
+            title={isMinimized ? 'Restore' : 'Minimize'}
+          >
+            <Minus size={13} />
+          </button>
+          <button
+            type="button"
+            className="center-search-answer-action-btn"
+            onClick={() => {
+              setIsMaximized(!isMaximized);
+              if (isMinimized) setIsMinimized(false);
+            }}
+            title={isMaximized ? 'Restore' : 'Maximize'}
+          >
+            {isMaximized ? <Minimize2 size={13} /> : <Maximize2 size={13} />}
+          </button>
+          <button
+            type="button"
+            className="center-search-answer-action-btn"
+            onClick={onClose}
+            aria-label="Close answer popup"
+          >
+            <X size={13} />
+          </button>
+        </div>
+      </div>
+
+      <div className="ai-chat-tabs-bar">
+        <div className="ai-chat-tabs-list">
+          {chatTabs.map((tab) => {
+            const isActive = tab.id === activeTabId;
+            const isRenaming = renamingTabId === tab.id;
+            const isClosing = closingTabIds.includes(tab.id);
+            
+            return (
+              <div
+                key={tab.id}
+                className={`ai-chat-tab ${isActive ? 'is-active' : ''} ${isClosing ? 'is-closing' : ''}`}
+                onClick={() => handleSwitchTab(tab.id)}
+                onContextMenu={(e) => {
+                  e.preventDefault();
+                  setContextMenu({ x: e.clientX, y: e.clientY, tabId: tab.id });
+                }}
+              >
+                <span className="ai-chat-tab-icon">
+                  <TabProviderIcon provider={tab.provider} />
+                </span>
+                
+                {isRenaming ? (
+                  <input
+                    type="text"
+                    className="ai-chat-tab-rename-input"
+                    value={renamingTitle}
+                    onChange={(e) => setRenamingTitle(e.target.value)}
+                    onBlur={() => handleRenameTab(tab.id, renamingTitle)}
+                    onKeyDown={(e) => {
+                      if (e.key === 'Enter') handleRenameTab(tab.id, renamingTitle);
+                      if (e.key === 'Escape') setRenamingTabId(null);
+                    }}
+                    autoFocus
+                    onClick={(e) => e.stopPropagation()}
+                  />
+                ) : (
+                  <span
+                    className="ai-chat-tab-title"
+                    title={tab.title}
+                    onDoubleClick={(e) => {
+                      e.stopPropagation();
+                      setRenamingTabId(tab.id);
+                      setRenamingTitle(tab.title || 'New Chat');
+                    }}
+                  >
+                    {tab.title || 'New Chat'}
+                  </span>
+                )}
+                
+                <button
+                  type="button"
+                  className="ai-chat-tab-close"
+                  onClick={(e) => handleCloseTab(e, tab.id)}
+                  title="Close tab"
+                >
+                  <X size={10} />
+                </button>
+              </div>
+            );
+          })}
+        </div>
+        
+        <button
+          type="button"
+          className="ai-chat-tab-add-btn"
+          onClick={() => handleCreateNewTab(provider)}
+          title="New chat tab"
+        >
+          <Plus size={12} />
+        </button>
+      </div>
+
+      {contextMenu && (
+        <div
+          className="tab-context-menu"
+          style={{ top: contextMenu.y, left: contextMenu.x }}
+          onClick={(e) => e.stopPropagation()}
+        >
+          <div
+            className="tab-context-menu-item"
+            onClick={() => {
+              setRenamingTabId(contextMenu.tabId);
+              const tab = chatTabs.find(t => t.id === contextMenu.tabId);
+              setRenamingTitle(tab ? tab.title : 'New Chat');
+              setContextMenu(null);
+            }}
+          >
+            <Edit2 size={11} />
+            <span>Rename tab</span>
+          </div>
+          <div
+            className="tab-context-menu-item"
+            onClick={() => {
+              handleDuplicateTab(contextMenu.tabId);
+              setContextMenu(null);
+            }}
+          >
+            <Copy size={11} />
+            <span>Duplicate tab</span>
+          </div>
+          <div
+            className="tab-context-menu-item"
+            onClick={(e) => {
+              handleCloseTab(e, contextMenu.tabId);
+              setContextMenu(null);
+            }}
+          >
+            <X size={11} />
+            <span>Close tab</span>
+          </div>
+          <div
+            className="tab-context-menu-item"
+            onClick={() => {
+              handleCloseOtherTabs(contextMenu.tabId);
+              setContextMenu(null);
+            }}
+          >
+            <Layers size={11} />
+            <span>Close other tabs</span>
+          </div>
+        </div>
+      )}
+
+      <div className="center-search-answer-body">
+        <div className="chat-messages-container">
+          {chatHistory.map((msg) => (
+            <div key={msg.id} className={`chat-msg ${msg.sender === 'user' ? 'chat-msg-user' : 'chat-msg-ai'} ${msg.isError ? 'chat-msg-error' : ''}`}>
+              <div className="chat-msg-wrapper">
+                {msg.sender === 'ai' ? (
+                  <div className="chat-msg-ai-wrapper-content">
+                    {msg.id !== 'welcome' && (
+                      <div className="chat-msg-ai-label">
+                        <ActiveAnswerIcon size={12} />
+                        <span>{activeAnswerProvider.label}</span>
+                      </div>
+                    )}
+                    <div className="chat-msg-ai-text">
+                      <MarkdownRenderer text={msg.text} />
+                    </div>
+                  </div>
+                ) : (
+                  <div className="chat-msg-bubble">
+                    <div className="chat-msg-user-content-wrapper">
+                      <MessageAttachmentRenderer attachment={msg.attachment} />
+                      {msg.text && <div className="chat-msg-user-text">{msg.text}</div>}
+                    </div>
+                  </div>
+                )}
+                {msg.sender === 'ai' && msg.id !== 'welcome' && (
+                  <>
+                    <div className="chat-msg-actions-row-icons">
+                      <ActionCopyButton text={cleanAiMessageText(msg.text)} />
+                      
+                      <button
+                        type="button"
+                        className={`chat-msg-action-icon-btn ${msg.feedback === 'like' ? 'is-active' : ''}`}
+                        onClick={(e) => {
+                          e.stopPropagation();
+                          handleLikeMessage(msg.id);
+                        }}
+                        title="Like response"
+                      >
+                        <ThumbsUp size={13} fill={msg.feedback === 'like' ? 'currentColor' : 'none'} />
+                      </button>
+
+                      <button
+                        type="button"
+                        className={`chat-msg-action-icon-btn ${msg.feedback === 'dislike' ? 'is-active' : ''}`}
+                        onClick={(e) => {
+                          e.stopPropagation();
+                          handleDislikeMessage(msg.id);
+                        }}
+                        title="Dislike response"
+                      >
+                        <ThumbsDown size={13} fill={msg.feedback === 'dislike' ? 'currentColor' : 'none'} />
+                      </button>
+
+                      <button
+                        type="button"
+                        className="chat-msg-action-icon-btn"
+                        onClick={(e) => {
+                          e.stopPropagation();
+                          handleBranchChat(msg);
+                        }}
+                        title="Branch in new chat"
+                      >
+                        <FolderPlus size={13} />
+                      </button>
+
+                      <button
+                        type="button"
+                        className="chat-msg-action-icon-btn"
+                        onClick={(e) => {
+                          e.stopPropagation();
+                          handleRegenerate(msg.id);
+                        }}
+                        disabled={answerPanel.status === 'loading'}
+                        title="Regenerate response"
+                      >
+                        <RotateCw size={13} />
+                      </button>
+
+                      <div className="chat-msg-menu-container">
+                        <button
+                          type="button"
+                          className={`chat-msg-action-icon-btn ${activeMenuMsgId === msg.id ? 'is-active' : ''}`}
+                          onClick={(e) => {
+                            e.stopPropagation();
+                            setActiveMenuMsgId(activeMenuMsgId === msg.id ? null : msg.id);
+                          }}
+                          title="More options"
+                        >
+                          <MoreHorizontal size={13} />
+                        </button>
+                        {activeMenuMsgId === msg.id && (
+                          <div className="chat-msg-floating-menu">
+                            <div className="chat-msg-menu-header">
+                              {new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}, Today
+                            </div>
+                            <button
+                              type="button"
+                              className="chat-msg-menu-item"
+                              disabled={extractSourcesFromText(msg.text).length === 0}
+                              onClick={(e) => {
+                                e.stopPropagation();
+                                handleViewSources(msg.id);
+                                setActiveMenuMsgId(null);
+                              }}
+                            >
+                              <BookOpen size={14} />
+                              <span>View sources</span>
+                            </button>
+                            <button
+                              type="button"
+                              className="chat-msg-menu-item"
+                              onClick={(e) => {
+                                e.stopPropagation();
+                                handleBranchChat(msg);
+                                setActiveMenuMsgId(null);
+                              }}
+                            >
+                              <GitBranch size={14} />
+                              <span>Branch in new chat</span>
+                            </button>
+                            <button
+                              type="button"
+                              className="chat-msg-menu-item"
+                              onClick={(e) => {
+                                e.stopPropagation();
+                                handleReadAloud(msg);
+                                setActiveMenuMsgId(null);
+                              }}
+                            >
+                              {speakingMsgId === msg.id ? <VolumeX size={14} /> : <Volume2 size={14} />}
+                              <span>{speakingMsgId === msg.id ? 'Stop reading' : 'Read aloud'}</span>
+                            </button>
+                          </div>
+                        )}
+                      </div>
+                    </div>
+
+                    {activeSourcesMsgId === msg.id && (
+                      <div className="chat-msg-sources-container">
+                        <div className="chat-msg-sources-header">
+                          <span>Sourced Links</span>
+                          <button
+                            type="button"
+                            className="chat-msg-sources-close"
+                            onClick={() => setActiveSourcesMsgId(null)}
+                          >
+                            <X size={10} />
+                          </button>
+                        </div>
+                        <div className="chat-msg-sources-list">
+                          {extractSourcesFromText(msg.text).map((source, sIdx) => (
+                            <div
+                              key={sIdx}
+                              className="chat-msg-source-card"
+                              onClick={() => openSourceUrl(source.url)}
+                              title={source.url}
+                            >
+                              <span className="chat-msg-source-card-icon">🔗</span>
+                              <div className="chat-msg-source-card-info">
+                                <span className="chat-msg-source-card-title">{source.title || 'Source'}</span>
+                                <span className="chat-msg-source-card-url">{source.url}</span>
+                              </div>
+                            </div>
+                          ))}
+                        </div>
+                      </div>
+                    )}
+                  </>
+                )}
+              </div>
+            </div>
+          ))}
+          {answerPanel.status === 'loading' && (
+            <div className="chat-msg chat-msg-ai">
+              <div className="chat-msg-wrapper">
+                <div className="typing-indicator">
+                  <span className="typing-dot" />
+                  <span className="typing-dot" />
+                  <span className="typing-dot" />
+                </div>
+              </div>
+            </div>
+          )}
+
+          {tabErrors[activeTabId] && (
+            <div className="chat-msg chat-msg-error-transient">
+              <div className="chat-msg-wrapper">
+                <div className="chat-msg-error-layout">
+                  <span className="chat-msg-error-icon">⚠️</span>
+                  <span className="chat-msg-error-text">
+                    {tabErrors[activeTabId] === 'unauthorized' ? 'API Key is unauthorized (403).' :
+                     tabErrors[activeTabId] === 'invalid key' ? 'API Key is invalid (401).' :
+                     tabErrors[activeTabId] === 'invalid model' ? 'Model is invalid (404).' :
+                     tabErrors[activeTabId] === 'timeout' ? 'Request timed out.' :
+                     `Error: ${tabErrors[activeTabId]}`}
+                  </span>
+                  <button
+                    type="button"
+                    className="chat-msg-error-retry-btn"
+                    onClick={handleRetryLastPrompt}
+                    title="Retry last query"
+                  >
+                    <RotateCw size={10} />
+                    <span>Retry</span>
+                  </button>
+                </div>
+              </div>
+            </div>
+          )}
+
+          <div ref={chatBottomRef} />
+        </div>
+      </div>
+
+      {provider === 'gemini' && cooldownSecondsLeft > 0 && (
+        <div 
+          className="gemini-quota-card"
+          style={{
+            margin: '8px 12px',
+            padding: '10px 12px',
+            border: '1px solid #f87171',
+            borderRadius: '6px',
+            background: 'rgba(239, 68, 68, 0.15)',
+            color: '#fca5a5',
+            fontSize: '11px',
+            lineHeight: '1.4',
+            display: 'flex',
+            flexDirection: 'column',
+            gap: '4px',
+          }}
+        >
+          <div style={{ fontWeight: 'bold', fontSize: '12px', color: '#f87171' }}>
+            Gemini limit reached
+          </div>
+          <div>Model: gemini-2.5-flash</div>
+          <div>Free requests limit: 20</div>
+          <div>Retry available in: {cooldownSecondsLeft}s</div>
+          <div style={{ marginTop: '6px' }}>
+            <button
+              type="button"
+              style={{
+                background: 'rgba(255, 255, 255, 0.1)',
+                border: '1px solid rgba(255, 255, 255, 0.2)',
+                borderRadius: '4px',
+                color: 'white',
+                padding: '3px 6px',
+                cursor: 'pointer',
+                fontSize: '10px',
+              }}
+              onClick={() => {
+                if (onSwitchToStepFun) {
+                  onSwitchToStepFun();
+                }
+              }}
+            >
+              Use StepFun AI instead
+            </button>
+          </div>
+        </div>
+      )}
+
+      {toastMessage && (
+        <div className="chat-popup-toast">
+          {toastMessage}
+        </div>
+      )}
+
+      {attachment && (
+        <div className="attachment-preview-container">
+          <div className="attachment-preview-item">
+            <span className="attachment-preview-icon">
+              {attachment.type === 'image' && <Image size={12} />}
+              {attachment.type === 'video' && <Video size={12} />}
+              {attachment.type === 'file' && <FileText size={12} />}
+              {attachment.type === 'camera' && <Camera size={12} />}
+              {attachment.type === 'link' && <Link size={12} />}
+            </span>
+            <div style={{ display: 'flex', flexDirection: 'column', flex: 1, minWidth: 0, gap: '2px' }}>
+              <span className="attachment-preview-name" title={attachment.name}>
+                {attachment.name}
+              </span>
+              {attachment.progress !== null && (
+                <div className="attachment-upload-progress-container">
+                  <div className="attachment-upload-progress-bar" style={{ width: `${attachment.progress}%` }} />
+                  <span className="attachment-upload-progress-text">{attachment.progress}%</span>
+                </div>
+              )}
+            </div>
+            <button
+              type="button"
+              className="attachment-preview-remove"
+              onClick={() => setAttachment(null)}
+              title="Remove attachment"
+            >
+              <X size={10} />
+            </button>
+          </div>
+        </div>
+      )}
+
+      <form
+        className="center-search-answer-form"
+        onSubmit={(event) => {
+          event.preventDefault();
+          void submitAiPrompt(provider, answerInput);
+        }}
+      >
+        <div className="plus-button-wrapper" style={{ position: 'relative', display: 'flex', alignItems: 'center' }}>
+          <button
+            type="button"
+            className="center-search-answer-plus-btn"
+            onClick={() => setIsAttachmentMenuOpen(!isAttachmentMenuOpen)}
+            title="Add attachment"
+          >
+            <Plus size={15} />
+          </button>
+          {isAttachmentMenuOpen && (
+            <div className="attachment-menu-popup popup-aurora-surface">
+              <button type="button" className="attachment-menu-item" onClick={openOpenRouterPopup}>
+                <Bot size={13} style={{ opacity: 0.8, color: '#22c55e' }} />
+                <span>OpenRouter</span>
+              </button>
+              <button type="button" className="attachment-menu-item" onClick={() => handleTriggerUpload('image')}>
+                <Image size={13} style={{ opacity: 0.8 }} />
+                <span>Photo</span>
+              </button>
+              <button type="button" className="attachment-menu-item" onClick={() => handleTriggerUpload('video')}>
+                <Video size={13} style={{ opacity: 0.8 }} />
+                <span>Video</span>
+              </button>
+              <button type="button" className="attachment-menu-item" onClick={() => handleTriggerUpload('file')}>
+                <FileText size={13} style={{ opacity: 0.8 }} />
+                <span>File</span>
+              </button>
+              <button type="button" className="attachment-menu-item" onClick={() => handleTriggerUpload('camera')}>
+                <Camera size={13} style={{ opacity: 0.8 }} />
+                <span>Camera</span>
+              </button>
+              <button type="button" className="attachment-menu-item" onClick={() => handleTriggerUpload('link')}>
+                <Link size={13} style={{ opacity: 0.8 }} />
+                <span>Link</span>
+              </button>
+            </div>
+          )}
+        </div>
+
+        <input
+          type="text"
+          className="center-search-answer-input"
+          value={answerInput}
+          onChange={(event) => setAnswerInput(event.target.value)}
+          placeholder={`Ask ${activeAnswerProvider.label}...`}
+          disabled={
+            answerPanel.status === 'loading' ||
+            (provider === 'gemini' && cooldownSecondsLeft > 0)
+          }
+        />
+        <button
+          type="submit"
+          className="center-search-answer-send"
+          disabled={
+            (!answerInput.trim() && !attachment) || 
+            (attachment && attachment.progress !== null) ||
+            answerPanel.status === 'loading' || 
+            (provider === 'gemini' && cooldownSecondsLeft > 0)
+          }
+        >
+          {provider === 'gemini' && cooldownSecondsLeft > 0
+            ? `Wait ${cooldownSecondsLeft}s`
+            : 'Send'}
+        </button>
+      </form>
+
+      <input
+        type="file"
+        ref={attachmentFileInputRef}
+        style={{ display: 'none' }}
+        onChange={handleFileChange}
+      />
+
+      {isCameraActive && (
+        <div className="camera-modal-overlay">
+          <div className="camera-modal-content popup-aurora-surface">
+            <div className="camera-modal-header">
+              <span>Webcam Capture</span>
+              <button type="button" className="camera-modal-close" onClick={() => setIsCameraActive(false)}>
+                <X size={14} />
+              </button>
+            </div>
+            <div className="camera-video-container">
+              <video ref={videoRef} autoPlay playsInline className="camera-video-element" />
+            </div>
+            <div className="camera-modal-actions">
+              <button type="button" className="camera-modal-btn camera-capture-btn" onClick={handleCapturePhoto}>
+                <Camera size={12} />
+                <span>Capture Photo</span>
+              </button>
+              <button type="button" className="camera-modal-btn camera-cancel-btn" onClick={() => setIsCameraActive(false)}>
+                Cancel
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {isLinkInputActive && (
+        <div className="link-modal-overlay" onClick={() => setIsLinkInputActive(false)}>
+          <form 
+            className="link-modal-content popup-aurora-surface" 
+            onClick={(e) => e.stopPropagation()}
+            onSubmit={handleSubmitLink}
+          >
+            <div className="link-modal-header">
+              <span>Add Link Attachment</span>
+              <button type="button" className="link-modal-close" onClick={() => setIsLinkInputActive(false)}>
+                <X size={14} />
+              </button>
+            </div>
+            <div className="link-modal-body">
+              <div className="link-modal-input-wrap">
+                <label>Link URL</label>
+                <input 
+                  type="text" 
+                  value={linkUrlInput} 
+                  onChange={(e) => setLinkUrlInput(e.target.value)} 
+                  placeholder="https://example.com"
+                  autoFocus
+                  required
+                />
+              </div>
+              <div className="link-modal-input-wrap">
+                <label>Link Title (Optional)</label>
+                <input 
+                  type="text" 
+                  value={linkTitleInput} 
+                  onChange={(e) => setLinkTitleInput(e.target.value)} 
+                  placeholder="e.g. Documentation, Video, Website"
+                />
+              </div>
+            </div>
+            <div className="link-modal-actions">
+              <button type="submit" className="link-modal-btn link-submit-btn">
+                Add Link
+              </button>
+              <button type="button" className="link-modal-btn link-cancel-btn" onClick={() => setIsLinkInputActive(false)}>
+                Cancel
+              </button>
+            </div>
+          </form>
+        </div>
+      )}
+    </div>,
+    document.body
   );
 };
 

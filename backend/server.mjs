@@ -1798,13 +1798,13 @@ app.post('/api/stepfun/chat', async (req, res, next) => {
       let userFriendlyMsg = 'StepFun AI is not responding right now. Please try again.';
       
       if (status === 403) {
-        userFriendlyMsg = 'StepFun AI API authorization failed (403). Please verify if your API key in backend/.env has Public API Endpoints permissions.';
+        userFriendlyMsg = 'unauthorized';
       } else if (status === 401) {
-        userFriendlyMsg = 'Authentication failed (401). Please check if the STEPFUN_API_KEY in backend/.env is correct.';
+        userFriendlyMsg = 'invalid key';
       } else if (status === 404) {
-        userFriendlyMsg = `Model not found (404). Please verify if the STEPFUN_MODEL "${process.env.STEPFUN_MODEL || 'step-2-mini'}" exists on the endpoint.`;
+        userFriendlyMsg = 'invalid model';
       } else if (status === 408) {
-        userFriendlyMsg = 'Request timed out (408). StepFun AI took too long to respond. Please try again.';
+        userFriendlyMsg = 'timeout';
       } else if (apiError.message) {
         userFriendlyMsg = apiError.message;
       }
@@ -1815,6 +1815,43 @@ app.post('/api/stepfun/chat', async (req, res, next) => {
     }
   } catch (error) {
     next(error);
+  }
+});
+
+app.get('/api/stepfun/test', async (req, res) => {
+  try {
+    const apiKey = String(process.env.STEPFUN_API_KEY || process.env.STEP_FUN_API_KEY || '').trim();
+    if (!apiKey) {
+      return res.status(503).json({ status: 'error', error: 'StepFun API key loaded: No (Key is missing)' });
+    }
+    
+    const systemInstruction = getAiSystemPrompt('stepfun');
+    const answer = await requestStepFunAnswer('test', apiKey, systemInstruction);
+    
+    res.json({
+      status: 'ok',
+      message: 'StepFun API responded successfully.',
+      answer
+    });
+  } catch (error) {
+    console.error('StepFun test route failed:', error);
+    const status = error.statusCode || 502;
+    let errorMsg = error.message || 'StepFun AI request failed.';
+    
+    if (status === 403) {
+      errorMsg = 'unauthorized';
+    } else if (status === 401) {
+      errorMsg = 'invalid key';
+    } else if (status === 404) {
+      errorMsg = 'invalid model';
+    } else if (status === 408) {
+      errorMsg = 'timeout';
+    }
+    
+    res.status(status).json({
+      status: 'error',
+      error: errorMsg
+    });
   }
 });
 
@@ -3016,6 +3053,15 @@ const connectMongoDB = async () => {
   }
 };
 
+const checkStepFunApiKeyOnStartup = () => {
+  const apiKey = String(process.env.STEPFUN_API_KEY || process.env.STEP_FUN_API_KEY || '').trim();
+  if (apiKey) {
+    console.log('StepFun API key loaded: Yes');
+  } else {
+    console.log('StepFun API key loaded: No');
+  }
+};
+
 const startServer = async () => {
   const server = app.listen(PORT, HOST, () => {
     console.log(`DDO backend listening at http://${HOST}:${PORT}`);
@@ -3024,6 +3070,7 @@ const startServer = async () => {
     console.error('DDO backend failed to start:', error instanceof Error ? error.message : String(error));
   });
   void connectMongoDB();
+  checkStepFunApiKeyOnStartup();
 };
 
 await startServer();

@@ -8379,13 +8379,53 @@ button:active::after,
   border: none !important;
 }
 
-/* AI Bubble - Dark Grey, White Text */
-.chat-msg-ai .chat-msg-bubble {
-  background: #18181b !important; /* Zinc-900 */
-  border: 1px solid #27272a !important; /* Zinc-800 */
+/* AI Answer free-form styling */
+.chat-msg-ai-wrapper-content {
+  display: flex !important;
+  flex-direction: column !important;
+  gap: 6px !important;
   color: #ffffff !important;
-  border-top-left-radius: 2px !important;
-  box-shadow: none !important;
+  width: 100% !important;
+}
+
+.chat-msg-ai-label {
+  display: inline-flex !important;
+  align-items: center !important;
+  gap: 6px !important;
+  font-size: 11px !important;
+  font-weight: 600 !important;
+  color: #71717a !important; /* Soft grey secondary */
+  user-select: none !important;
+}
+
+.chat-msg-ai-label svg {
+  color: #71717a !important;
+}
+
+.chat-msg-ai-text {
+  font-size: 13px !important;
+  line-height: 1.55 !important;
+  color: #ffffff !important;
+  word-break: break-word !important;
+  overflow-wrap: break-word !important;
+}
+
+/* Fix margin and spacing to reduce unnecessary vertical empty space */
+.chat-msg {
+  margin-bottom: 8px !important;
+}
+
+/* User Bubble - Solid White, Black Text (Small & Right Aligned) */
+.chat-msg-user .chat-msg-bubble {
+  background: #ffffff !important;
+  color: #000000 !important;
+  border-radius: 12px !important;
+  border-top-right-radius: 2px !important;
+  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.3) !important;
+  padding: 8px 12px !important;
+  font-size: 13px !important;
+  max-width: 80% !important;
+  border: none !important;
 }
 
 /* Code Blocks Inside Chat */
@@ -8407,42 +8447,56 @@ button:active::after,
   background: transparent !important;
 }
 
-/* Compact Error Bubble Styles (Black & White style) */
-.chat-msg-error .chat-msg-bubble {
-  background: #18181b !important;
-  border: 1px solid #27272a !important;
-  color: #ffffff !important;
+/* Compact Transient Error Bubble Styling */
+.chat-msg-error-transient {
+  display: flex !important;
+  width: 100% !important;
+  justify-content: flex-start !important;
 }
 
-.chat-msg-error-content {
-  display: flex;
-  flex-direction: column;
-  gap: 8px;
-  align-items: flex-start;
+.chat-msg-error-layout {
+  display: inline-flex !important;
+  align-items: center !important;
+  gap: 8px !important;
+  background: transparent !important;
+  border: none !important;
+  padding: 4px 0 !important;
+  font-size: 12px !important;
+}
+
+.chat-msg-error-icon {
+  font-size: 13px !important;
+  display: inline-flex !important;
+  align-items: center !important;
+}
+
+.chat-msg-error-text {
+  color: #a1a1aa !important; /* Soft grey secondary */
+  font-size: 12px !important;
 }
 
 .chat-msg-error-retry-btn {
-  display: inline-flex;
-  align-items: center;
-  gap: 6px;
-  background: #ffffff;
-  color: #000000;
-  border: 1px solid #ffffff;
-  border-radius: 6px;
-  padding: 4px 8px;
-  font-size: 11px;
-  font-weight: 600;
-  cursor: pointer;
-  transition: all 0.15s ease;
+  display: inline-flex !important;
+  align-items: center !important;
+  gap: 4px !important;
+  background: #ffffff !important;
+  color: #000000 !important;
+  border: none !important;
+  border-radius: 4px !important;
+  padding: 3px 8px !important;
+  font-size: 10px !important;
+  font-weight: 600 !important;
+  cursor: pointer !important;
+  transition: all 0.15s ease !important;
+  height: 20px !important;
 }
 
 .chat-msg-error-retry-btn:hover {
-  background: #e4e4e7;
-  border-color: #e4e4e7;
+  background: #e4e4e7 !important;
 }
 
 .chat-msg-error-retry-btn svg {
-  vertical-align: middle;
+  vertical-align: middle !important;
 }
 
 /* Typing Indicator (B&W themed) */
