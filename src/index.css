@@ -8348,11 +8348,14 @@ button:active::after,
 }
 
 .chat-msg-wrapper {
-  max-width: 85% !important; /* Responsive bubble width */
+  max-width: 85% !important; /* Responsive bubble width for AI */
+  position: relative !important;
 }
 
 .chat-msg-user .chat-msg-wrapper {
   align-items: flex-end !important;
+  max-width: 70% !important; /* Reasonable maximum width: 65% to 75% of chat area */
+  padding-right: 4px !important; /* Ensure spacing from right popup border */
 }
 
 .chat-msg-ai .chat-msg-wrapper {
@@ -8366,17 +8369,96 @@ button:active::after,
   line-height: 1.5 !important;
   padding: 10px 14px !important;
   border-radius: 12px !important;
-  word-break: break-word !important;
+  word-break: normal !important;
   overflow-wrap: break-word !important;
+  white-space: pre-wrap !important;
 }
 
 /* User Bubble - Solid White, Black Text */
 .chat-msg-user .chat-msg-bubble {
   background: #ffffff !important;
   color: #000000 !important;
+  border-radius: 12px !important;
   border-top-right-radius: 2px !important;
-  box-shadow: 0 4px 16px rgba(0, 0, 0, 0.15) !important;
+  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.3) !important;
+  padding: 8px 12px !important;
+  font-size: 13px !important;
+  min-width: 50px !important; /* Increase minimum width */
   border: none !important;
+  text-align: left !important;
+  word-break: normal !important;
+  overflow-wrap: break-word !important;
+  white-space: pre-wrap !important;
+}
+
+/* User text specific wrapping override */
+.chat-msg-user-text {
+  word-break: normal !important;
+  overflow-wrap: break-word !important;
+  white-space: pre-wrap !important;
+}
+
+/* Edit container & elements inside bubble */
+.chat-msg-edit-container {
+  display: flex !important;
+  flex-direction: column !important;
+  width: 100% !important;
+  min-width: 180px !important;
+  margin-top: 4px !important;
+}
+
+.chat-msg-edit-textarea {
+  width: 100% !important;
+  background: #18181b !important;
+  border: 1px solid #27272a !important;
+  border-radius: 6px !important;
+  color: #ffffff !important;
+  padding: 6px 8px !important;
+  font-size: 13px !important;
+  font-family: inherit !important;
+  resize: vertical !important;
+  outline: none !important;
+  box-sizing: border-box !important;
+}
+
+.chat-msg-edit-textarea:focus {
+  border-color: #52525b !important;
+}
+
+.chat-msg-edit-controls {
+  display: flex !important;
+  justify-content: flex-end !important;
+  gap: 8px !important;
+  margin-top: 6px !important;
+}
+
+.chat-msg-edit-btn {
+  font-size: 11px !important;
+  padding: 4px 10px !important;
+  border-radius: 4px !important;
+  cursor: pointer !important;
+  border: none !important;
+  font-weight: 500 !important;
+  transition: all 0.15s ease !important;
+}
+
+.chat-msg-edit-btn.cancel {
+  background: #27272a !important;
+  color: #a1a1aa !important;
+}
+
+.chat-msg-edit-btn.cancel:hover {
+  background: #3f3f46 !important;
+  color: #ffffff !important;
+}
+
+.chat-msg-edit-btn.save {
+  background: #ffffff !important;
+  color: #000000 !important;
+}
+
+.chat-msg-edit-btn.save:hover {
+  background: #e4e4e7 !important;
 }
 
 /* AI Answer free-form styling */
@@ -8415,19 +8497,6 @@ button:active::after,
   margin-bottom: 8px !important;
 }
 
-/* User Bubble - Solid White, Black Text (Small & Right Aligned) */
-.chat-msg-user .chat-msg-bubble {
-  background: #ffffff !important;
-  color: #000000 !important;
-  border-radius: 12px !important;
-  border-top-right-radius: 2px !important;
-  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.3) !important;
-  padding: 8px 12px !important;
-  font-size: 13px !important;
-  max-width: 80% !important;
-  border: none !important;
-}
-
 /* Code Blocks Inside Chat */
 .markdown-code-block-wrapper {
   background: #09090b !important;
@@ -8455,13 +8524,15 @@ button:active::after,
 }
 
 .chat-msg-error-layout {
-  display: inline-flex !important;
+  display: flex !important;
+  flex-flow: row wrap !important;
   align-items: center !important;
   gap: 8px !important;
   background: transparent !important;
   border: none !important;
   padding: 4px 0 !important;
   font-size: 12px !important;
+  width: 100% !important;
 }
 
 .chat-msg-error-icon {
@@ -8473,6 +8544,10 @@ button:active::after,
 .chat-msg-error-text {
   color: #a1a1aa !important; /* Soft grey secondary */
   font-size: 12px !important;
+  flex: 1 1 auto !important;
+  min-width: 0 !important;
+  word-break: normal !important;
+  overflow-wrap: break-word !important;
 }
 
 .chat-msg-error-retry-btn {
@@ -8489,6 +8564,7 @@ button:active::after,
   cursor: pointer !important;
   transition: all 0.15s ease !important;
   height: 20px !important;
+  flex-shrink: 0 !important;
 }
 
 .chat-msg-error-retry-btn:hover {
@@ -8516,6 +8592,17 @@ button:active::after,
   gap: 4px !important;
   display: flex !important;
   align-items: center !important;
+  opacity: 0;
+  transition: opacity 0.2s ease;
+}
+
+.chat-msg-wrapper:hover .chat-msg-actions-row-icons {
+  opacity: 1;
+}
+
+.chat-msg-actions-row-icons.user-actions {
+  justify-content: flex-end !important;
+  align-self: flex-end !important;
 }
 
 .chat-msg-action-icon-btn {

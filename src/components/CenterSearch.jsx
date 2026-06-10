@@ -1192,6 +1192,11 @@ const AiChatPopup = ({
   const [speakingMsgId, setSpeakingMsgId] = useState(null);
 
   // eslint-disable-next-line react-hooks/rules-of-hooks
+  const [editingMsgId, setEditingMsgId] = useState(null);
+  // eslint-disable-next-line react-hooks/rules-of-hooks
+  const [editingText, setEditingText] = useState('');
+
+  // eslint-disable-next-line react-hooks/rules-of-hooks
   const [renamingTabId, setRenamingTabId] = useState(null);
   // eslint-disable-next-line react-hooks/rules-of-hooks
   const [renamingTitle, setRenamingTitle] = useState('');
@@ -1632,6 +1637,72 @@ const AiChatPopup = ({
     }));
 
     void submitAiPrompt(activeTab.provider, originalUserMsg.text, originalUserMsg.attachment, true);
+  };
+
+  const handleStartEditUserMessage = (msgId, text) => {
+    setEditingMsgId(msgId);
+    setEditingText(text);
+  };
+
+  const handleCancelEdit = () => {
+    setEditingMsgId(null);
+    setEditingText('');
+  };
+
+  const handleSaveEdit = async (msgId, attachment) => {
+    const updatedText = editingText.trim();
+    if (!updatedText) return;
+
+    setChatTabs(prevTabs => {
+      return prevTabs.map(t => {
+        if (t.id === activeTabId) {
+          const msgIdx = t.messages.findIndex(m => m.id === msgId);
+          if (msgIdx === -1) return t;
+
+          const updatedUserMsg = {
+            ...t.messages[msgIdx],
+            text: updatedText
+          };
+
+          const truncatedMessages = t.messages.slice(0, msgIdx);
+          const newMessages = [...truncatedMessages, updatedUserMsg];
+
+          return {
+            ...t,
+            messages: newMessages
+          };
+        }
+        return t;
+      });
+    });
+
+    setEditingMsgId(null);
+    setEditingText('');
+
+    void submitAiPrompt(provider, updatedText, attachment, true);
+  };
+
+  const handleDeleteUserMessage = (msgId) => {
+    setChatTabs(prevTabs => {
+      return prevTabs.map(t => {
+        if (t.id === activeTabId) {
+          const msgIdx = t.messages.findIndex(m => m.id === msgId);
+          if (msgIdx === -1) return t;
+
+          const newMessages = t.messages.slice(0, msgIdx);
+          
+          if (newMessages.length === 0) {
+            newMessages.push(getWelcomeMessage(t.provider));
+          }
+
+          return {
+            ...t,
+            messages: newMessages
+          };
+        }
+        return t;
+      });
+    });
   };
 
   const handleGeminiError = (errorText) => {
@@ -2318,10 +2389,115 @@ const AiChatPopup = ({
                     </div>
                   </div>
                 ) : (
-                  <div className="chat-msg-bubble">
+                  <div className={`chat-msg-bubble ${editingMsgId === msg.id ? 'editing' : ''}`}>
                     <div className="chat-msg-user-content-wrapper">
                       <MessageAttachmentRenderer attachment={msg.attachment} />
-                      {msg.text && <div className="chat-msg-user-text">{msg.text}</div>}
+                      {editingMsgId === msg.id ? (
+                        <div className="chat-msg-edit-container">
+                          <textarea
+                            className="chat-msg-edit-textarea"
+                            value={editingText}
+                            onChange={(e) => setEditingText(e.target.value)}
+                            rows={2}
+                            autoFocus
+                          />
+                          <div className="chat-msg-edit-controls">
+                            <button
+                              type="button"
+                              className="chat-msg-edit-btn cancel"
+                              onClick={(e) => {
+                                e.stopPropagation();
+                                handleCancelEdit();
+                              }}
+                            >
+                              Cancel
+                            </button>
+                            <button
+                              type="button"
+                              className="chat-msg-edit-btn save"
+                              onClick={(e) => {
+                                e.stopPropagation();
+                                void handleSaveEdit(msg.id, msg.attachment);
+                              }}
+                            >
+                              Save
+                            </button>
+                          </div>
+                        </div>
+                      ) : (
+                        msg.text && <div className="chat-msg-user-text">{msg.text}</div>
+                      )}
+                    </div>
+                  </div>
+                )}
+                {msg.sender === 'user' && editingMsgId !== msg.id && (
+                  <div className="chat-msg-actions-row-icons user-actions" style={{ opacity: activeMenuMsgId === msg.id ? 1 : undefined }}>
+                    <ActionCopyButton text={msg.text} />
+                    
+                    <button
+                      type="button"
+                      className="chat-msg-action-icon-btn"
+                      onClick={(e) => {
+                        e.stopPropagation();
+                        handleStartEditUserMessage(msg.id, msg.text);
+                      }}
+                      title="Edit message"
+                    >
+                      <Edit2 size={13} />
+                    </button>
+
+                    <button
+                      type="button"
+                      className="chat-msg-action-icon-btn"
+                      onClick={(e) => {
+                        e.stopPropagation();
+                        handleDeleteUserMessage(msg.id);
+                      }}
+                      title="Delete message"
+                    >
+                      <X size={13} />
+                    </button>
+
+                    <div className="chat-msg-menu-container">
+                      <button
+                        type="button"
+                        className={`chat-msg-action-icon-btn ${activeMenuMsgId === msg.id ? 'is-active' : ''}`}
+                        onClick={(e) => {
+                          e.stopPropagation();
+                          setActiveMenuMsgId(activeMenuMsgId === msg.id ? null : msg.id);
+                        }}
+                        title="More options"
+                      >
+                        <MoreHorizontal size={13} />
+                      </button>
+                      {activeMenuMsgId === msg.id && (
+                        <div className="chat-msg-floating-menu">
+                          <button
+                            type="button"
+                            className="chat-msg-menu-item"
+                            onClick={(e) => {
+                              e.stopPropagation();
+                              handleStartEditUserMessage(msg.id, msg.text);
+                              setActiveMenuMsgId(null);
+                            }}
+                          >
+                            <Edit2 size={14} />
+                            <span>Edit message</span>
+                          </button>
+                          <button
+                            type="button"
+                            className="chat-msg-menu-item"
+                            onClick={(e) => {
+                              e.stopPropagation();
+                              handleDeleteUserMessage(msg.id);
+                              setActiveMenuMsgId(null);
+                            }}
+                          >
+                            <X size={14} />
+                            <span>Delete message</span>
+                          </button>
+                        </div>
+                      )}
                     </div>
                   </div>
                 )}
