@@ -333,10 +333,12 @@ const MarkdownRenderer = ({ text }) => {
               <SyntaxHighlighter
                 language={lang || 'text'}
                 style={oneDark}
+                showLineNumbers={true}
+                wrapLines={true}
                 customStyle={{
                   margin: 0,
                   background: 'transparent',
-                  padding: '16px',
+                  padding: '16px 16px 16px 0',
                   fontSize: '13px',
                   lineHeight: '1.5',
                   fontFamily: "'Fira Code', 'Courier New', Courier, monospace"
@@ -1683,6 +1685,16 @@ const AiChatPopup = ({
     setEditingText(text);
   };
 
+  const handleEditKeyDown = (e, msgId, attachment) => {
+    if (e.key === 'Enter' && !e.shiftKey) {
+      e.preventDefault();
+      void handleSaveEdit(msgId, attachment);
+    } else if (e.key === 'Escape') {
+      e.preventDefault();
+      handleCancelEdit();
+    }
+  };
+
   const handleCancelEdit = () => {
     setEditingMsgId(null);
     setEditingText('');
@@ -1788,7 +1800,7 @@ const AiChatPopup = ({
     if (cmdInfo) {
       requestPrompt = cmdInfo.remainingText || '';
       if (cmdInfo.name === 'prompt') {
-        systemInstructionOverride = "You are an AI prompt engineering expert. Your task is to help the user create or improve a detailed, structured, and reusable prompt based on their input. Correct grammar, add requirements, behavior, design, and restrictions. Do not return code unless explicitly asked. Do not include the @prompt trigger text in your response.";
+        systemInstructionOverride = "You are an AI Prompt Creator. Your ONLY job is to output a detailed, professional, structured, and reusable prompt template that the user can copy-paste to instruct another AI to perform their goal. DO NOT perform the actual task. DO NOT generate code, scripts, HTML, or code files. Instead, write a prompt description containing the requirements, design, constraints, and success criteria. For example, if the user asks '@prompt make a calculator', you should reply with a prompt template like 'Create a modern calculator with...' but DO NOT write code for the calculator itself.";
       } else if (cmdInfo.name === 'explain') {
         systemInstructionOverride = "You are an educator. Explain the provided text or code in simple, clear, and easy-to-understand language.";
       } else if (cmdInfo.name === 'fix') {
@@ -2282,20 +2294,32 @@ const AiChatPopup = ({
         setSelectedCommandIndex(prev => 
           filteredCommands.length > 0 ? (prev + 1) % filteredCommands.length : 0
         );
+        return;
       } else if (e.key === 'ArrowUp') {
         e.preventDefault();
         setSelectedCommandIndex(prev => 
           filteredCommands.length > 0 ? (prev - 1 + filteredCommands.length) % filteredCommands.length : 0
         );
+        return;
       } else if (e.key === 'Enter' || e.key === 'Tab') {
         if (filteredCommands.length > 0 && selectedCommandIndex >= 0 && selectedCommandIndex < filteredCommands.length) {
           e.preventDefault();
           handleSelectCommand(filteredCommands[selectedCommandIndex].name);
         }
+        return;
       } else if (e.key === 'Escape') {
         e.preventDefault();
         setIsMenuDismissed(true);
+        return;
       }
+    }
+
+    if (e.key === 'Enter' && !e.shiftKey) {
+      e.preventDefault();
+      if (!answerInput.trim()) return;
+      if (answerPanel.status === 'loading') return;
+      if (provider === 'gemini' && cooldownSecondsLeft > 0) return;
+      void submitAiPrompt(provider, answerInput);
     }
   };
 
@@ -2528,7 +2552,8 @@ const AiChatPopup = ({
                             className="chat-msg-edit-textarea"
                             value={editingText}
                             onChange={(e) => setEditingText(e.target.value)}
-                            rows={2}
+                            onKeyDown={(e) => handleEditKeyDown(e, msg.id, msg.attachment)}
+                            rows={3}
                             autoFocus
                           />
                           <div className="chat-msg-edit-controls">
@@ -2550,7 +2575,7 @@ const AiChatPopup = ({
                                 void handleSaveEdit(msg.id, msg.attachment);
                               }}
                             >
-                              Save
+                              Send
                             </button>
                           </div>
                         </div>
@@ -2982,18 +3007,29 @@ const AiChatPopup = ({
           )}
         </div>
 
-        <input
-          type="text"
+        <textarea
           ref={chatInputRef}
           className="center-search-answer-input"
           value={answerInput}
           onChange={(event) => setAnswerInput(event.target.value)}
           onKeyDown={handleInputKeyDown}
           placeholder={`Ask ${activeAnswerProvider.label}...`}
+          rows={1}
           disabled={
             answerPanel.status === 'loading' ||
             (provider === 'gemini' && cooldownSecondsLeft > 0)
           }
+          style={{
+            flex: 1,
+            background: 'transparent',
+            border: 'none',
+            outline: 'none',
+            resize: 'none',
+            padding: '4px 0',
+            maxHeight: '120px',
+            overflowY: 'auto',
+            fontFamily: 'inherit',
+          }}
         />
         <button
           type="submit"

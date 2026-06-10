@@ -8756,3 +8756,33 @@ button:active::after,
   font-size: 11px !important;
   text-align: center !important;
 }
+
+/* Code block line and token background overrides */
+.markdown-code-block-wrapper pre * {
+  background: transparent !important;
+  box-shadow: none !important;
+  text-shadow: none !important;
+}
+
+/* Sticky Line Numbers */
+.react-syntax-highlighter-line-number {
+  position: sticky !important;
+  left: 0 !important;
+  background: #09090b !important;
+  border-right: 1px solid #27272a !important;
+  padding-right: 10px !important;
+  padding-left: 10px !important;
+  margin-right: 10px !important;
+  user-select: none !important;
+  color: #71717a !important;
+  display: inline-block !important;
+}
+
+/* Inline Dark Editor Bubble Style */
+.chat-msg-user .chat-msg-bubble.editing {
+  background: #18181b !important;
+  border: 1px solid #27272a !important;
+  color: #ffffff !important;
+  box-shadow: none !important;
+}
+
