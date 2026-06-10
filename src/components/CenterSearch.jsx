@@ -3,7 +3,8 @@ import { createPortal } from 'react-dom';
 import { 
   Bot, LogOut, Mic, Plus, Search, Sparkles, X, Minus, Maximize2, Minimize2, RotateCw,
   Copy, Check, ThumbsUp, ThumbsDown, FolderPlus, MoreHorizontal, BookOpen, GitBranch, Volume2, VolumeX,
-  Image, Video, FileText, Camera, Link, Edit2, Layers
+  Image, Video, FileText, Camera, Link, Edit2, Layers,
+  Sidebar, Pin, PinOff, Trash2
 } from 'lucide-react';
 import { createAuthHeaders } from '../utils/appAuth';
 import { buildApiUrl } from '../utils/api';
@@ -491,7 +492,7 @@ const MessageAttachmentRenderer = ({ attachment }) => {
           src={url}
           alt={name}
           className="msg-attachment-img-preview"
-          onClick={() => window.open(url, '_blank')}
+          onClick={() => openSourceUrl(url)}
           title="Click to view full image"
         />
       </div>
@@ -856,12 +857,13 @@ const CenterSearch = ({ onPopupStateChange = () => {} }) => {
     }
 
     saveSearchToHistory(trimmedQuery);
-    window.open(`https://www.google.com/search?q=${encodeURIComponent(trimmedQuery)}`, '_blank', 'noopener,noreferrer');
+    openSourceUrl(`https://www.google.com/search?q=${encodeURIComponent(trimmedQuery)}`);
   };
 
   const handleSearchSubmit = (event) => {
     if (event) {
       event.preventDefault();
+      event.stopPropagation();
     }
     if (isSearchSubmittingRef.current) {
       return;
@@ -1168,6 +1170,82 @@ const CenterSearch = ({ onPopupStateChange = () => {} }) => {
 /* ==========================================================================
    Independent AI Chat Popup Component
    ========================================================================== */
+const getWelcomeMessage = (prov) => {
+  const label = prov === 'gemini' ? 'Gemini' : prov === 'stepfun' ? 'StepFun AI' : 'Manus AI';
+  return {
+    id: 'welcome',
+    sender: 'ai',
+    text: `Hello! I am your ${label} Assistant. How can I help you today?`
+  };
+};
+
+const PinnedMessagesSection = ({ messages, onTogglePin, onScrollToMessage }) => {
+  const [isExpanded, setIsExpanded] = useState(false);
+  const pinned = messages.filter(m => m.pinned);
+  
+  if (pinned.length === 0) return null;
+
+  return (
+    <div className="ai-chat-pinned-messages-panel">
+      <div 
+        className="ai-chat-pinned-header" 
+        onClick={() => setIsExpanded(!isExpanded)}
+        style={{ cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'space-between', fontSize: '11px', color: '#fcd34d', padding: '2px 4px' }}
+      >
+        <div style={{ display: 'flex', alignItems: 'center', gap: '6px', fontWeight: '600' }}>
+          <Pin size={12} fill="#fcd34d" />
+          <span>Pinned Messages ({pinned.length})</span>
+        </div>
+        <span style={{ fontSize: '10px', opacity: 0.6 }}>{isExpanded ? 'Hide' : 'Show'}</span>
+      </div>
+      
+      {isExpanded && (
+        <div className="ai-chat-pinned-list" style={{ marginTop: '8px', display: 'flex', flexDirection: 'column', gap: '6px', maxHeight: '120px', overflowY: 'auto', paddingRight: '4px' }}>
+          {pinned.map(m => (
+            <div 
+              key={m.id} 
+              className="ai-chat-pinned-item"
+              onClick={() => onScrollToMessage(m.id)}
+              style={{
+                display: 'flex',
+                alignItems: 'center',
+                justifyContent: 'space-between',
+                padding: '6px 8px',
+                background: 'rgba(255, 255, 255, 0.03)',
+                borderRadius: '6px',
+                border: '1px solid rgba(255, 255, 255, 0.05)',
+                cursor: 'pointer',
+                transition: 'background 0.2s, border-color 0.2s'
+              }}
+            >
+              <div style={{ display: 'flex', flexDirection: 'column', minWidth: 0, flex: 1, marginRight: '8px' }}>
+                <span style={{ fontSize: '9px', fontWeight: 'bold', color: m.sender === 'user' ? '#38bdf8' : '#a78bfa', textTransform: 'capitalize', marginBottom: '2px' }}>
+                  {m.sender === 'user' ? 'You' : 'AI'}
+                </span>
+                <span style={{ fontSize: '10.5px', opacity: 0.85, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+                  {m.text}
+                </span>
+              </div>
+              <button
+                type="button"
+                className="ai-chat-pinned-unpin-btn"
+                onClick={(e) => {
+                  e.stopPropagation();
+                  onTogglePin(m.id);
+                }}
+                style={{ background: 'transparent', border: 0, color: 'rgba(255, 255, 255, 0.4)', cursor: 'pointer', display: 'flex', alignItems: 'center', padding: '2px' }}
+                title="Unpin message"
+              >
+                <X size={10} />
+              </button>
+            </div>
+          ))}
+        </div>
+      )}
+    </div>
+  );
+};
+
 const COMMAND_OPTIONS = [
   { name: '@prompt', desc: 'Create or improve a detailed AI prompt', icon: Sparkles },
   { name: '@CFM', desc: 'Work with Code File Manager features', icon: Layers },
@@ -1272,7 +1350,8 @@ const MessageItem = memo(({
   onViewSources,
   isLoading,
   extractSourcesFromText,
-  openSourceUrl
+  openSourceUrl,
+  onTogglePin
 }) => {
   const isEditing = editingMsgId === msg.id;
   const isSpeaking = speakingMsgId === msg.id;
@@ -1283,14 +1362,22 @@ const MessageItem = memo(({
   const ActiveAnswerIcon = activeAnswerProvider.icon;
 
   return (
-    <div className={`chat-msg ${msg.sender === 'user' ? 'chat-msg-user' : 'chat-msg-ai'} ${msg.isError ? 'chat-msg-error' : ''}`}>
+    <div id={`chat-msg-${msg.id}`} className={`chat-msg ${msg.sender === 'user' ? 'chat-msg-user' : 'chat-msg-ai'} ${msg.isError ? 'chat-msg-error' : ''} ${msg.pinned ? 'chat-msg-pinned' : ''}`}>
       <div className="chat-msg-wrapper">
         {msg.sender === 'ai' ? (
           <div className="chat-msg-ai-wrapper-content">
             {msg.id !== 'welcome' && (
-              <div className="chat-msg-ai-label">
-                <ActiveAnswerIcon size={12} />
-                <span>{activeAnswerProvider.label}</span>
+              <div className="chat-msg-ai-label" style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', width: '100%' }}>
+                <div style={{ display: 'flex', alignItems: 'center', gap: '4px' }}>
+                  <ActiveAnswerIcon size={12} />
+                  <span>{activeAnswerProvider.label}</span>
+                </div>
+                {msg.pinned && (
+                  <div style={{ display: 'flex', alignItems: 'center', gap: '4px', color: '#fcd34d', fontSize: '9px', fontWeight: 'bold' }}>
+                    <Pin size={9} fill="#fcd34d" />
+                    <span>PINNED</span>
+                  </div>
+                )}
               </div>
             )}
             <div className="chat-msg-ai-text">
@@ -1300,6 +1387,12 @@ const MessageItem = memo(({
         ) : (
           <div className={`chat-msg-bubble ${isEditing ? 'editing' : ''}`}>
             <div className="chat-msg-user-content-wrapper">
+              {msg.pinned && (
+                <div style={{ display: 'flex', alignItems: 'center', gap: '4px', color: '#fcd34d', fontSize: '9px', marginBottom: '4px', fontWeight: 'bold' }}>
+                  <Pin size={9} fill="#fcd34d" />
+                  <span>PINNED MESSAGE</span>
+                </div>
+              )}
               <MessageAttachmentRenderer attachment={msg.attachment} />
               {isEditing ? (
                 <MessageEditContainer
@@ -1367,6 +1460,18 @@ const MessageItem = memo(({
                   >
                     <Edit2 size={14} />
                     <span>Edit message</span>
+                  </button>
+                  <button
+                    type="button"
+                    className="chat-msg-menu-item"
+                    onClick={(e) => {
+                      e.stopPropagation();
+                      onTogglePin(msg.id);
+                      onToggleMenu(null);
+                    }}
+                  >
+                    <Pin size={14} />
+                    <span>{msg.pinned ? 'Unpin message' : 'Pin message'}</span>
                   </button>
                   <button
                     type="button"
@@ -1475,6 +1580,18 @@ const MessageItem = memo(({
                       className="chat-msg-menu-item"
                       onClick={(e) => {
                         e.stopPropagation();
+                        onTogglePin(msg.id);
+                        onToggleMenu(null);
+                      }}
+                    >
+                      <Pin size={14} />
+                      <span>{msg.pinned ? 'Unpin message' : 'Pin message'}</span>
+                    </button>
+                    <button
+                      type="button"
+                      className="chat-msg-menu-item"
+                      onClick={(e) => {
+                        e.stopPropagation();
                         onBranch(msg);
                         onToggleMenu(null);
                       }}
@@ -1571,7 +1688,8 @@ const MessageList = memo(({
   openSourceUrl,
   chatBottomRef,
   tabErrorText,
-  onRetryLastPrompt
+  onRetryLastPrompt,
+  onTogglePin
 }) => {
   return (
     <div className="chat-messages-container">
@@ -1599,6 +1717,7 @@ const MessageList = memo(({
           isLoading={isLoading}
           extractSourcesFromText={extractSourcesFromText}
           openSourceUrl={openSourceUrl}
+          onTogglePin={onTogglePin}
         />
       ))}
       {isLoading && (
@@ -2348,11 +2467,198 @@ const AiChatPopup = ({
   });
   const [cooldownSecondsLeft, setCooldownSecondsLeft] = useState(0);
 
+  // New Chat History States
+  const [historyChats, setHistoryChats] = useState(() => {
+    try {
+      const saved = localStorage.getItem(`ddo_chat_history_${provider}`);
+      return saved ? JSON.parse(saved) : [];
+    } catch {
+      return [];
+    }
+  });
+
+  const [isHistoryOpen, setIsHistoryOpen] = useState(false);
+  const [historySearchQuery, setHistorySearchQuery] = useState('');
+  const [renamingHistoryId, setRenamingHistoryId] = useState(null);
+  const [renamingHistoryTitle, setRenamingHistoryTitle] = useState('');
+  const [isPinnedSectionExpanded, setIsPinnedSectionExpanded] = useState(true);
+
+  const historyMenuRef = useRef(null);
+
   const PROVIDER_CAPABILITIES = {
     gemini: { image: true, camera: true, file: true, video: true, link: true },
     stepfun: { image: true, camera: true, file: false, video: false, link: true },
     manus: { image: true, camera: true, file: true, video: true, link: true }
   };
+
+  // Helper to update a chat session across both active tabs and history list
+  const updateMessagesAndTitle = useCallback((tabId, getNewMessages, getNewTitle = null) => {
+    let updatedTab = null;
+    setChatTabs(prev => {
+      const tab = prev.find(t => t.id === tabId);
+      if (!tab) return prev;
+      const nextMsgs = getNewMessages(tab.messages || []);
+      const nextTitle = getNewTitle ? getNewTitle(tab, nextMsgs) : tab.title;
+      updatedTab = { ...tab, messages: nextMsgs, title: nextTitle };
+      return prev.map(t => t.id === tabId ? updatedTab : t);
+    });
+    
+    setHistoryChats(prev => {
+      const idx = prev.findIndex(t => t.id === tabId);
+      if (idx !== -1) {
+        const tab = prev[idx];
+        const nextMsgs = getNewMessages(tab.messages || []);
+        const nextTitle = getNewTitle ? getNewTitle(tab, nextMsgs) : tab.title;
+        const updatedTabObj = { ...tab, messages: nextMsgs, title: nextTitle, updatedAt: Date.now() };
+        return prev.map(t => t.id === tabId ? updatedTabObj : t);
+      } else if (updatedTab) {
+        return [{ ...updatedTab, updatedAt: Date.now() }, ...prev];
+      }
+      return prev;
+    });
+  }, []);
+
+  const getGroupLabel = (timestamp) => {
+    if (!timestamp) return 'Older';
+    const date = new Date(timestamp);
+    const today = new Date();
+    today.setHours(0,0,0,0);
+    const yesterday = new Date(today);
+    yesterday.setDate(yesterday.getDate() - 1);
+    const sevenDaysAgo = new Date(today);
+    sevenDaysAgo.setDate(sevenDaysAgo.getDate() - 7);
+
+    if (date >= today) return 'Today';
+    if (date >= yesterday) return 'Yesterday';
+    if (date >= sevenDaysAgo) return 'Previous 7 days';
+    return 'Older';
+  };
+
+  const sortedHistory = useMemo(() => {
+    const filtered = historyChats.filter(chat => 
+      chat.title?.toLowerCase().includes(historySearchQuery.toLowerCase()) ||
+      chat.messages?.some(m => m.text?.toLowerCase().includes(historySearchQuery.toLowerCase()))
+    );
+    
+    return [...filtered].sort((a, b) => {
+      if (a.pinned && !b.pinned) return -1;
+      if (!a.pinned && b.pinned) return 1;
+      return (b.updatedAt || 0) - (a.updatedAt || 0);
+    });
+  }, [historyChats, historySearchQuery]);
+
+  const historyGroups = useMemo(() => {
+    const pinned = sortedHistory.filter(c => c.pinned);
+    const unpinned = sortedHistory.filter(c => !c.pinned);
+    
+    const groups = {};
+    unpinned.forEach(chat => {
+      const label = getGroupLabel(chat.updatedAt);
+      if (!groups[label]) {
+        groups[label] = [];
+      }
+      groups[label].push(chat);
+    });
+
+    return {
+      pinned,
+      unpinnedGroups: Object.entries(groups)
+    };
+  }, [sortedHistory]);
+
+  const handleReopenChat = useCallback((tabId) => {
+    const chat = historyChats.find(t => t.id === tabId);
+    if (!chat) return;
+
+    const isAlreadyTab = chatTabs.some(t => t.id === tabId);
+    if (!isAlreadyTab) {
+      setChatTabs(prev => {
+        const withDraft = prev.map(t => t.id === activeTabId ? { ...t, draft: currentDraftRef.current, pendingAttachment: currentAttachmentRef.current } : t);
+        return [...withDraft, chat];
+      });
+    }
+    
+    setChatTabs(prev => {
+      const updated = prev.map(t => t.id === activeTabId ? { ...t, draft: currentDraftRef.current, pendingAttachment: currentAttachmentRef.current } : t);
+      const nextTab = updated.find(t => t.id === tabId);
+      if (nextTab) {
+        currentDraftRef.current = nextTab.draft || '';
+        currentAttachmentRef.current = nextTab.pendingAttachment || null;
+      }
+      return updated;
+    });
+    setActiveTabId(tabId);
+    if (chat.provider) {
+      setAnswerPanel(prev => ({ ...prev, provider: chat.provider }));
+    }
+  }, [chatTabs, historyChats, activeTabId]);
+
+  const handleTogglePinChat = useCallback((chatId) => {
+    setHistoryChats(prev => prev.map(t => t.id === chatId ? { ...t, pinned: !t.pinned, updatedAt: Date.now() } : t));
+    setChatTabs(prev => prev.map(t => t.id === chatId ? { ...t, pinned: !t.pinned } : t));
+  }, []);
+
+  const handleRenameHistoryChat = useCallback((chatId, newTitle) => {
+    if (!newTitle.trim()) return;
+    const title = newTitle.trim().slice(0, 20);
+    setHistoryChats(prev => prev.map(t => t.id === chatId ? { ...t, title, updatedAt: Date.now() } : t));
+    setChatTabs(prev => prev.map(t => t.id === chatId ? { ...t, title } : t));
+    setRenamingHistoryId(null);
+  }, []);
+
+  const handleDeleteHistoryChat = useCallback((chatId) => {
+    setHistoryChats(prev => prev.filter(t => t.id !== chatId));
+    setChatTabs(prevTabs => {
+      const remaining = prevTabs.filter(t => t.id !== chatId);
+      if (activeTabId === chatId) {
+        if (remaining.length > 0) {
+          const closedIndex = prevTabs.findIndex(t => t.id === chatId);
+          const newActiveIndex = Math.min(closedIndex, remaining.length - 1);
+          const nextTab = remaining[newActiveIndex];
+          setActiveTabId(nextTab.id);
+          if (nextTab.provider) {
+            setAnswerPanel(prev => ({ ...prev, provider: nextTab.provider }));
+          }
+          currentDraftRef.current = nextTab.draft || '';
+          currentAttachmentRef.current = nextTab.pendingAttachment || null;
+        } else {
+          const newId = 'tab_' + Date.now() + '_' + Math.random().toString(36).substr(2, 9);
+          const prov = provider;
+          const freshTab = {
+            id: newId,
+            provider: prov,
+            title: 'New Chat',
+            messages: [getWelcomeMessage(prov)],
+            draft: '',
+            pendingAttachment: null,
+            pinned: false,
+            updatedAt: Date.now()
+          };
+          setActiveTabId(newId);
+          currentDraftRef.current = '';
+          currentAttachmentRef.current = null;
+          setHistoryChats(prev => [{ ...freshTab, updatedAt: Date.now() }, ...prev]);
+          return [freshTab];
+        }
+      }
+      return remaining;
+    });
+  }, [activeTabId, provider]);
+
+  const handleTogglePinMessage = useCallback((msgId) => {
+    updateMessagesAndTitle(activeTabId, (msgs) => {
+      return msgs.map(m => m.id === msgId ? { ...m, pinned: !m.pinned } : m);
+    });
+  }, [activeTabId, updateMessagesAndTitle]);
+
+  const handleScrollToMessage = useCallback((msgId) => {
+    const el = document.getElementById(`chat-msg-${msgId}`);
+    if (el) {
+      el.scrollIntoView({ behavior: 'smooth', block: 'center' });
+      el.classList.add('chat-msg-highlight');
+      setTimeout(() => el.classList.remove('chat-msg-highlight'), 1500);
+    }
+  }, []);
 
   const handleCreateNewTab = useCallback((prov = provider) => {
     const newId = 'tab_' + Date.now() + '_' + Math.random().toString(36).substr(2, 9);
@@ -2362,12 +2668,15 @@ const AiChatPopup = ({
       title: 'New Chat',
       messages: [getWelcomeMessage(prov)],
       draft: '',
-      pendingAttachment: null
+      pendingAttachment: null,
+      pinned: false,
+      updatedAt: Date.now()
     };
     setChatTabs(prev => {
       const withDraft = prev.map(t => t.id === activeTabId ? { ...t, draft: currentDraftRef.current, pendingAttachment: currentAttachmentRef.current } : t);
       return [...withDraft, newTab];
     });
+    setHistoryChats(prev => [{ ...newTab, updatedAt: Date.now() }, ...prev]);
     currentDraftRef.current = '';
     currentAttachmentRef.current = null;
     setActiveTabId(newId);
@@ -2389,12 +2698,18 @@ const AiChatPopup = ({
       }
       return updated;
     });
+    setHistoryChats(prev => prev.map(t => {
+      if (t.id === activeTabId) {
+        return { ...t, draft: currentDraftRef.current, pendingAttachment: currentAttachmentRef.current, updatedAt: Date.now() };
+      }
+      return t;
+    }));
     setActiveTabId(tabId);
-    const tab = chatTabs.find(t => t.id === tabId);
+    const tab = chatTabs.find(t => t.id === tabId) || historyChats.find(t => t.id === tabId);
     if (tab && tab.provider) {
       setAnswerPanel(prev => ({ ...prev, provider: tab.provider }));
     }
-  }, [activeTabId, chatTabs]);
+  }, [activeTabId, chatTabs, historyChats]);
 
   const handleCloseTab = useCallback((e, tabId) => {
     if (e) e.stopPropagation();
@@ -2423,11 +2738,14 @@ const AiChatPopup = ({
               title: 'New Chat',
               messages: [getWelcomeMessage(prov)],
               draft: '',
-              pendingAttachment: null
+              pendingAttachment: null,
+              pinned: false,
+              updatedAt: Date.now()
             };
             setActiveTabId(newId);
             currentDraftRef.current = '';
             currentAttachmentRef.current = null;
+            setHistoryChats(prev => [{ ...freshTab, updatedAt: Date.now() }, ...prev]);
             return [freshTab];
           }
         }
@@ -2438,7 +2756,7 @@ const AiChatPopup = ({
   }, [activeTabId, provider]);
 
   const handleDuplicateTab = useCallback((tabId) => {
-    const tabToDup = chatTabs.find(t => t.id === tabId);
+    const tabToDup = chatTabs.find(t => t.id === tabId) || historyChats.find(t => t.id === tabId);
     if (!tabToDup) return;
 
     const newId = 'tab_' + Date.now() + '_' + Math.random().toString(36).substr(2, 9);
@@ -2448,26 +2766,35 @@ const AiChatPopup = ({
       title: tabToDup.title === 'New Chat' ? 'New Chat' : tabToDup.title + ' Copy',
       messages: JSON.parse(JSON.stringify(tabToDup.messages || [])),
       draft: tabToDup.id === activeTabId ? currentDraftRef.current : (tabToDup.draft || ''),
-      pendingAttachment: tabToDup.id === activeTabId ? currentAttachmentRef.current : (tabToDup.pendingAttachment || null)
+      pendingAttachment: tabToDup.id === activeTabId ? currentAttachmentRef.current : (tabToDup.pendingAttachment || null),
+      pinned: false,
+      updatedAt: Date.now()
     };
 
     setChatTabs(prev => {
       const idx = prev.findIndex(t => t.id === tabId);
       const updated = [...prev];
-      updated.splice(idx + 1, 0, dupTab);
+      if (idx !== -1) {
+        updated.splice(idx + 1, 0, dupTab);
+      } else {
+        updated.push(dupTab);
+      }
       return updated;
     });
+    setHistoryChats(prev => [{ ...dupTab, updatedAt: Date.now() }, ...prev]);
     setActiveTabId(newId);
     currentDraftRef.current = dupTab.draft || '';
     currentAttachmentRef.current = dupTab.pendingAttachment || null;
     if (dupTab.provider) {
       setAnswerPanel(prev => ({ ...prev, provider: dupTab.provider }));
     }
-  }, [chatTabs, activeTabId]);
+  }, [chatTabs, historyChats, activeTabId]);
 
   const handleRenameTab = useCallback((tabId, newTitle) => {
     if (!newTitle.trim()) return;
-    setChatTabs(prev => prev.map(t => t.id === tabId ? { ...t, title: newTitle.trim().slice(0, 20) } : t));
+    const title = newTitle.trim().slice(0, 20);
+    setChatTabs(prev => prev.map(t => t.id === tabId ? { ...t, title } : t));
+    setHistoryChats(prev => prev.map(t => t.id === tabId ? { ...t, title, updatedAt: Date.now() } : t));
     setRenamingTabId(null);
   }, []);
 
@@ -2485,31 +2812,19 @@ const AiChatPopup = ({
   }, [chatTabs]);
 
   const handleLikeMessage = useCallback((msgId) => {
-    setChatTabs(prev => prev.map(t => {
-      if (t.id === activeTabId) {
-        return {
-          ...t,
-          messages: t.messages.map(m => m.id === msgId ? { ...m, feedback: m.feedback === 'like' ? null : 'like' } : m)
-        };
-      }
-      return t;
-    }));
-  }, [activeTabId]);
+    updateMessagesAndTitle(activeTabId, (msgs) => {
+      return msgs.map(m => m.id === msgId ? { ...m, feedback: m.feedback === 'like' ? null : 'like' } : m);
+    });
+  }, [activeTabId, updateMessagesAndTitle]);
 
   const handleDislikeMessage = useCallback((msgId) => {
-    setChatTabs(prev => prev.map(t => {
-      if (t.id === activeTabId) {
-        return {
-          ...t,
-          messages: t.messages.map(m => m.id === msgId ? { ...m, feedback: m.feedback === 'dislike' ? null : 'dislike' } : m)
-        };
-      }
-      return t;
-    }));
-  }, [activeTabId]);
+    updateMessagesAndTitle(activeTabId, (msgs) => {
+      return msgs.map(m => m.id === msgId ? { ...m, feedback: m.feedback === 'dislike' ? null : 'dislike' } : m);
+    });
+  }, [activeTabId, updateMessagesAndTitle]);
 
   const handleBranchChat = useCallback((aiMsg) => {
-    const activeTab = chatTabs.find(t => t.id === activeTabId);
+    const activeTab = chatTabs.find(t => t.id === activeTabId) || historyChats.find(t => t.id === activeTabId);
     if (!activeTab) return;
 
     const msgIdx = activeTab.messages.findIndex(m => m.id === aiMsg.id);
@@ -2524,19 +2839,26 @@ const AiChatPopup = ({
       title: activeTab.title === 'New Chat' ? 'New Chat' : activeTab.title + ' Branch',
       messages: JSON.parse(JSON.stringify(prefixMessages)),
       draft: '',
-      pendingAttachment: null
+      pendingAttachment: null,
+      pinned: false,
+      updatedAt: Date.now()
     };
 
     setChatTabs(prev => {
       const idx = prev.findIndex(t => t.id === activeTabId);
       const updated = [...prev];
-      updated.splice(idx + 1, 0, branchedTab);
+      if (idx !== -1) {
+        updated.splice(idx + 1, 0, branchedTab);
+      } else {
+        updated.push(branchedTab);
+      }
       return updated;
     });
+    setHistoryChats(prev => [{ ...branchedTab, updatedAt: Date.now() }, ...prev]);
     setActiveTabId(newId);
     currentDraftRef.current = '';
     currentAttachmentRef.current = null;
-  }, [activeTabId, chatTabs]);
+  }, [activeTabId, chatTabs, historyChats]);
 
   const handleReadAloud = useCallback((msg) => {
     if (speakingMsgId === msg.id) {
@@ -2666,22 +2988,17 @@ const AiChatPopup = ({
           attachment: { ...activeAttachment }
         };
 
-        setChatTabs(prev => prev.map(t => {
-          if (t.id === currentTabId) {
-            const updatedMsgs = [...(t.messages || []), userMsg];
-            let newTitle = t.title;
-            if (t.title === 'New Chat') {
+        updateMessagesAndTitle(
+          currentTabId,
+          (msgs) => [...msgs, userMsg],
+          (tab) => {
+            if (tab.title === 'New Chat') {
               const words = trimmedQuery.trim().split(/\s+/);
-              newTitle = words.slice(0, 4).join(' ').slice(0, 20) || 'New Chat';
+              return words.slice(0, 4).join(' ').slice(0, 20) || 'New Chat';
             }
-            return {
-              ...t,
-              title: newTitle,
-              messages: updatedMsgs
-            };
+            return tab.title;
           }
-          return t;
-        }));
+        );
 
         const aiMsgId = 'msg_' + Date.now() + '_' + Math.random().toString(36).substr(2, 5);
         const aiMsg = {
@@ -2692,15 +3009,10 @@ const AiChatPopup = ({
         };
 
         setTimeout(() => {
-          setChatTabs(prev => prev.map(t => {
-            if (t.id === currentTabId) {
-              return {
-                ...t,
-                messages: [...(t.messages || []), aiMsg]
-              };
-            }
-            return t;
-          }));
+          updateMessagesAndTitle(
+            currentTabId,
+            (msgs) => [...msgs, aiMsg]
+          );
 
           setAnswerPanel((prev) => ({
             ...prev,
@@ -2732,22 +3044,17 @@ const AiChatPopup = ({
     const userMsg = { id: userMsgId, sender: 'user', text: trimmedQuery, attachment: committedAttachment };
 
     if (!isRetry) {
-      setChatTabs(prev => prev.map(t => {
-        if (t.id === currentTabId) {
-          const updatedMsgs = [...(t.messages || []), userMsg];
-          let newTitle = t.title;
-          if (t.title === 'New Chat') {
+      updateMessagesAndTitle(
+        currentTabId,
+        (msgs) => [...msgs, userMsg],
+        (tab) => {
+          if (tab.title === 'New Chat') {
             const words = trimmedQuery.trim().split(/\s+/);
-            newTitle = words.slice(0, 4).join(' ').slice(0, 20) || 'New Chat';
+            return words.slice(0, 4).join(' ').slice(0, 20) || 'New Chat';
           }
-          return {
-            ...t,
-            title: newTitle,
-            messages: updatedMsgs
-          };
+          return tab.title;
         }
-        return t;
-      }));
+      );
     }
 
     let route = '/api/ai/respond';
@@ -2788,15 +3095,10 @@ const AiChatPopup = ({
       const aiMsgId = 'msg_' + Date.now() + '_' + Math.random().toString(36).substr(2, 5);
       const aiMsg = { id: aiMsgId, sender: 'ai', text: payload.answer || '' };
 
-      setChatTabs(prev => prev.map(t => {
-        if (t.id === currentTabId) {
-          return {
-            ...t,
-            messages: [...(t.messages || []), aiMsg]
-          };
-        }
-        return t;
-      }));
+      updateMessagesAndTitle(
+        currentTabId,
+        (msgs) => [...msgs, aiMsg]
+      );
 
       setAnswerPanel((prev) => ({
         ...prev,
@@ -2827,10 +3129,10 @@ const AiChatPopup = ({
         error: textToShow,
       }));
     }
-  }, [answerPanel.status, activeTabId, onSaveSearchToHistory, handleCreateNewTab, PROVIDER_CAPABILITIES, handleGeminiError, providerOptions]);
+  }, [answerPanel.status, activeTabId, onSaveSearchToHistory, handleCreateNewTab, PROVIDER_CAPABILITIES, handleGeminiError, providerOptions, updateMessagesAndTitle]);
 
   const handleRetryLastPrompt = useCallback(() => {
-    const activeTab = chatTabs.find(t => t.id === activeTabId);
+    const activeTab = chatTabs.find(t => t.id === activeTabId) || historyChats.find(t => t.id === activeTabId);
     if (!activeTab) return;
 
     const lastUserMsg = [...(activeTab.messages || [])].reverse().find(m => m.sender === 'user');
@@ -2843,10 +3145,10 @@ const AiChatPopup = ({
     });
 
     void submitAiPrompt(activeTab.provider, lastUserMsg.text, lastUserMsg.attachment, true);
-  }, [chatTabs, activeTabId, submitAiPrompt]);
+  }, [chatTabs, historyChats, activeTabId, submitAiPrompt]);
 
   const handleRegenerate = useCallback((msgId) => {
-    const activeTab = chatTabs.find(t => t.id === activeTabId);
+    const activeTab = chatTabs.find(t => t.id === activeTabId) || historyChats.find(t => t.id === activeTabId);
     if (!activeTab) return;
 
     const msgIdx = activeTab.messages.findIndex((m) => m.id === msgId);
@@ -2864,18 +3166,13 @@ const AiChatPopup = ({
 
     const originalUserMsg = activeTab.messages[userMsgIdx];
 
-    setChatTabs(prev => prev.map(t => {
-      if (t.id === activeTabId) {
-        return {
-          ...t,
-          messages: t.messages.slice(0, userMsgIdx + 1)
-        };
-      }
-      return t;
-    }));
+    updateMessagesAndTitle(
+      activeTabId,
+      (msgs) => msgs.slice(0, userMsgIdx + 1)
+    );
 
     void submitAiPrompt(activeTab.provider, originalUserMsg.text, originalUserMsg.attachment, true);
-  }, [chatTabs, activeTabId, submitAiPrompt]);
+  }, [chatTabs, historyChats, activeTabId, submitAiPrompt, updateMessagesAndTitle]);
 
   const handleStartEditUserMessage = useCallback((msgId, text) => {
     setEditingMsgId(msgId);
@@ -2889,55 +3186,34 @@ const AiChatPopup = ({
     const updatedText = text.trim();
     if (!updatedText) return;
 
-    setChatTabs(prevTabs => {
-      return prevTabs.map(t => {
-        if (t.id === activeTabId) {
-          const msgIdx = t.messages.findIndex(m => m.id === msgId);
-          if (msgIdx === -1) return t;
-
-          const updatedUserMsg = {
-            ...t.messages[msgIdx],
-            text: updatedText
-          };
-
-          const truncatedMessages = t.messages.slice(0, msgIdx);
-          const newMessages = [...truncatedMessages, updatedUserMsg];
-
-          return {
-            ...t,
-            messages: newMessages
-          };
-        }
-        return t;
-      });
-    });
+    updateMessagesAndTitle(
+      activeTabId,
+      (msgs) => {
+        const msgIdx = msgs.findIndex(m => m.id === msgId);
+        if (msgIdx === -1) return msgs;
+        const updatedUserMsg = { ...msgs[msgIdx], text: updatedText };
+        return [...msgs.slice(0, msgIdx), updatedUserMsg];
+      }
+    );
 
     setEditingMsgId(null);
     void submitAiPrompt(provider, updatedText, attachment, true);
-  }, [activeTabId, provider, submitAiPrompt]);
+  }, [activeTabId, provider, submitAiPrompt, updateMessagesAndTitle]);
 
   const handleDeleteUserMessage = useCallback((msgId) => {
-    setChatTabs(prevTabs => {
-      return prevTabs.map(t => {
-        if (t.id === activeTabId) {
-          const msgIdx = t.messages.findIndex(m => m.id === msgId);
-          if (msgIdx === -1) return t;
-
-          const newMessages = t.messages.slice(0, msgIdx);
-          
-          if (newMessages.length === 0) {
-            newMessages.push(getWelcomeMessage(t.provider));
-          }
-
-          return {
-            ...t,
-            messages: newMessages
-          };
+    updateMessagesAndTitle(
+      activeTabId,
+      (msgs) => {
+        const msgIdx = msgs.findIndex(m => m.id === msgId);
+        if (msgIdx === -1) return msgs;
+        const newMessages = msgs.slice(0, msgIdx);
+        if (newMessages.length === 0) {
+          newMessages.push(getWelcomeMessage(provider));
         }
-        return t;
-      });
-    });
-  }, [activeTabId]);
+        return newMessages;
+      }
+    );
+  }, [activeTabId, provider, updateMessagesAndTitle]);
 
   useEffect(() => {
     if (pendingPrompt && pendingPrompt.text) {
@@ -2953,17 +3229,21 @@ const AiChatPopup = ({
   }, [chatTabs, provider]);
 
   useEffect(() => {
+    localStorage.setItem(`ddo_chat_history_${provider}`, JSON.stringify(historyChats));
+  }, [historyChats, provider]);
+
+  useEffect(() => {
     if (activeTabId) {
       localStorage.setItem(`ddo_active_tab_id_${provider}`, activeTabId);
     }
   }, [activeTabId, provider]);
 
   useEffect(() => {
-    const activeTab = chatTabs.find(t => t.id === activeTabId);
+    const activeTab = chatTabs.find(t => t.id === activeTabId) || historyChats.find(t => t.id === activeTabId);
     if (activeTab) {
       setChatHistory(activeTab.messages || []);
     }
-  }, [activeTabId, chatTabs]);
+  }, [activeTabId, chatTabs, historyChats]);
 
   useEffect(() => {
     window.speechSynthesis?.cancel();
@@ -2980,9 +3260,17 @@ const AiChatPopup = ({
         title: 'New Chat',
         messages: [getWelcomeMessage(prov)],
         draft: '',
-        pendingAttachment: null
+        pendingAttachment: null,
+        pinned: false,
+        updatedAt: Date.now()
       };
       setChatTabs([initialTab]);
+      setHistoryChats(prev => {
+        if (!prev.some(t => t.id === newId)) {
+          return [{ ...initialTab, updatedAt: Date.now() }, ...prev];
+        }
+        return prev;
+      });
       setActiveTabId(newId);
     } else {
       const savedActiveId = localStorage.getItem(`ddo_active_tab_id_${provider}`);
@@ -3004,6 +3292,30 @@ const AiChatPopup = ({
       }
     }
   }, []);
+
+  // Click outside history floating menu
+  useEffect(() => {
+    if (isMaximized || !isHistoryOpen) return;
+    const handleOutsideClick = (e) => {
+      if (historyMenuRef.current && !historyMenuRef.current.contains(e.target) && !e.target.closest('.center-search-answer-history-btn')) {
+        setIsHistoryOpen(false);
+      }
+    };
+    window.addEventListener('mousedown', handleOutsideClick);
+    return () => window.removeEventListener('mousedown', handleOutsideClick);
+  }, [isHistoryOpen, isMaximized]);
+
+  // Escape key to close history floating menu
+  useEffect(() => {
+    if (isMaximized || !isHistoryOpen) return;
+    const handleKeyDown = (e) => {
+      if (e.key === 'Escape') {
+        setIsHistoryOpen(false);
+      }
+    };
+    window.addEventListener('keydown', handleKeyDown);
+    return () => window.removeEventListener('keydown', handleKeyDown);
+  }, [isHistoryOpen, isMaximized]);
 
   useEffect(() => {
     if (!contextMenu) return;
@@ -3137,6 +3449,14 @@ const AiChatPopup = ({
     >
       <div className="center-search-answer-header">
         <div style={{ display: 'flex', alignItems: 'center', gap: '10px' }}>
+          <button
+            type="button"
+            className={`center-search-answer-action-btn center-search-answer-history-btn ${isHistoryOpen ? 'is-active' : ''}`}
+            onClick={() => setIsHistoryOpen(!isHistoryOpen)}
+            title="Chat History"
+          >
+            <Sidebar size={15} />
+          </button>
           <div className="center-search-answer-title">
             <ActiveAnswerIcon size={15} />
             <span>{activeAnswerProvider.label}</span>
@@ -3183,160 +3503,442 @@ const AiChatPopup = ({
         </div>
       </div>
 
-      <ChatTabsBar
-        chatTabs={chatTabs}
-        activeTabId={activeTabId}
-        renamingTabId={renamingTabId}
-        renamingTitle={renamingTitle}
-        closingTabIds={closingTabIds}
-        onSwitchTab={handleSwitchTab}
-        onContextMenu={setContextMenu}
-        onRenameTab={handleRenameTab}
-        onCloseTab={handleCloseTab}
-        onCreateNewTab={handleCreateNewTab}
-        setRenamingTabId={setRenamingTabId}
-        setRenamingTitle={setRenamingTitle}
-        provider={provider}
-      />
+      <div className="ai-chat-layout-container">
+        {isMaximized && isHistoryOpen && (
+          <div className="ai-chat-history-sidebar">
+            <div className="ai-chat-history-search-container">
+              <Search size={13} className="ai-chat-history-search-icon" />
+              <input
+                type="text"
+                className="ai-chat-history-search-input"
+                placeholder="Search history..."
+                value={historySearchQuery}
+                onChange={(e) => setHistorySearchQuery(e.target.value)}
+              />
+              {historySearchQuery && (
+                <button
+                  type="button"
+                  className="ai-chat-history-search-clear"
+                  onClick={() => setHistorySearchQuery('')}
+                >
+                  <X size={10} />
+                </button>
+              )}
+            </div>
 
-      {contextMenu && (
-        <div
-          className="tab-context-menu"
-          style={{ top: contextMenu.y, left: contextMenu.x }}
-          onClick={(e) => e.stopPropagation()}
-        >
-          <div
-            className="tab-context-menu-item"
-            onClick={() => {
-              setRenamingTabId(contextMenu.tabId);
-              const tab = chatTabs.find(t => t.id === contextMenu.tabId);
-              setRenamingTitle(tab ? tab.title : 'New Chat');
-              setContextMenu(null);
-            }}
-          >
-            <Edit2 size={11} />
-            <span>Rename tab</span>
-          </div>
-          <div
-            className="tab-context-menu-item"
-            onClick={() => {
-              handleDuplicateTab(contextMenu.tabId);
-              setContextMenu(null);
-            }}
-          >
-            <Copy size={11} />
-            <span>Duplicate tab</span>
-          </div>
-          <div
-            className="tab-context-menu-item"
-            onClick={(e) => {
-              handleCloseTab(e, contextMenu.tabId);
-              setContextMenu(null);
-            }}
-          >
-            <X size={11} />
-            <span>Close tab</span>
-          </div>
-          <div
-            className="tab-context-menu-item"
-            onClick={() => {
-              handleCloseOtherTabs(contextMenu.tabId);
-              setContextMenu(null);
-            }}
-          >
-            <Layers size={11} />
-            <span>Close other tabs</span>
-          </div>
-        </div>
-      )}
+            <div className="ai-chat-history-list">
+              {historyGroups.pinned.length > 0 && (
+                <div className="ai-chat-history-group">
+                  <div className="ai-chat-history-group-label">Pinned</div>
+                  {historyGroups.pinned.map(chat => (
+                    <div
+                      key={chat.id}
+                      className={`ai-chat-history-item ${chat.id === activeTabId ? 'is-active' : ''}`}
+                      onClick={() => handleReopenChat(chat.id)}
+                    >
+                      {renamingHistoryId === chat.id ? (
+                        <input
+                          type="text"
+                          className="ai-chat-history-item-rename-input"
+                          value={renamingHistoryTitle}
+                          onChange={(e) => setRenamingHistoryTitle(e.target.value)}
+                          onBlur={() => handleRenameHistoryChat(chat.id, renamingHistoryTitle)}
+                          onKeyDown={(e) => {
+                            if (e.key === 'Enter') handleRenameHistoryChat(chat.id, renamingHistoryTitle);
+                            if (e.key === 'Escape') setRenamingHistoryId(null);
+                          }}
+                          autoFocus
+                          onClick={(e) => e.stopPropagation()}
+                        />
+                      ) : (
+                        <>
+                          <span className="ai-chat-history-item-title" title={chat.title}>
+                            {chat.title || 'New Chat'}
+                          </span>
+                          <div className="ai-chat-history-item-actions">
+                            <button
+                              type="button"
+                              className="ai-chat-history-item-action-btn"
+                              onClick={(e) => {
+                                e.stopPropagation();
+                                handleTogglePinChat(chat.id);
+                              }}
+                              title="Unpin chat"
+                            >
+                              <PinOff size={11} />
+                            </button>
+                            <button
+                              type="button"
+                              className="ai-chat-history-item-action-btn"
+                              onClick={(e) => {
+                                e.stopPropagation();
+                                setRenamingHistoryId(chat.id);
+                                setRenamingHistoryTitle(chat.title || 'New Chat');
+                              }}
+                              title="Rename chat"
+                            >
+                              <Edit2 size={11} />
+                            </button>
+                            <button
+                              type="button"
+                              className="ai-chat-history-item-action-btn delete"
+                              onClick={(e) => {
+                                e.stopPropagation();
+                                handleDeleteHistoryChat(chat.id);
+                              }}
+                              title="Delete chat"
+                            >
+                              <Trash2 size={11} />
+                            </button>
+                          </div>
+                        </>
+                      )}
+                    </div>
+                  ))}
+                </div>
+              )}
 
-      <div className="center-search-answer-body">
-        <MessageList
-          chatHistory={chatHistory}
-          provider={provider}
-          activeMenuMsgId={activeMenuMsgId}
-          onToggleMenu={setActiveMenuMsgId}
-          activeSourcesMsgId={activeSourcesMsgId}
-          onToggleSources={handleViewSources}
-          speakingMsgId={speakingMsgId}
-          onReadAloud={handleReadAloud}
-          editingMsgId={editingMsgId}
-          onStartEdit={handleStartEditUserMessage}
-          onCancelEdit={handleCancelEdit}
-          onSaveEdit={handleSaveEdit}
-          onDelete={handleDeleteUserMessage}
-          onLike={handleLikeMessage}
-          onDislike={handleDislikeMessage}
-          onBranch={handleBranchChat}
-          onRegenerate={handleRegenerate}
-          onViewSources={handleViewSources}
-          isLoading={answerPanel.status === 'loading'}
-          extractSourcesFromText={extractSourcesFromText}
-          openSourceUrl={openSourceUrl}
-          chatBottomRef={chatBottomRef}
-          tabErrorText={tabErrors[activeTabId]}
-          onRetryLastPrompt={handleRetryLastPrompt}
-        />
-      </div>
+              {historyGroups.unpinnedGroups.map(([label, chats]) => (
+                <div key={label} className="ai-chat-history-group">
+                  <div className="ai-chat-history-group-label">{label}</div>
+                  {chats.map(chat => (
+                    <div
+                      key={chat.id}
+                      className={`ai-chat-history-item ${chat.id === activeTabId ? 'is-active' : ''}`}
+                      onClick={() => handleReopenChat(chat.id)}
+                    >
+                      {renamingHistoryId === chat.id ? (
+                        <input
+                          type="text"
+                          className="ai-chat-history-item-rename-input"
+                          value={renamingHistoryTitle}
+                          onChange={(e) => setRenamingHistoryTitle(e.target.value)}
+                          onBlur={() => handleRenameHistoryChat(chat.id, renamingHistoryTitle)}
+                          onKeyDown={(e) => {
+                            if (e.key === 'Enter') handleRenameHistoryChat(chat.id, renamingHistoryTitle);
+                            if (e.key === 'Escape') setRenamingHistoryId(null);
+                          }}
+                          autoFocus
+                          onClick={(e) => e.stopPropagation()}
+                        />
+                      ) : (
+                        <>
+                          <span className="ai-chat-history-item-title" title={chat.title}>
+                            {chat.title || 'New Chat'}
+                          </span>
+                          <div className="ai-chat-history-item-actions">
+                            <button
+                              type="button"
+                              className="ai-chat-history-item-action-btn"
+                              onClick={(e) => {
+                                e.stopPropagation();
+                                handleTogglePinChat(chat.id);
+                              }}
+                              title="Pin chat"
+                            >
+                              <Pin size={11} />
+                            </button>
+                            <button
+                              type="button"
+                              className="ai-chat-history-item-action-btn"
+                              onClick={(e) => {
+                                e.stopPropagation();
+                                setRenamingHistoryId(chat.id);
+                                setRenamingHistoryTitle(chat.title || 'New Chat');
+                              }}
+                              title="Rename chat"
+                            >
+                              <Edit2 size={11} />
+                            </button>
+                            <button
+                              type="button"
+                              className="ai-chat-history-item-action-btn delete"
+                              onClick={(e) => {
+                                e.stopPropagation();
+                                handleDeleteHistoryChat(chat.id);
+                              }}
+                              title="Delete chat"
+                            >
+                              <Trash2 size={11} />
+                            </button>
+                          </div>
+                        </>
+                      )}
+                    </div>
+                  ))}
+                </div>
+              ))}
+            </div>
 
-      {provider === 'gemini' && cooldownSecondsLeft > 0 && (
-        <div 
-          className="gemini-quota-card"
-          style={{
-            margin: '8px 12px',
-            padding: '10px 12px',
-            border: '1px solid #f87171',
-            borderRadius: '6px',
-            background: 'rgba(239, 68, 68, 0.15)',
-            color: '#fca5a5',
-            fontSize: '11px',
-            lineHeight: '1.4',
-            display: 'flex',
-            flexDirection: 'column',
-            gap: '4px',
-          }}
-        >
-          <div style={{ fontWeight: 'bold', fontSize: '12px', color: '#f87171' }}>
-            Gemini limit reached
-          </div>
-          <div>Model: gemini-2.5-flash</div>
-          <div>Free requests limit: 20</div>
-          <div>Retry available in: {cooldownSecondsLeft}s</div>
-          <div style={{ marginTop: '6px' }}>
             <button
               type="button"
-              style={{
-                background: 'rgba(255, 255, 255, 0.1)',
-                border: '1px solid rgba(255, 255, 255, 0.2)',
-                borderRadius: '4px',
-                color: 'white',
-                padding: '3px 6px',
-                cursor: 'pointer',
-                fontSize: '10px',
-              }}
-              onClick={() => {
-                if (onSwitchToStepFun) {
-                  onSwitchToStepFun();
-                }
-              }}
+              className="ai-chat-history-floating-new-btn"
+              onClick={() => handleCreateNewTab()}
+              style={{ marginTop: 'auto' }}
             >
-              Use StepFun AI instead
+              <Plus size={12} />
+              <span>New Chat</span>
             </button>
           </div>
+        )}
+
+        <div className="ai-chat-main-area">
+          <ChatTabsBar
+            chatTabs={chatTabs}
+            activeTabId={activeTabId}
+            renamingTabId={renamingTabId}
+            renamingTitle={renamingTitle}
+            closingTabIds={closingTabIds}
+            onSwitchTab={handleSwitchTab}
+            onContextMenu={setContextMenu}
+            onRenameTab={handleRenameTab}
+            onCloseTab={handleCloseTab}
+            onCreateNewTab={handleCreateNewTab}
+            setRenamingTabId={setRenamingTabId}
+            setRenamingTitle={setRenamingTitle}
+            provider={provider}
+          />
+
+          {contextMenu && (
+            <div
+              className="tab-context-menu"
+              style={{ top: contextMenu.y, left: contextMenu.x }}
+              onClick={(e) => e.stopPropagation()}
+            >
+              <div
+                className="tab-context-menu-item"
+                onClick={() => {
+                  setRenamingTabId(contextMenu.tabId);
+                  const tab = chatTabs.find(t => t.id === contextMenu.tabId);
+                  setRenamingTitle(tab ? tab.title : 'New Chat');
+                  setContextMenu(null);
+                }}
+              >
+                <Edit2 size={11} />
+                <span>Rename tab</span>
+              </div>
+              <div
+                className="tab-context-menu-item"
+                onClick={() => {
+                  handleDuplicateTab(contextMenu.tabId);
+                  setContextMenu(null);
+                }}
+              >
+                <Copy size={11} />
+                <span>Duplicate tab</span>
+              </div>
+              <div
+                className="tab-context-menu-item"
+                onClick={(e) => {
+                  handleCloseTab(e, contextMenu.tabId);
+                  setContextMenu(null);
+                }}
+              >
+                <X size={11} />
+                <span>Close tab</span>
+              </div>
+              <div
+                className="tab-context-menu-item"
+                onClick={() => {
+                  handleCloseOtherTabs(contextMenu.tabId);
+                  setContextMenu(null);
+                }}
+              >
+                <Layers size={11} />
+                <span>Close other tabs</span>
+              </div>
+            </div>
+          )}
+
+          <div className="center-search-answer-body">
+            <PinnedMessagesSection
+              messages={chatHistory}
+              onTogglePin={handleTogglePinMessage}
+              onScrollToMessage={handleScrollToMessage}
+            />
+            <MessageList
+              chatHistory={chatHistory}
+              provider={provider}
+              activeMenuMsgId={activeMenuMsgId}
+              onToggleMenu={setActiveMenuMsgId}
+              activeSourcesMsgId={activeSourcesMsgId}
+              onToggleSources={handleViewSources}
+              speakingMsgId={speakingMsgId}
+              onReadAloud={handleReadAloud}
+              editingMsgId={editingMsgId}
+              onStartEdit={handleStartEditUserMessage}
+              onCancelEdit={handleCancelEdit}
+              onSaveEdit={handleSaveEdit}
+              onDelete={handleDeleteUserMessage}
+              onLike={handleLikeMessage}
+              onDislike={handleDislikeMessage}
+              onBranch={handleBranchChat}
+              onRegenerate={handleRegenerate}
+              onViewSources={handleViewSources}
+              isLoading={answerPanel.status === 'loading'}
+              extractSourcesFromText={extractSourcesFromText}
+              openSourceUrl={openSourceUrl}
+              chatBottomRef={chatBottomRef}
+              tabErrorText={tabErrors[activeTabId]}
+              onRetryLastPrompt={handleRetryLastPrompt}
+              onTogglePin={handleTogglePinMessage}
+            />
+          </div>
+
+          {provider === 'gemini' && cooldownSecondsLeft > 0 && (
+            <div 
+              className="gemini-quota-card"
+              style={{
+                margin: '8px 12px',
+                padding: '10px 12px',
+                border: '1px solid #f87171',
+                borderRadius: '6px',
+                background: 'rgba(239, 68, 68, 0.15)',
+                color: '#fca5a5',
+                fontSize: '11px',
+                lineHeight: '1.4',
+                display: 'flex',
+                flexDirection: 'column',
+                gap: '4px',
+              }}
+            >
+              <div style={{ fontWeight: 'bold', fontSize: '12px', color: '#f87171' }}>
+                Gemini limit reached
+              </div>
+              <div>Model: gemini-2.5-flash</div>
+              <div>Free requests limit: 20</div>
+              <div>Retry available in: {cooldownSecondsLeft}s</div>
+              <div style={{ marginTop: '6px' }}>
+                <button
+                  type="button"
+                  style={{
+                    background: 'rgba(255, 255, 255, 0.1)',
+                    border: '1px solid rgba(255, 255, 255, 0.2)',
+                    borderRadius: '4px',
+                    color: 'white',
+                    padding: '3px 6px',
+                    cursor: 'pointer',
+                    fontSize: '10px',
+                  }}
+                  onClick={() => {
+                    if (onSwitchToStepFun) {
+                      onSwitchToStepFun();
+                    }
+                  }}
+                >
+                  Use StepFun AI instead
+                </button>
+              </div>
+            </div>
+          )}
+
+          <ChatInputArea
+            key={activeTabId}
+            initialDraft={initialDraft}
+            initialAttachment={initialAttachment}
+            provider={provider}
+            disabled={answerPanel.status === 'loading' || (provider === 'gemini' && cooldownSecondsLeft > 0)}
+            cooldownSecondsLeft={cooldownSecondsLeft}
+            onSubmit={handleFormSubmit}
+            onDraftChange={handleDraftChange}
+            openOpenRouterPopup={openOpenRouterPopup}
+          />
+        </div>
+      </div>
+
+      {/* Floating Menu for small popups */}
+      {!isMaximized && isHistoryOpen && (
+        <div className="ai-chat-history-floating-menu popup-aurora-surface" ref={historyMenuRef}>
+          <div className="ai-chat-history-floating-header">
+            <span>Chat History</span>
+            <button
+              type="button"
+              className="ai-chat-history-floating-close-btn"
+              onClick={() => setIsHistoryOpen(false)}
+            >
+              <X size={12} />
+            </button>
+          </div>
+          
+          <div className="ai-chat-history-search-container">
+            <Search size={13} className="ai-chat-history-search-icon" />
+            <input
+              type="text"
+              className="ai-chat-history-search-input"
+              placeholder="Search history..."
+              value={historySearchQuery}
+              onChange={(e) => setHistorySearchQuery(e.target.value)}
+            />
+            {historySearchQuery && (
+              <button
+                type="button"
+                className="ai-chat-history-search-clear"
+                onClick={() => setHistorySearchQuery('')}
+              >
+                <X size={10} />
+              </button>
+            )}
+          </div>
+
+          <div className="ai-chat-history-floating-list">
+            {sortedHistory.length > 0 ? (
+              sortedHistory.map(chat => (
+                <div
+                  key={chat.id}
+                  className={`ai-chat-history-floating-item ${chat.id === activeTabId ? 'is-active' : ''}`}
+                  onClick={() => {
+                    handleReopenChat(chat.id);
+                    setIsHistoryOpen(false);
+                  }}
+                >
+                  <span className="ai-chat-history-floating-item-title" title={chat.title}>
+                    {chat.pinned && <Pin size={10} className="ai-chat-history-floating-pin-indicator" fill="#fcd34d" />}
+                    {chat.title || 'New Chat'}
+                  </span>
+                  <div className="ai-chat-history-floating-item-actions">
+                    <button
+                      type="button"
+                      className="ai-chat-history-item-action-btn"
+                      onClick={(e) => {
+                        e.stopPropagation();
+                        handleTogglePinChat(chat.id);
+                      }}
+                      title={chat.pinned ? 'Unpin chat' : 'Pin chat'}
+                    >
+                      {chat.pinned ? <PinOff size={10} /> : <Pin size={10} />}
+                    </button>
+                    <button
+                      type="button"
+                      className="ai-chat-history-item-action-btn delete"
+                      onClick={(e) => {
+                        e.stopPropagation();
+                        handleDeleteHistoryChat(chat.id);
+                      }}
+                      title="Delete chat"
+                    >
+                      <Trash2 size={10} />
+                    </button>
+                  </div>
+                </div>
+              ))
+            ) : (
+              <div className="ai-chat-history-empty-text">No recent chats found</div>
+            )}
+          </div>
+          
+          <button
+            type="button"
+            className="ai-chat-history-floating-new-btn"
+            onClick={() => {
+              handleCreateNewTab();
+              setIsHistoryOpen(false);
+            }}
+          >
+            <Plus size={12} />
+            <span>New Chat</span>
+          </button>
         </div>
       )}
-
-      <ChatInputArea
-        key={activeTabId}
-        initialDraft={initialDraft}
-        initialAttachment={initialAttachment}
-        provider={provider}
-        disabled={answerPanel.status === 'loading' || (provider === 'gemini' && cooldownSecondsLeft > 0)}
-        cooldownSecondsLeft={cooldownSecondsLeft}
-        onSubmit={handleFormSubmit}
-        onDraftChange={handleDraftChange}
-        openOpenRouterPopup={openOpenRouterPopup}
-      />
     </div>,
     document.body
   );

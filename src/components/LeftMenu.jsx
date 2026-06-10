@@ -20,6 +20,19 @@ import { useDraggablePopup } from '../utils/useDraggablePopup';
 const YOUTUBE_SHORTS_URL = 'https://www.youtube.com/shorts';
 const BACKGROUND_ANIMATION_STORAGE_KEY = 'background_animation_mode';
 
+const openExternalUrl = (url) => {
+  if (!url) return;
+  if (window.__TAURI__?.shell?.open) {
+    try {
+      window.__TAURI__.shell.open(url);
+      return;
+    } catch (e) {
+      console.error("Tauri shell open failed", e);
+    }
+  }
+  window.open(url, "_blank", "noopener,noreferrer");
+};
+
 const WindowsStatusIcon = () => (
   <svg
     width="14"
@@ -206,7 +219,7 @@ const LeftMenu = ({ onPopupStateChange = () => {} }) => {
   const handleViewOptionClick = (option) => {
     if (option === 'Shorts') {
       setIsViewPopupOpen(false);
-      window.open(YOUTUBE_SHORTS_URL, '_blank', 'noopener,noreferrer');
+      openExternalUrl(YOUTUBE_SHORTS_URL);
     }
   };
 
