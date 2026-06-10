@@ -434,6 +434,25 @@ export default function Translator() {
     setTimeout(() => setCopied(false), 2000);
   };
 
+  const handleSwap = () => {
+    if (sourceLang === 'auto') return;
+
+    const prevSource = sourceLang;
+    const prevTarget = targetLang;
+
+    setSourceLang(prevTarget);
+    setTargetLang(prevSource);
+
+    const prevInput = inputText;
+    const prevTranslated = translatedText;
+
+    setInputText(prevTranslated || '');
+    setTranslatedText(prevInput || '');
+
+    setError('');
+    setStatusText('');
+  };
+
   const sourceOptions = [{ code: 'auto', name: 'Auto Detect' }, ...LANGUAGES];
 
   return (
@@ -458,6 +477,7 @@ export default function Translator() {
         <button
           type="button"
           onClick={handleSwap}
+          disabled={sourceLang === 'auto' || isLoading || isOcrLoading}
           className="ddo-translator-btn-icon swap-btn"
           title="Swap Languages"
         >
