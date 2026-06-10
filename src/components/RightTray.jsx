@@ -1,11 +1,12 @@
 import { useState, useEffect, useRef, useCallback } from 'react';
 import { createPortal } from 'react-dom';
-import { Wifi, Bluetooth, Bell, X, User, Phone, Mail, Users, Briefcase, Plus, ChevronDown, Smartphone, MoreVertical, Zap, HeartPulse, Gauge, Clock3, Leaf, Thermometer, Square, Lock, Check, LoaderCircle, RefreshCw, LayoutGrid, Search as SearchIcon, Settings, Music4, Volume, Volume1, Volume2, VolumeX, Shield, TriangleAlert, Eye, EyeOff, LogOut, Calculator as CalculatorIcon } from 'lucide-react';
+import { Wifi, Bluetooth, Bell, X, User, Phone, Mail, Users, Briefcase, Plus, ChevronDown, Smartphone, MoreVertical, Zap, HeartPulse, Gauge, Clock3, Leaf, Thermometer, Square, Lock, Check, LoaderCircle, RefreshCw, LayoutGrid, Search as SearchIcon, Settings, Music4, Volume, Volume1, Volume2, VolumeX, Shield, TriangleAlert, Eye, EyeOff, LogOut, Calculator as CalculatorIcon, Languages as LanguagesIcon } from 'lucide-react';
 import { FaWhatsapp, FaSpotify } from 'react-icons/fa';
 import CenterSearch from './CenterSearch';
 import BrandLogo from './BrandLogo';
 import { useDraggablePopup } from '../utils/useDraggablePopup';
 import Calculator from '../../calculator/Calculator';
+import Translator from '../../translator/Translator';
 import {
   clearStoredAuthSession,
   createAuthHeaders,
@@ -485,6 +486,10 @@ const RightTray = ({ onPopupStateChange = () => {} }) => {
   // Calculator Popup States
   const [isCalcOpen, setIsCalcOpen] = useState(false);
   const calcPopupRef = useRef(null);
+
+  // Translator Popup States
+  const [isTranslatorOpen, setIsTranslatorOpen] = useState(false);
+  const translatorPopupRef = useRef(null);
 
   // WhatsApp Popup States
   const [isWaOpen, setIsWaOpen] = useState(false);
@@ -1408,6 +1413,22 @@ const RightTray = ({ onPopupStateChange = () => {} }) => {
     };
   }, []);
 
+  // Translator Popup Click Outside
+  useEffect(() => {
+    const handleTranslatorClickOutside = (event) => {
+      if (document.querySelector('.ddo-capture-overlay')) {
+        return;
+      }
+      if (translatorPopupRef.current && !translatorPopupRef.current.contains(event.target)) {
+        setIsTranslatorOpen(false);
+      }
+    };
+    document.addEventListener('mousedown', handleTranslatorClickOutside);
+    return () => {
+      document.removeEventListener('mousedown', handleTranslatorClickOutside);
+    };
+  }, []);
+
   // WhatsApp Popup Click Outside
   useEffect(() => {
     const handleWaClickOutside = (event) => {
@@ -1682,6 +1703,7 @@ const RightTray = ({ onPopupStateChange = () => {} }) => {
 
   const toggleCalculator = () => {
     if (!isCalcOpen) {
+      setIsTranslatorOpen(false);
       setIsWaOpen(false);
       setIsWaSendMsgOpen(false);
       setIsAddContactOpen(false);
@@ -1700,6 +1722,29 @@ const RightTray = ({ onPopupStateChange = () => {} }) => {
       setIsAppSecurityOpen(false);
     }
     setIsCalcOpen(!isCalcOpen);
+  };
+
+  const toggleTranslator = () => {
+    if (!isTranslatorOpen) {
+      setIsCalcOpen(false);
+      setIsWaOpen(false);
+      setIsWaSendMsgOpen(false);
+      setIsAddContactOpen(false);
+      setActiveMenuContact(null);
+      setDetailsContact(null);
+      closeSpotifyPopups();
+      setIsWifiDropdownOpen(false);
+      setIsBluetoothPopupOpen(false);
+      setIsNotificationsOpen(false);
+      setIsTimePopupOpen(false);
+      setIsUsStatusPopupOpen(false);
+      setIsAppLauncherOpen(false);
+      setIsAppPickerOpen(false);
+      setIsAppSettingsOpen(false);
+      setIsAppPrivacyOpen(false);
+      setIsAppSecurityOpen(false);
+    }
+    setIsTranslatorOpen(!isTranslatorOpen);
   };
 
   function toggleSpotifyNowPlayingPopup() {
@@ -3228,6 +3273,54 @@ const RightTray = ({ onPopupStateChange = () => {} }) => {
               </button>
             </div>
             <Calculator />
+          </div>
+        </div>
+
+        {/* Translator Icon with Popup */}
+        <div style={{ position: 'relative' }} ref={translatorPopupRef}>
+          <div 
+            className="flex-center icon-item" 
+            onClick={toggleTranslator}
+            style={{ background: isTranslatorOpen ? 'var(--hover-bg)' : 'transparent' }}
+            title="Translator"
+          >
+            <LanguagesIcon size={14} color="white" />
+          </div>
+
+          {/* Translator Popup Dropdown */}
+          <div className="popup-aurora-surface" style={{
+            position: 'absolute',
+            top: '100%',
+            right: -140, // Centered relative to icon
+            marginTop: '10px',
+            background: 'var(--menu-bg)',
+            backdropFilter: 'blur(30px)',
+            WebkitBackdropFilter: 'blur(30px)',
+            borderRadius: '16px',
+            border: '1px solid var(--menu-border)',
+            padding: '12px',
+            boxShadow: '0 10px 30px rgba(0,0,0,0.6)',
+            opacity: isTranslatorOpen ? 1 : 0,
+            visibility: isTranslatorOpen ? 'visible' : 'hidden',
+            transform: isTranslatorOpen ? 'translateY(0) scale(1)' : 'translateY(-10px) scale(0.95)',
+            transition: 'all 0.25s cubic-bezier(0.16, 1, 0.3, 1)',
+            pointerEvents: isTranslatorOpen ? 'auto' : 'none',
+            zIndex: 100,
+            display: 'flex',
+            flexDirection: 'column',
+            gap: '8px'
+          }}>
+            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', padding: '0 4px', color: 'rgba(255,255,255,0.7)' }}>
+              <span style={{ fontSize: '12px', fontWeight: '500' }}>Translator</span>
+              <button 
+                type="button"
+                onClick={() => setIsTranslatorOpen(false)}
+                style={{ cursor: 'pointer', background: 'rgba(255,255,255,0.1)', border: 'none', borderRadius: '50%', padding: '4px', display: 'flex', alignItems: 'center', justifyContent: 'center', color: 'white' }}
+              >
+                <X size={12} />
+              </button>
+            </div>
+            <Translator />
           </div>
         </div>
 

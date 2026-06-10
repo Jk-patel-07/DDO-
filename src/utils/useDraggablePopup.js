@@ -1,7 +1,23 @@
 import { useState, useEffect, useRef } from 'react';
 
+const isAiPopup = (key) => {
+  if (!key) return false;
+  const lowercaseKey = key.toLowerCase();
+  return (
+    lowercaseKey === 'gemini' ||
+    lowercaseKey === 'stepfun' ||
+    lowercaseKey === 'manus' ||
+    lowercaseKey === 'meta' ||
+    lowercaseKey.includes('ai') ||
+    lowercaseKey.includes('chat')
+  ) && !lowercaseKey.includes('animation');
+};
+
 export function useDraggablePopup(popupKey) {
+  const isAi = isAiPopup(popupKey);
+
   const [position, setPosition] = useState(() => {
+    if (!isAi) return null;
     try {
       const saved = localStorage.getItem(`popup-position-${popupKey}`);
       return saved ? JSON.parse(saved) : null;
@@ -16,6 +32,7 @@ export function useDraggablePopup(popupKey) {
   const popupRef = useRef(null);
 
   const onMouseDown = (e) => {
+    if (!isAi) return;
     if (e.button !== 0) return; // Only left click
     
     let startX = 0;
@@ -40,7 +57,7 @@ export function useDraggablePopup(popupKey) {
   };
 
   useEffect(() => {
-    if (!dragging) return;
+    if (!dragging || !isAi) return;
 
     const onMouseMove = (e) => {
       const dx = e.clientX - dragStartRef.current.x;
@@ -73,9 +90,10 @@ export function useDraggablePopup(popupKey) {
       window.removeEventListener('mousemove', onMouseMove);
       window.removeEventListener('mouseup', onMouseUp);
     };
-  }, [dragging]);
+  }, [dragging, isAi]);
 
   useEffect(() => {
+    if (!isAi) return;
     if (position) {
       try {
         localStorage.setItem(`popup-position-${popupKey}`, JSON.stringify(position));
@@ -83,7 +101,7 @@ export function useDraggablePopup(popupKey) {
         // ignore
       }
     }
-  }, [position, popupKey]);
+  }, [position, popupKey, isAi]);
 
   const resetPosition = () => {
     setPosition(null);
@@ -103,6 +121,19 @@ export function useDraggablePopup(popupKey) {
     e.preventDefault();
     resetPosition();
   };
+
+  if (!isAi) {
+    return {
+      position: null,
+      setPosition: () => {},
+      dragging: false,
+      popupRef,
+      dragStyle: {},
+      dragProps: {
+        style: { display: 'none' }
+      }
+    };
+  }
 
   const dragStyle = position ? {
     position: 'fixed',
