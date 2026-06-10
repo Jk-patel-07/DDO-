@@ -546,6 +546,7 @@ const CenterSearch = ({ onPopupStateChange = () => {} }) => {
   const accountPopupRef = useRef(null);
   const searchDrag = useDraggablePopup('search');
   const googleTokenClientRef = useRef(null);
+  const isSearchSubmittingRef = useRef(false);
   const [activePopup, setActivePopup] = useState(null);
   const [query, setQuery] = useState('');
   const [googleAccount, setGoogleAccount] = useState(() => readStoredGoogleAccount());
@@ -859,11 +860,23 @@ const CenterSearch = ({ onPopupStateChange = () => {} }) => {
   };
 
   const handleSearchSubmit = (event) => {
-    if (event.key !== 'Enter') {
+    if (event) {
+      event.preventDefault();
+    }
+    if (isSearchSubmittingRef.current) {
+      return;
+    }
+    const trimmedQuery = query.trim();
+    if (!trimmedQuery) {
       return;
     }
 
+    isSearchSubmittingRef.current = true;
     void submitQuery();
+
+    setTimeout(() => {
+      isSearchSubmittingRef.current = false;
+    }, 500);
   };
 
   const handleProviderChange = (providerId) => {
@@ -963,8 +976,9 @@ const CenterSearch = ({ onPopupStateChange = () => {} }) => {
 
       {activePopup === 'search' && (
         <div ref={searchDrag.popupRef} style={searchDrag.dragStyle} className="center-search-popup">
-          <div
+          <form
             className={`center-search-bar ${activePopup === 'search' ? 'is-open' : ''}`}
+            onSubmit={handleSearchSubmit}
           >
             <button
               type="button"
@@ -983,7 +997,6 @@ const CenterSearch = ({ onPopupStateChange = () => {} }) => {
                 value={query}
                 onChange={(e) => setQuery(e.target.value)}
                 onFocus={() => setActivePopup('search')}
-                onKeyDown={handleSearchSubmit}
                 className="center-search-input"
               />
             </div>
@@ -1000,13 +1013,13 @@ const CenterSearch = ({ onPopupStateChange = () => {} }) => {
                 <Mic size={24} strokeWidth={1.9} />
               </button>
 
-              <button type="button" className="center-search-voice-orb" aria-label="Submit search" onClick={() => void submitQuery()}>
+              <button type="submit" className="center-search-voice-orb" aria-label="Submit search">
                 <span />
                 <span />
                 <span />
               </button>
             </div>
-          </div>
+          </form>
 
           <div className="center-search-dropdown popup-aurora-surface">
             <div className="center-search-account-row">
