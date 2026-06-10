@@ -1771,7 +1771,7 @@ app.post('/api/stepfun/chat', async (req, res, next) => {
     }
 
     try {
-      const systemInstruction = getAiSystemPrompt('stepfun');
+      const systemInstruction = req.body.systemInstruction || getAiSystemPrompt('stepfun');
       const isLiveQuery = isLiveInformationQuery(normalizedPrompt);
       let answer;
 

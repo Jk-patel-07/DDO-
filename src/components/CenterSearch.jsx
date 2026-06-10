@@ -1104,6 +1104,35 @@ const CenterSearch = ({ onPopupStateChange = () => {} }) => {
 /* ==========================================================================
    Independent AI Chat Popup Component
    ========================================================================== */
+const COMMAND_OPTIONS = [
+  { name: '@prompt', desc: 'Create or improve a detailed AI prompt', icon: Sparkles },
+  { name: '@CFM', desc: 'Work with Code File Manager features', icon: Layers },
+  { name: '@explain', desc: 'Explain selected text or code in simple language', icon: BookOpen },
+  { name: '@fix', desc: 'Fix code, errors, layout, or grammar', icon: RotateCw },
+  { name: '@summarize', desc: 'Summarize the entered content', icon: FileText },
+  { name: '@translate', desc: 'Translate the entered text', icon: Mic },
+  { name: '@code', desc: 'Generate or improve code', icon: GitBranch },
+  { name: '@search', desc: 'Search inside the selected project or file context', icon: Search }
+];
+
+const parseCommand = (text) => {
+  if (!text) return null;
+  const match = text.match(/(?:^|\s)(@(prompt|CFM|explain|fix|summarize|translate|code|search))\b/i);
+  if (match) {
+    const fullMatch = match[1];
+    const cmdName = match[2];
+    const trimmed = text.trim();
+    if (trimmed.toLowerCase().startsWith(fullMatch.toLowerCase())) {
+      return {
+        command: fullMatch,
+        name: cmdName,
+        remainingText: trimmed.substring(fullMatch.length).trim()
+      };
+    }
+  }
+  return null;
+};
+
 const AiChatPopup = ({
   provider,
   isOpen,
@@ -1195,6 +1224,16 @@ const AiChatPopup = ({
   const [editingMsgId, setEditingMsgId] = useState(null);
   // eslint-disable-next-line react-hooks/rules-of-hooks
   const [editingText, setEditingText] = useState('');
+
+  // eslint-disable-next-line react-hooks/rules-of-hooks
+  const [isMenuDismissed, setIsMenuDismissed] = useState(false);
+  // eslint-disable-next-line react-hooks/rules-of-hooks
+  const [selectedCommandIndex, setSelectedCommandIndex] = useState(0);
+
+  // eslint-disable-next-line react-hooks/rules-of-hooks
+  const chatInputRef = useRef(null);
+  // eslint-disable-next-line react-hooks/rules-of-hooks
+  const commandMenuRef = useRef(null);
 
   // eslint-disable-next-line react-hooks/rules-of-hooks
   const [renamingTabId, setRenamingTabId] = useState(null);
@@ -1743,6 +1782,29 @@ const AiChatPopup = ({
       return;
     }
 
+    const cmdInfo = providerId === 'stepfun' ? parseCommand(trimmedQuery) : null;
+    let requestPrompt = trimmedQuery;
+    let systemInstructionOverride = undefined;
+
+    if (cmdInfo) {
+      requestPrompt = cmdInfo.remainingText || '';
+      if (cmdInfo.name === 'prompt') {
+        systemInstructionOverride = "You are an AI prompt engineering expert. Your task is to help the user create or improve a detailed, structured, and reusable prompt based on their input. Correct grammar, add requirements, behavior, design, and restrictions. Do not return code unless explicitly asked. Do not include the @prompt trigger text in your response.";
+      } else if (cmdInfo.name === 'explain') {
+        systemInstructionOverride = "You are an educator. Explain the provided text or code in simple, clear, and easy-to-understand language.";
+      } else if (cmdInfo.name === 'fix') {
+        systemInstructionOverride = "You are a senior developer. Fix the provided code, errors, layout, or grammar. Highlight the changes and explain the fix briefly.";
+      } else if (cmdInfo.name === 'summarize') {
+        systemInstructionOverride = "You are a summarization assistant. Summarize the provided content into a concise, high-level summary with bullet points.";
+      } else if (cmdInfo.name === 'translate') {
+        systemInstructionOverride = "Translate the provided text into the requested language or English if unspecified.";
+      } else if (cmdInfo.name === 'code') {
+        systemInstructionOverride = "You are an expert software engineer. Generate or improve the code requested. Provide clean, well-commented code blocks and brief explanations.";
+      } else if (cmdInfo.name === 'search') {
+        systemInstructionOverride = "You are a code search assistant. Help the user search inside the selected project or file context.";
+      }
+    }
+
     const providerMeta = providerOptions.find((option) => option.id === providerId) || providerOptions[1];
     if (onSaveSearchToHistory) {
       onSaveSearchToHistory(trimmedQuery);
@@ -1769,7 +1831,7 @@ const AiChatPopup = ({
       return next;
     });
 
-    let finalPrompt = trimmedQuery;
+    let finalPrompt = requestPrompt;
     let committedAttachment = null;
 
     const activeAttachment = customAttachment || attachment;
@@ -1843,13 +1905,13 @@ const AiChatPopup = ({
       };
 
       if (activeAttachment.type === 'link') {
-        finalPrompt = `[Attached Link: ${activeAttachment.name}] (${activeAttachment.url})\n\n${trimmedQuery}`;
+        finalPrompt = `[Attached Link: ${activeAttachment.name}] (${activeAttachment.url})\n\n${requestPrompt}`;
       } else if (activeAttachment.type === 'image' || activeAttachment.type === 'camera') {
-        finalPrompt = `[Attached Photo: ${activeAttachment.name}]\n\n${trimmedQuery}`;
+        finalPrompt = `[Attached Photo: ${activeAttachment.name}]\n\n${requestPrompt}`;
       } else if (activeAttachment.type === 'video') {
-        finalPrompt = `[Attached Video: ${activeAttachment.name}]\n\n${trimmedQuery}`;
+        finalPrompt = `[Attached Video: ${activeAttachment.name}]\n\n${requestPrompt}`;
       } else {
-        finalPrompt = `[Attached Document: ${activeAttachment.name}]\n\n${trimmedQuery}`;
+        finalPrompt = `[Attached Document: ${activeAttachment.name}]\n\n${requestPrompt}`;
       }
 
       if (!customAttachment) {
@@ -1889,6 +1951,10 @@ const AiChatPopup = ({
       route = '/api/manus/chat';
     }
 
+    if (cmdInfo && cmdInfo.name === 'CFM') {
+      route = '/api/cfm/chat';
+    }
+
     try {
       const response = await fetch(buildApiUrl(route), {
         method: 'POST',
@@ -1898,8 +1964,13 @@ const AiChatPopup = ({
         body: JSON.stringify({
           provider: providerId,
           prompt: finalPrompt,
+          systemInstruction: systemInstructionOverride,
         }),
       });
+
+      if (response.status === 404 && route === '/api/cfm/chat') {
+        throw new Error("CFM backend integration is unavailable. Please ensure the Code File Manager module is configured and active.");
+      }
 
       const payload = await response.json().catch(() => ({}));
       if (!response.ok) {
@@ -2167,7 +2238,68 @@ const AiChatPopup = ({
     return () => {
       window.speechSynthesis?.cancel();
     };
+  // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
+
+  // eslint-disable-next-line react-hooks/rules-of-hooks
+  const isTypingCommand = provider === 'stepfun' && answerInput.startsWith('@') && !answerInput.includes(' ');
+  const commandQuery = isTypingCommand ? answerInput.slice(1).toLowerCase() : '';
+  const filteredCommands = isTypingCommand
+    ? COMMAND_OPTIONS.filter(cmd => cmd.name.slice(1).toLowerCase().startsWith(commandQuery))
+    : [];
+  const showCommandMenu = isTypingCommand && !isMenuDismissed;
+
+  // eslint-disable-next-line react-hooks/rules-of-hooks
+  useEffect(() => {
+    if (!answerInput.startsWith('@')) {
+      setIsMenuDismissed(false);
+    }
+    setSelectedCommandIndex(0);
+  }, [answerInput]);
+
+  // eslint-disable-next-line react-hooks/rules-of-hooks
+  useEffect(() => {
+    if (!showCommandMenu) return;
+    const handleOutsideClick = (e) => {
+      if (commandMenuRef.current && !commandMenuRef.current.contains(e.target) && !e.target.closest('.center-search-answer-input')) {
+        setIsMenuDismissed(true);
+      }
+    };
+    window.addEventListener('mousedown', handleOutsideClick);
+    return () => window.removeEventListener('mousedown', handleOutsideClick);
+  }, [showCommandMenu]);
+
+  const handleSelectCommand = (cmdName) => {
+    setAnswerInput(cmdName + ' ');
+    setIsMenuDismissed(false);
+    setTimeout(() => {
+      chatInputRef.current?.focus();
+    }, 5);
+  };
+
+  const handleInputKeyDown = (e) => {
+    if (showCommandMenu) {
+      if (e.key === 'ArrowDown') {
+        e.preventDefault();
+        setSelectedCommandIndex(prev => 
+          filteredCommands.length > 0 ? (prev + 1) % filteredCommands.length : 0
+        );
+      } else if (e.key === 'ArrowUp') {
+        e.preventDefault();
+        setSelectedCommandIndex(prev => 
+          filteredCommands.length > 0 ? (prev - 1 + filteredCommands.length) % filteredCommands.length : 0
+        );
+      } else if (e.key === 'Enter' || e.key === 'Tab') {
+        if (filteredCommands.length > 0 && selectedCommandIndex >= 0 && selectedCommandIndex < filteredCommands.length) {
+          e.preventDefault();
+          handleSelectCommand(filteredCommands[selectedCommandIndex].name);
+        }
+      } else if (e.key === 'Escape') {
+        e.preventDefault();
+        setIsMenuDismissed(true);
+      }
+    }
+  };
 
   const activeAnswerProvider = providerOptions.find((option) => option.id === provider) || providerOptions[1];
   const ActiveAnswerIcon = activeAnswerProvider.icon;
@@ -2777,6 +2909,35 @@ const AiChatPopup = ({
         </div>
       )}
 
+    <div style={{ position: 'relative', width: '100%' }}>
+      {showCommandMenu && (
+        <div ref={commandMenuRef} className="chat-msg-command-menu popup-aurora-surface">
+          {filteredCommands.length > 0 ? (
+            filteredCommands.map((cmd, idx) => {
+              const CmdIcon = cmd.icon;
+              return (
+                <div
+                  key={cmd.name}
+                  className={`chat-msg-command-item ${idx === selectedCommandIndex ? 'is-selected' : ''}`}
+                  onClick={(e) => {
+                    e.stopPropagation();
+                    handleSelectCommand(cmd.name);
+                  }}
+                >
+                  <CmdIcon size={14} className="chat-msg-command-item-icon" />
+                  <div className="chat-msg-command-item-info">
+                    <span className="chat-msg-command-item-name">{cmd.name}</span>
+                    <span className="chat-msg-command-item-desc">{cmd.desc}</span>
+                  </div>
+                </div>
+              );
+            })
+          ) : (
+            <div className="chat-msg-command-empty">No command found</div>
+          )}
+        </div>
+      )}
+
       <form
         className="center-search-answer-form"
         onSubmit={(event) => {
@@ -2825,9 +2986,11 @@ const AiChatPopup = ({
 
         <input
           type="text"
+          ref={chatInputRef}
           className="center-search-answer-input"
           value={answerInput}
           onChange={(event) => setAnswerInput(event.target.value)}
+          onKeyDown={handleInputKeyDown}
           placeholder={`Ask ${activeAnswerProvider.label}...`}
           disabled={
             answerPanel.status === 'loading' ||
@@ -2849,6 +3012,7 @@ const AiChatPopup = ({
             : 'Send'}
         </button>
       </form>
+    </div>
 
       <input
         type="file"

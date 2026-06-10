@@ -8679,3 +8679,80 @@ button:active::after,
 .center-search-answer-plus-btn:hover {
   color: #ffffff !important;
 }
+
+/* ==========================================================================
+   StepFun AI Chat @ Command Menu Autocomplete UI
+   ========================================================================== */
+
+.chat-msg-command-menu {
+  position: absolute !important;
+  bottom: 100% !important;
+  left: 0 !important;
+  right: 0 !important;
+  background: #09090b !important; /* Zinc-950 deep black */
+  border: 1px solid #27272a !important; /* Zinc-800 border */
+  border-radius: 8px !important;
+  box-shadow: 0 -8px 24px rgba(0, 0, 0, 0.6) !important;
+  max-height: 180px !important;
+  overflow-y: auto !important;
+  z-index: 10010 !important;
+  margin-bottom: 6px !important;
+  display: flex !important;
+  flex-direction: column !important;
+}
+
+.chat-msg-command-item {
+  display: flex !important;
+  align-items: center !important;
+  gap: 10px !important;
+  padding: 8px 12px !important;
+  cursor: pointer !important;
+  transition: all 0.15s ease !important;
+  border-bottom: 1px solid #18181b !important;
+}
+
+.chat-msg-command-item:last-child {
+  border-bottom: none !important;
+}
+
+.chat-msg-command-item.is-selected,
+.chat-msg-command-item:hover {
+  background: #27272a !important; /* Zinc-800 background */
+}
+
+.chat-msg-command-item-icon {
+  color: #a1a1aa !important; /* Soft grey secondary */
+  flex-shrink: 0 !important;
+}
+
+.chat-msg-command-item.is-selected .chat-msg-command-item-icon,
+.chat-msg-command-item:hover .chat-msg-command-item-icon {
+  color: #ffffff !important;
+}
+
+.chat-msg-command-item-info {
+  display: flex !important;
+  flex-direction: column !important;
+  min-width: 0 !important;
+}
+
+.chat-msg-command-item-name {
+  color: #ffffff !important;
+  font-size: 12px !important;
+  font-weight: 600 !important;
+}
+
+.chat-msg-command-item-desc {
+  color: #a1a1aa !important;
+  font-size: 10px !important;
+  text-overflow: ellipsis !important;
+  white-space: nowrap !important;
+  overflow: hidden !important;
+}
+
+.chat-msg-command-empty {
+  padding: 12px !important;
+  color: #71717a !important;
+  font-size: 11px !important;
+  text-align: center !important;
+}
