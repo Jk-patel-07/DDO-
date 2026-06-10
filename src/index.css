@@ -8224,3 +8224,317 @@ button:active::after,
     align-items: flex-start;
   }
 }
+
+/* ==========================================================================
+   StepFun AI Chat Popup Premium Black-and-White Design System Overrides
+   ========================================================================== */
+
+/* 1. Popup Window Container */
+.center-search-answer-popup {
+  background: #09090b !important; /* Rich solid zinc-950 black */
+  backdrop-filter: blur(30px) !important;
+  border: 1px solid #27272a !important; /* Zinc-800 border */
+  box-shadow: 0 24px 60px rgba(0, 0, 0, 0.6) !important;
+  padding: 16px !important;
+}
+
+/* 2. Header and Title */
+.center-search-answer-header {
+  border-bottom: 1px solid #18181b;
+  padding-bottom: 10px;
+  margin-bottom: 0px;
+}
+
+.center-search-answer-title {
+  color: #ffffff !important;
+}
+
+.center-search-answer-title svg {
+  color: #ffffff !important;
+  filter: none !important;
+}
+
+.center-search-answer-action-btn {
+  color: #a1a1aa !important; /* Soft grey secondary */
+}
+
+.center-search-answer-action-btn:hover {
+  color: #ffffff !important;
+  background-color: #27272a !important;
+}
+
+/* 3. Tabs Bar */
+.ai-chat-tabs-bar {
+  margin-top: 8px !important;
+  border-bottom: 1px solid #27272a !important;
+  padding: 0 4px !important;
+}
+
+.ai-chat-tab {
+  background: #18181b !important;
+  border: 1px solid #27272a !important;
+  border-bottom: none !important;
+  color: #a1a1aa !important; /* Soft grey secondary */
+  height: 32px !important;
+  border-radius: 8px 8px 0 0 !important;
+}
+
+.ai-chat-tab:hover {
+  background: #27272a !important;
+  color: #ffffff !important;
+}
+
+.ai-chat-tab.is-active {
+  background: #09090b !important;
+  color: #ffffff !important;
+  border-color: #27272a !important;
+  border-bottom: 1px solid #09090b !important; /* Blend into background */
+}
+
+/* Tab active top line indicator - pure white */
+.ai-chat-tab.is-active::before {
+  background: #ffffff !important;
+  border-radius: 8px 8px 0 0 !important;
+  height: 2px !important;
+}
+
+/* Add Tab Button matching height and alignment */
+.ai-chat-tab-add-btn {
+  height: 32px !important;
+  width: 32px !important;
+  border-radius: 8px 8px 0 0 !important;
+  background: #18181b !important;
+  border: 1px solid #27272a !important;
+  border-bottom: none !important;
+  margin-bottom: 0 !important;
+  margin-left: 4px !important;
+  color: #a1a1aa !important;
+  display: flex !important;
+  align-items: center !important;
+  justify-content: center !important;
+}
+
+.ai-chat-tab-add-btn:hover {
+  background: #27272a !important;
+  color: #ffffff !important;
+  transform: none !important;
+}
+
+.ai-chat-tab-add-btn svg {
+  margin: 0 !important;
+}
+
+/* 4. Chat Body / Message Area */
+.center-search-answer-body {
+  background: #09090b !important;
+  border: none !important;
+  margin-top: 12px !important;
+  padding: 8px 0 !important; /* Remove horizontal padding */
+}
+
+/* Messages container spacing */
+.chat-messages-container {
+  gap: 16px !important; /* Consistent spacing between messages */
+  padding-bottom: 32px !important; /* Extra bottom spacing to scroll past input */
+}
+
+/* Alignments */
+.chat-msg-user {
+  justify-content: flex-end !important;
+}
+
+.chat-msg-ai {
+  justify-content: flex-start !important;
+}
+
+.chat-msg-wrapper {
+  max-width: 85% !important; /* Responsive bubble width */
+}
+
+.chat-msg-user .chat-msg-wrapper {
+  align-items: flex-end !important;
+}
+
+.chat-msg-ai .chat-msg-wrapper {
+  align-items: flex-start !important;
+}
+
+/* Message Bubble Styles */
+.chat-msg-bubble {
+  max-width: 100% !important;
+  font-size: 13px !important;
+  line-height: 1.5 !important;
+  padding: 10px 14px !important;
+  border-radius: 12px !important;
+  word-break: break-word !important;
+  overflow-wrap: break-word !important;
+}
+
+/* User Bubble - Solid White, Black Text */
+.chat-msg-user .chat-msg-bubble {
+  background: #ffffff !important;
+  color: #000000 !important;
+  border-top-right-radius: 2px !important;
+  box-shadow: 0 4px 16px rgba(0, 0, 0, 0.15) !important;
+  border: none !important;
+}
+
+/* AI Bubble - Dark Grey, White Text */
+.chat-msg-ai .chat-msg-bubble {
+  background: #18181b !important; /* Zinc-900 */
+  border: 1px solid #27272a !important; /* Zinc-800 */
+  color: #ffffff !important;
+  border-top-left-radius: 2px !important;
+  box-shadow: none !important;
+}
+
+/* Code Blocks Inside Chat */
+.markdown-code-block-wrapper {
+  background: #09090b !important;
+  border: 1px solid #27272a !important;
+  border-radius: 8px !important;
+}
+
+.markdown-code-block-header {
+  background: #18181b !important;
+  border-bottom: 1px solid #27272a !important;
+  padding: 6px 12px !important;
+}
+
+.markdown-code-block-wrapper pre {
+  overflow-x: auto !important;
+  max-width: 100% !important;
+  background: transparent !important;
+}
+
+/* Compact Error Bubble Styles (Black & White style) */
+.chat-msg-error .chat-msg-bubble {
+  background: #18181b !important;
+  border: 1px solid #27272a !important;
+  color: #ffffff !important;
+}
+
+.chat-msg-error-content {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  align-items: flex-start;
+}
+
+.chat-msg-error-retry-btn {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  background: #ffffff;
+  color: #000000;
+  border: 1px solid #ffffff;
+  border-radius: 6px;
+  padding: 4px 8px;
+  font-size: 11px;
+  font-weight: 600;
+  cursor: pointer;
+  transition: all 0.15s ease;
+}
+
+.chat-msg-error-retry-btn:hover {
+  background: #e4e4e7;
+  border-color: #e4e4e7;
+}
+
+.chat-msg-error-retry-btn svg {
+  vertical-align: middle;
+}
+
+/* Typing Indicator (B&W themed) */
+.typing-indicator {
+  background: #18181b !important;
+  border: 1px solid #27272a !important;
+  border-top-left-radius: 2px !important;
+}
+
+.typing-dot {
+  background: #ffffff !important;
+}
+
+/* Action row styling - tight and vertically aligned */
+.chat-msg-actions-row-icons {
+  margin-top: 4px !important;
+  gap: 4px !important;
+  display: flex !important;
+  align-items: center !important;
+}
+
+.chat-msg-action-icon-btn {
+  color: #a1a1aa !important;
+  height: 24px !important;
+  width: 24px !important;
+  padding: 0 !important;
+  display: inline-flex !important;
+  align-items: center !important;
+  justify-content: center !important;
+  border-radius: 4px !important;
+}
+
+.chat-msg-action-icon-btn:hover,
+.chat-msg-action-icon-btn.is-active {
+  background: #27272a !important;
+  color: #ffffff !important;
+}
+
+/* 5. Input Area Form */
+.center-search-answer-form {
+  background: #18181b !important;
+  border: 1px solid #27272a !important;
+  border-radius: 12px !important;
+  padding: 6px 10px !important;
+  margin-top: 10px !important;
+}
+
+.center-search-answer-input {
+  color: #ffffff !important;
+  font-size: 13px !important;
+}
+
+.center-search-answer-input::placeholder {
+  color: #71717a !important;
+}
+
+/* Send Button */
+.center-search-answer-send {
+  background: #ffffff !important;
+  color: #000000 !important;
+  font-weight: 600 !important;
+  font-size: 12px !important;
+  padding: 6px 12px !important;
+  border-radius: 8px !important;
+  box-shadow: none !important;
+  height: 28px !important;
+  display: inline-flex !important;
+  align-items: center !important;
+  justify-content: center !important;
+  transition: all 0.15s ease !important;
+  border: none !important;
+  min-width: 50px !important;
+}
+
+.center-search-answer-send:hover:not(:disabled) {
+  background: #e4e4e7 !important;
+  transform: none !important;
+}
+
+.center-search-answer-send:disabled {
+  background: #27272a !important;
+  color: #71717a !important;
+  opacity: 0.6 !important;
+}
+
+.center-search-answer-plus-btn {
+  color: #a1a1aa !important;
+  display: inline-flex !important;
+  align-items: center !important;
+  justify-content: center !important;
+}
+
+.center-search-answer-plus-btn:hover {
+  color: #ffffff !important;
+}

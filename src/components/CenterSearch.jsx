@@ -518,6 +518,7 @@ const CenterSearch = ({ onPopupStateChange = () => {} }) => {
   });
   const [answerInput, setAnswerInput] = useState('');
   const [chatHistory, setChatHistory] = useState([]);
+  const [tabErrors, setTabErrors] = useState({});
   const [isMinimized, setIsMinimized] = useState(false);
   const [isMaximized, setIsMaximized] = useState(false);
   const chatBottomRef = useRef(null);
@@ -945,7 +946,6 @@ const CenterSearch = ({ onPopupStateChange = () => {} }) => {
         if (activeTab) {
           if (activeTab.provider) {
             setAnswerPanel(prev => ({ ...prev, provider: activeTab.provider }));
-            setActivePopup(activeTab.provider);
           }
           setAnswerInput(activeTab.draft || '');
           setAttachment(activeTab.pendingAttachment || null);
@@ -956,7 +956,6 @@ const CenterSearch = ({ onPopupStateChange = () => {} }) => {
         if (firstTab) {
           if (firstTab.provider) {
             setAnswerPanel(prev => ({ ...prev, provider: firstTab.provider }));
-            setActivePopup(firstTab.provider);
           }
           setAnswerInput(firstTab.draft || '');
           setAttachment(firstTab.pendingAttachment || null);
@@ -1325,6 +1324,10 @@ const CenterSearch = ({ onPopupStateChange = () => {} }) => {
   };
 
   const submitAiPrompt = async (providerId, promptText, customAttachment = null) => {
+    if (answerPanel.status === 'loading') {
+      return;
+    }
+
     const trimmedQuery = promptText.trim();
     if (!trimmedQuery) {
       return;
@@ -1349,6 +1352,12 @@ const CenterSearch = ({ onPopupStateChange = () => {} }) => {
       const newTab = handleCreateNewTab(providerId);
       currentTabId = newTab.id;
     }
+
+    setTabErrors(prev => {
+      const next = { ...prev };
+      delete next[currentTabId];
+      return next;
+    });
 
     let finalPrompt = trimmedQuery;
     let committedAttachment = null;
@@ -1515,18 +1524,12 @@ const CenterSearch = ({ onPopupStateChange = () => {} }) => {
         ? "Gemini limit reached. Please retry later."
         : errorMsg;
 
-      const errorMsgId = 'msg_' + Date.now() + '_' + Math.random().toString(36).substr(2, 5);
-      const errorMsgObj = { id: errorMsgId, sender: 'ai', text: textToShow, isError: true };
+      console.error('AI request failed:', error);
 
-      // Add error message to tab
-      setChatTabs(prev => prev.map(t => {
-        if (t.id === currentTabId) {
-          return {
-            ...t,
-            messages: [...(t.messages || []), errorMsgObj]
-          };
-        }
-        return t;
+      // Save error transiently per-tab
+      setTabErrors(prev => ({
+        ...prev,
+        [currentTabId]: textToShow
       }));
 
       setAnswerPanel((prev) => ({
@@ -1535,6 +1538,22 @@ const CenterSearch = ({ onPopupStateChange = () => {} }) => {
         error: textToShow,
       }));
     }
+  };
+
+  const handleRetryLastPrompt = () => {
+    const activeTab = chatTabs.find(t => t.id === activeTabId);
+    if (!activeTab) return;
+
+    const lastUserMsg = [...(activeTab.messages || [])].reverse().find(m => m.sender === 'user');
+    if (!lastUserMsg) return;
+
+    setTabErrors(prev => {
+      const next = { ...prev };
+      delete next[activeTabId];
+      return next;
+    });
+
+    void submitAiPrompt(activeTab.provider, lastUserMsg.text, lastUserMsg.attachment);
   };
 
   const handleRegenerate = async (msgId) => {
@@ -2177,6 +2196,27 @@ const CenterSearch = ({ onPopupStateChange = () => {} }) => {
                       <span className="typing-dot" />
                       <span className="typing-dot" />
                       <span className="typing-dot" />
+                    </div>
+                  </div>
+                </div>
+              )}
+
+              {tabErrors[activeTabId] && (
+                <div className="chat-msg chat-msg-ai chat-msg-error">
+                  <div className="chat-msg-wrapper">
+                    <div className="chat-msg-bubble">
+                      <div className="chat-msg-error-content">
+                        <span>{tabErrors[activeTabId]}</span>
+                        <button
+                          type="button"
+                          className="chat-msg-error-retry-btn"
+                          onClick={handleRetryLastPrompt}
+                          title="Retry last query"
+                        >
+                          <RotateCw size={11} />
+                          <span>Retry</span>
+                        </button>
+                      </div>
                     </div>
                   </div>
                 </div>

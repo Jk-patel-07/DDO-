@@ -343,39 +343,55 @@ const requestGeminiAnswer = async (prompt, apiKey, systemPrompt) => {
 
 const requestStepFunAnswer = async (prompt, apiKey, systemPrompt) => {
   const finalSystemPrompt = systemPrompt || `You are StepFun AI, a helpful assistant like ChatGPT. Always reply in English only. Today's date is: ${new Date().toDateString()}. Never mention internal system date setup. Use natural wording only.`;
-  const response = await fetch(STEPFUN_API_URL, {
-    method: 'POST',
-    headers: {
-      Authorization: `Bearer ${apiKey}`,
-      'Content-Type': 'application/json',
-    },
-    body: JSON.stringify({
-      model: STEPFUN_MODEL,
-      messages: [
-        {
-          role: 'system',
-          content: finalSystemPrompt,
-        },
-        {
-          role: 'user',
-          content: prompt,
-        },
-      ],
-      temperature: 0.7,
-    }),
-  });
+  
+  const controller = new AbortController();
+  const timeoutId = setTimeout(() => controller.abort(), 15000);
 
-  const payload = await response.json().catch(() => ({}));
-  if (!response.ok) {
-    throw new HttpError(response.status, payload?.error?.message || 'StepFun AI request failed.');
+  try {
+    const response = await fetch(STEPFUN_API_URL, {
+      method: 'POST',
+      headers: {
+        Authorization: `Bearer ${apiKey}`,
+        'Content-Type': 'application/json',
+      },
+      body: JSON.stringify({
+        model: STEPFUN_MODEL,
+        messages: [
+          {
+            role: 'system',
+            content: finalSystemPrompt,
+          },
+          {
+            role: 'user',
+            content: prompt,
+          },
+        ],
+        temperature: 0.7,
+      }),
+      signal: controller.signal,
+    });
+
+    clearTimeout(timeoutId);
+
+    const payload = await response.json().catch(() => ({}));
+    if (!response.ok) {
+      const errorMsg = payload?.detail || payload?.message || payload?.error?.message || payload?.title || 'StepFun AI request failed.';
+      throw new HttpError(response.status, errorMsg);
+    }
+
+    const answer = String(payload?.choices?.[0]?.message?.content || '').trim();
+    if (!answer) {
+      throw new HttpError(502, 'StepFun AI did not return an answer.');
+    }
+
+    return answer;
+  } catch (error) {
+    clearTimeout(timeoutId);
+    if (error.name === 'AbortError') {
+      throw new HttpError(408, 'StepFun AI request timed out (15s limit reached).');
+    }
+    throw error;
   }
-
-  const answer = String(payload?.choices?.[0]?.message?.content || '').trim();
-  if (!answer) {
-    throw new HttpError(502, 'StepFun AI did not return an answer.');
-  }
-
-  return answer;
 };
 
 const requestManusAnswer = async (prompt, apiKey, systemPrompt) => {
@@ -1778,8 +1794,23 @@ app.post('/api/stepfun/chat', async (req, res, next) => {
       });
     } catch (apiError) {
       console.error('StepFun API call failed:', apiError);
-      res.status(502).json({
-        error: 'StepFun AI is not responding right now. Please try again.'
+      const status = apiError.statusCode || 502;
+      let userFriendlyMsg = 'StepFun AI is not responding right now. Please try again.';
+      
+      if (status === 403) {
+        userFriendlyMsg = 'StepFun AI API authorization failed (403). Please verify if your API key in backend/.env has Public API Endpoints permissions.';
+      } else if (status === 401) {
+        userFriendlyMsg = 'Authentication failed (401). Please check if the STEPFUN_API_KEY in backend/.env is correct.';
+      } else if (status === 404) {
+        userFriendlyMsg = `Model not found (404). Please verify if the STEPFUN_MODEL "${process.env.STEPFUN_MODEL || 'step-2-mini'}" exists on the endpoint.`;
+      } else if (status === 408) {
+        userFriendlyMsg = 'Request timed out (408). StepFun AI took too long to respond. Please try again.';
+      } else if (apiError.message) {
+        userFriendlyMsg = apiError.message;
+      }
+      
+      res.status(status).json({
+        error: userFriendlyMsg
       });
     }
   } catch (error) {
