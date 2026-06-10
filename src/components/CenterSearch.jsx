@@ -999,6 +999,12 @@ const CenterSearch = ({ onPopupStateChange = () => {} }) => {
                 value={query}
                 onChange={(e) => setQuery(e.target.value)}
                 onFocus={() => setActivePopup('search')}
+                onKeyDown={(e) => {
+                  if (e.key === 'Enter') {
+                    e.preventDefault();
+                    handleSearchSubmit(e);
+                  }
+                }}
                 className="center-search-input"
               />
             </div>

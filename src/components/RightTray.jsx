@@ -3320,7 +3320,7 @@ const RightTray = ({ onPopupStateChange = () => {} }) => {
                 <X size={12} />
               </button>
             </div>
-            <Translator />
+            <Translator onVisibilityChange={setIsTranslatorOpen} />
           </div>
         </div>
 

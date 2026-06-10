@@ -1,5 +1,6 @@
 import React, { useState, useEffect, useRef } from 'react';
-import { ArrowLeftRight, Copy, Trash2, Check, AlertCircle, Loader2, Camera, ChevronDown } from 'lucide-react';
+import { ArrowLeftRight, Copy, Trash2, Check, AlertCircle, Loader2, Camera, ChevronDown, Plus, Image as ImageIcon, RefreshCw, X } from 'lucide-react';
+import { createWorker } from 'tesseract.js';
 import './translator.css';
 
 const LANGUAGES = [
@@ -31,28 +32,6 @@ const TESSERACT_LANGS = {
   ru: 'rus',
   ar: 'ara',
   hi: 'hin'
-};
-
-const loadScript = (url) => {
-  return new Promise((resolve, reject) => {
-    if (window.Tesseract) {
-      resolve(window.Tesseract);
-      return;
-    }
-    const existing = document.querySelector(`script[src="${url}"]`);
-    if (existing) {
-      const handleLoad = () => resolve(window.Tesseract);
-      const handleError = () => reject(new Error('Failed to load Tesseract'));
-      existing.addEventListener('load', handleLoad);
-      existing.addEventListener('error', handleError);
-      return;
-    }
-    const script = document.createElement('script');
-    script.src = url;
-    script.onload = () => resolve(window.Tesseract);
-    script.onerror = () => reject(new Error('Failed to load Tesseract.js'));
-    document.body.appendChild(script);
-  });
 };
 
 function CustomSelect({ value, onChange, options, placeholder }) {
@@ -101,197 +80,6 @@ function CustomSelect({ value, onChange, options, placeholder }) {
   );
 }
 
-function ScreenCaptureOverlay({ onCapture, onCancel, sourceLang }) {
-  const canvasRef = useRef(null);
-  const [screenshotCanvas, setScreenshotCanvas] = useState(null);
-  const [isDragging, setIsDragging] = useState(false);
-  const [startPos, setStartPos] = useState(null);
-  const [currentPos, setCurrentPos] = useState(null);
-  const [errorMsg, setErrorMsg] = useState('');
-  const [isInitializing, setIsInitializing] = useState(true);
-
-  useEffect(() => {
-    let stream = null;
-    let video = null;
-
-    const startCapture = async () => {
-      try {
-        stream = await navigator.mediaDevices.getDisplayMedia({
-          video: { displaySurface: 'monitor' },
-          audio: false
-        });
-
-        video = document.createElement('video');
-        video.srcObject = stream;
-        video.autoplay = true;
-        video.playsInline = true;
-
-        video.onloadedmetadata = () => {
-          setTimeout(() => {
-            if (!video.videoWidth || !video.videoHeight) {
-              setErrorMsg('Captured screen size is invalid.');
-              setIsInitializing(false);
-              return;
-            }
-            const hiddenCanvas = document.createElement('canvas');
-            hiddenCanvas.width = video.videoWidth;
-            hiddenCanvas.height = video.videoHeight;
-            const ctx = hiddenCanvas.getContext('2d');
-            ctx.drawImage(video, 0, 0, hiddenCanvas.width, hiddenCanvas.height);
-
-            setScreenshotCanvas(hiddenCanvas);
-            setIsInitializing(false);
-
-            if (stream) {
-              stream.getTracks().forEach(track => track.stop());
-            }
-          }, 400);
-        };
-      } catch (err) {
-        console.error('Error in startCapture:', err);
-        setErrorMsg('Screen capture was cancelled or failed.');
-        setIsInitializing(false);
-        setTimeout(() => {
-          onCancel();
-        }, 1500);
-      }
-    };
-
-    startCapture();
-
-    return () => {
-      if (stream) {
-        stream.getTracks().forEach(track => track.stop());
-      }
-    };
-  }, []);
-
-  useEffect(() => {
-    if (!screenshotCanvas || isInitializing) return;
-    
-    const canvas = canvasRef.current;
-    if (!canvas) return;
-    const ctx = canvas.getContext('2d');
-
-    canvas.width = window.innerWidth;
-    canvas.height = window.innerHeight;
-
-    ctx.drawImage(screenshotCanvas, 0, 0, canvas.width, canvas.height);
-
-    ctx.fillStyle = 'rgba(0, 0, 0, 0.6)';
-    ctx.fillRect(0, 0, canvas.width, canvas.height);
-
-    if (startPos && currentPos) {
-      const x = Math.min(startPos.x, currentPos.x);
-      const y = Math.min(startPos.y, currentPos.y);
-      const w = Math.abs(startPos.x - currentPos.x);
-      const h = Math.abs(startPos.y - currentPos.y);
-
-      if (w > 0 && h > 0) {
-        ctx.clearRect(x, y, w, h);
-        
-        const origX = (x / canvas.width) * screenshotCanvas.width;
-        const origY = (y / canvas.height) * screenshotCanvas.height;
-        const origW = (w / canvas.width) * screenshotCanvas.width;
-        const origH = (h / canvas.height) * screenshotCanvas.height;
-
-        ctx.drawImage(screenshotCanvas, origX, origY, origW, origH, x, y, w, h);
-
-        ctx.strokeStyle = '#ffffff';
-        ctx.lineWidth = 2;
-        ctx.strokeRect(x, y, w, h);
-
-        ctx.fillStyle = '#ffffff';
-        ctx.font = '12px monospace';
-        ctx.fillText(`${Math.round(origW)} x ${Math.round(origH)}`, x + 5, y + 18);
-      }
-    }
-  }, [screenshotCanvas, isInitializing, startPos, currentPos]);
-
-  useEffect(() => {
-    const handleKeyDown = (e) => {
-      if (e.key === 'Escape') {
-        onCancel();
-      }
-    };
-    window.addEventListener('keydown', handleKeyDown);
-    return () => window.removeEventListener('keydown', handleKeyDown);
-  }, [onCancel]);
-
-  const handleMouseDown = (e) => {
-    if (!screenshotCanvas || isInitializing) return;
-    setIsDragging(true);
-    setStartPos({ x: e.clientX, y: e.clientY });
-    setCurrentPos({ x: e.clientX, y: e.clientY });
-  };
-
-  const handleMouseMove = (e) => {
-    if (!isDragging || !startPos) return;
-    setCurrentPos({ x: e.clientX, y: e.clientY });
-  };
-
-  const handleMouseUp = () => {
-    if (!isDragging || !startPos || !currentPos) return;
-    setIsDragging(false);
-
-    const x = Math.min(startPos.x, currentPos.x);
-    const y = Math.min(startPos.y, currentPos.y);
-    const w = Math.abs(startPos.x - currentPos.x);
-    const h = Math.abs(startPos.y - currentPos.y);
-
-    if (w > 10 && h > 10 && screenshotCanvas) {
-      const origX = (x / window.innerWidth) * screenshotCanvas.width;
-      const origY = (y / window.innerHeight) * screenshotCanvas.height;
-      const origW = (w / window.innerWidth) * screenshotCanvas.width;
-      const origH = (h / window.innerHeight) * screenshotCanvas.height;
-
-      const cropCanvas = document.createElement('canvas');
-      cropCanvas.width = origW;
-      cropCanvas.height = origH;
-      const cropCtx = cropCanvas.getContext('2d');
-      cropCtx.drawImage(screenshotCanvas, origX, origY, origW, origH, 0, 0, origW, origH);
-
-      onCapture(cropCanvas);
-    } else {
-      onCancel();
-    }
-  };
-
-  return (
-    <div className="ddo-capture-overlay" onContextMenu={(e) => { e.preventDefault(); onCancel(); }}>
-      {isInitializing && (
-        <div className="ddo-capture-loader">
-          <Loader2 className="spinner" size={28} />
-          <span>Starting Screen Capture... Select a screen or window.</span>
-        </div>
-      )}
-
-      {errorMsg && (
-        <div className="ddo-capture-error">
-          <AlertCircle size={20} />
-          <span>{errorMsg}</span>
-        </div>
-      )}
-
-      {!isInitializing && !errorMsg && screenshotCanvas && (
-        <>
-          <div className="ddo-capture-instructions">
-            <span>Drag to select a screen region to translate. Click anywhere or press <strong>ESC</strong> to cancel.</span>
-            <button type="button" onClick={onCancel} className="ddo-capture-cancel-btn">Cancel</button>
-          </div>
-          <canvas
-            ref={canvasRef}
-            onMouseDown={handleMouseDown}
-            onMouseMove={handleMouseMove}
-            onMouseUp={handleMouseUp}
-            style={{ display: 'block', width: '100vw', height: '100vh' }}
-          />
-        </>
-      )}
-    </div>
-  );
-}
-
 export default function Translator() {
   const [sourceLang, setSourceLang] = useState('auto');
   const [targetLang, setTargetLang] = useState('es');
@@ -301,8 +89,18 @@ export default function Translator() {
   const [error, setError] = useState('');
   const [copied, setCopied] = useState(false);
   const [inputCopied, setInputCopied] = useState(false);
-  const [isCapturing, setIsCapturing] = useState(false);
   const [isOcrLoading, setIsOcrLoading] = useState(false);
+  const [statusText, setStatusText] = useState(''); // "Reading text", "Translating", "No text found"
+
+  // Photo & Camera States
+  const [isAttachMenuOpen, setIsAttachMenuOpen] = useState(false);
+  const [imagePreviewUrl, setImagePreviewUrl] = useState(null); // base64 or blob URL
+  const [isCameraOpen, setIsCameraOpen] = useState(false);
+  const [capturedPhoto, setCapturedPhoto] = useState(null);
+
+  const fileInputRef = useRef(null);
+  const videoRef = useRef(null);
+  const activeStreamRef = useRef(null);
 
   useEffect(() => {
     if (!inputText.trim()) {
@@ -317,6 +115,20 @@ export default function Translator() {
 
     return () => clearTimeout(timer);
   }, [inputText, sourceLang, targetLang]);
+
+  // Clean up camera stream if popup is closed or component unmounts
+  useEffect(() => {
+    return () => {
+      stopCamera();
+    };
+  }, []);
+
+  const stopCamera = () => {
+    if (activeStreamRef.current) {
+      activeStreamRef.current.getTracks().forEach((track) => track.stop());
+      activeStreamRef.current = null;
+    }
+  };
 
   const performTranslation = async (textToTranslate, srcLang, tgtLang) => {
     if (!textToTranslate.trim()) return;
@@ -356,16 +168,12 @@ export default function Translator() {
     performTranslation(inputText, sourceLang, targetLang);
   };
 
-  const runOCR = async (canvas) => {
+  const runOCRFromBase64 = async (base64Image) => {
     try {
-      await loadScript('https://unpkg.com/tesseract.js@5.1.0/dist/tesseract.min.js');
-      if (!window.Tesseract) {
-        throw new Error('Tesseract.js library failed to load.');
-      }
-
       const tesseractLang = TESSERACT_LANGS[sourceLang] || 'eng';
-      const worker = await window.Tesseract.createWorker(tesseractLang);
-      const result = await worker.recognize(canvas);
+      const worker = await createWorker(tesseractLang);
+      const imageUri = `data:image/png;base64,${base64Image}`;
+      const result = await worker.recognize(imageUri);
       await worker.terminate();
 
       return result.data.text;
@@ -375,42 +183,232 @@ export default function Translator() {
     }
   };
 
-  const handleScreenCapture = async (cropCanvas) => {
-    setIsCapturing(false);
+  // Upload Photo Handlers
+  const handleUploadClick = () => {
+    setIsAttachMenuOpen(false);
+    if (fileInputRef.current) {
+      fileInputRef.current.click();
+    }
+  };
+
+  const handleFileChange = (e) => {
+    const file = e.target.files?.[0];
+    if (!file) return;
+
+    // Reset file input value so same file can be uploaded again if removed
+    e.target.value = '';
+
+    const reader = new FileReader();
+    reader.onload = async () => {
+      try {
+        const base64Data = reader.result;
+        if (!base64Data || typeof base64Data !== 'string') {
+          throw new Error('Failed to read image file contents.');
+        }
+
+        setImagePreviewUrl(base64Data);
+        setIsOcrLoading(true);
+        setStatusText('Reading text');
+        setError('');
+        setTranslatedText('');
+
+        const splitData = base64Data.split(',');
+        const rawBase64 = splitData[1];
+        if (!rawBase64) {
+          throw new Error('Invalid image file encoding format.');
+        }
+
+        const text = await runOCRFromBase64(rawBase64);
+
+        if (!text || !text.trim()) {
+          setStatusText('No text found');
+          throw new Error('No text found');
+        }
+
+        setInputText(text);
+        setStatusText('Translating');
+        await performTranslation(text, sourceLang, targetLang);
+        setStatusText('');
+        setIsOcrLoading(false);
+      } catch (err) {
+        console.error(err);
+        if (err.message === 'No text found') {
+          setError('No text found in photo.');
+          setStatusText('No text found');
+        } else {
+          setError(err.message || 'OCR extraction failed.');
+          setStatusText('');
+        }
+        setIsOcrLoading(false);
+      }
+    };
+
+    reader.onerror = () => {
+      setError('Failed to read image file.');
+      setIsOcrLoading(false);
+    };
+
+    reader.readAsDataURL(file);
+  };
+
+  // Camera Handlers
+  const handleOpenCamera = async () => {
+    setIsAttachMenuOpen(false);
+    setCapturedPhoto(null);
+    setIsCameraOpen(true);
+    setError('');
+
+    try {
+      const stream = await navigator.mediaDevices.getUserMedia({
+        video: { facingMode: 'environment', width: { ideal: 640 }, height: { ideal: 480 } }
+      });
+      activeStreamRef.current = stream;
+      
+      setTimeout(() => {
+        if (videoRef.current) {
+          videoRef.current.srcObject = stream;
+        }
+      }, 150);
+    } catch (err) {
+      console.error('Camera access failed:', err);
+      setError('Camera access failed. Check permissions.');
+      setIsCameraOpen(false);
+    }
+  };
+
+  const handleCapture = () => {
+    try {
+      if (!videoRef.current || !activeStreamRef.current) return;
+
+      const video = videoRef.current;
+      const canvas = document.createElement('canvas');
+      canvas.width = video.videoWidth || 640;
+      canvas.height = video.videoHeight || 480;
+      
+      const ctx = canvas.getContext('2d');
+      ctx.drawImage(video, 0, 0, canvas.width, canvas.height);
+      
+      const dataUrl = canvas.toDataURL('image/png');
+      setCapturedPhoto(dataUrl);
+      stopCamera();
+    } catch (err) {
+      console.error('Frame capture failed:', err);
+      setError('Failed to capture frame from camera.');
+    }
+  };
+
+  const handleRetake = async () => {
+    setCapturedPhoto(null);
+    try {
+      const stream = await navigator.mediaDevices.getUserMedia({
+        video: { facingMode: 'environment', width: { ideal: 640 }, height: { ideal: 480 } }
+      });
+      activeStreamRef.current = stream;
+      if (videoRef.current) {
+        videoRef.current.srcObject = stream;
+      }
+    } catch (err) {
+      console.error('Camera access failed on retake:', err);
+      setError('Camera access failed. Close panel and retry.');
+      setIsCameraOpen(false);
+    }
+  };
+
+  const handleUsePhoto = async () => {
+    if (!capturedPhoto) return;
+
+    setIsCameraOpen(false);
+    setImagePreviewUrl(capturedPhoto);
+    
     setIsOcrLoading(true);
+    setStatusText('Reading text');
     setError('');
     setTranslatedText('');
 
     try {
-      const text = await runOCR(cropCanvas);
-      if (!text || !text.trim()) {
-        throw new Error('No text found in selected area.');
+      const splitData = capturedPhoto.split(',');
+      const rawBase64 = splitData[1];
+      if (!rawBase64) {
+        throw new Error('Invalid captured image encoding format.');
       }
+
+      const text = await runOCRFromBase64(rawBase64);
+
+      if (!text || !text.trim()) {
+        setStatusText('No text found');
+        throw new Error('No text found');
+      }
+
       setInputText(text);
+      setStatusText('Translating');
       await performTranslation(text, sourceLang, targetLang);
+      setStatusText('');
+      setIsOcrLoading(false);
     } catch (err) {
       console.error(err);
-      setError(err.message || 'OCR failed or no text found.');
-    } finally {
+      if (err.message === 'No text found') {
+        setError('No text found in captured photo.');
+        setStatusText('No text found');
+      } else {
+        setError(err.message || 'OCR extraction failed.');
+        setStatusText('');
+      }
       setIsOcrLoading(false);
     }
   };
 
-  const handleSwap = () => {
-    const prevSource = sourceLang;
-    const prevTarget = targetLang;
+  const handleCloseCamera = () => {
+    stopCamera();
+    setIsCameraOpen(false);
+    setCapturedPhoto(null);
+  };
 
-    if (prevSource === 'auto') {
-      setSourceLang(prevTarget);
-      setTargetLang(prevTarget === 'en' ? 'es' : 'en');
-    } else {
-      setSourceLang(prevTarget);
-      setTargetLang(prevSource);
-    }
+  // Image controls
+  const handleRemoveImage = () => {
+    setImagePreviewUrl(null);
+    setInputText('');
+    setTranslatedText('');
+    setError('');
+    setStatusText('');
+  };
 
-    if (translatedText) {
-      setInputText(translatedText);
-      setTranslatedText(inputText);
+  const handleRetryOcr = async () => {
+    if (!imagePreviewUrl) return;
+
+    setIsOcrLoading(true);
+    setStatusText('Reading text');
+    setError('');
+    setTranslatedText('');
+
+    try {
+      const splitData = imagePreviewUrl.split(',');
+      const rawBase64 = splitData[1];
+      if (!rawBase64) {
+        throw new Error('Invalid image encoding format.');
+      }
+
+      const text = await runOCRFromBase64(rawBase64);
+
+      if (!text || !text.trim()) {
+        setStatusText('No text found');
+        throw new Error('No text found');
+      }
+
+      setInputText(text);
+      setStatusText('Translating');
+      await performTranslation(text, sourceLang, targetLang);
+      setStatusText('');
+      setIsOcrLoading(false);
+    } catch (err) {
+      console.error(err);
+      if (err.message === 'No text found') {
+        setError('No text found in photo.');
+        setStatusText('No text found');
+      } else {
+        setError(err.message || 'OCR extraction failed.');
+        setStatusText('');
+      }
+      setIsOcrLoading(false);
     }
   };
 
@@ -418,6 +416,8 @@ export default function Translator() {
     setInputText('');
     setTranslatedText('');
     setError('');
+    setStatusText('');
+    setImagePreviewUrl(null);
   };
 
   const handleCopyInput = () => {
@@ -438,7 +438,15 @@ export default function Translator() {
 
   return (
     <div className="ddo-translator-container">
-      {/* Custom Select Dropdowns */}
+      <input
+        type="file"
+        ref={fileInputRef}
+        onChange={handleFileChange}
+        accept="image/png, image/jpeg, image/jpg, image/webp"
+        style={{ display: 'none' }}
+      />
+
+      {/* Language selectors */}
       <div className="ddo-translator-languages">
         <CustomSelect
           value={sourceLang}
@@ -464,57 +472,110 @@ export default function Translator() {
         />
       </div>
 
-      {/* Input Text Area */}
+      {/* Input area */}
       <div className="ddo-translator-input-wrapper">
-        <textarea
-          value={inputText}
-          onChange={(e) => setInputText(e.target.value)}
-          placeholder="Type or paste text, or use Screen Select..."
-          className="ddo-translator-textarea"
-          maxLength={1000}
-        />
-        {inputText && (
-          <div className="ddo-translator-textarea-controls">
-            <button
-              type="button"
-              onClick={handleCopyInput}
-              className="ddo-translator-textarea-btn"
-              title="Copy Source Text"
-            >
-              {inputCopied ? <Check size={12} className="copied-icon" /> : <Copy size={12} />}
-            </button>
-            <button
-              type="button"
-              onClick={handleClear}
-              className="ddo-translator-textarea-btn"
-              title="Clear All"
-            >
-              <Trash2 size={12} />
-            </button>
+        {isCameraOpen ? (
+          /* Camera Preview */
+          <div className="ddo-translator-camera-panel">
+            {!capturedPhoto ? (
+              <video ref={videoRef} className="ddo-translator-video" autoPlay playsInline />
+            ) : (
+              <img src={capturedPhoto} className="ddo-translator-video-captured" alt="Captured" />
+            )}
+            
+            <div className="ddo-translator-camera-actions">
+              {!capturedPhoto ? (
+                <>
+                  <button type="button" onClick={handleCapture} className="ddo-camera-btn capture-btn-action">Capture</button>
+                  <button type="button" onClick={handleCloseCamera} className="ddo-camera-btn cancel-btn-action">Cancel</button>
+                </>
+              ) : (
+                <>
+                  <button type="button" onClick={handleUsePhoto} className="ddo-camera-btn use-btn-action">Use Photo</button>
+                  <button type="button" onClick={handleRetake} className="ddo-camera-btn retake-btn-action">Retake</button>
+                  <button type="button" onClick={handleCloseCamera} className="ddo-camera-btn cancel-btn-action">Cancel</button>
+                </>
+              )}
+            </div>
           </div>
+        ) : imagePreviewUrl ? (
+          /* Image Preview and Controls (Replaces source textarea) */
+          <div className="ddo-translator-preview-container">
+            <img src={imagePreviewUrl} className="ddo-translator-image-preview" alt="Preview" />
+            <div className="ddo-translator-preview-actions">
+              <button type="button" onClick={handleRetryOcr} className="preview-action-btn" title="Retry OCR">
+                <RefreshCw size={12} /> <span>Retry</span>
+              </button>
+              <button type="button" onClick={handleRemoveImage} className="preview-action-btn remove" title="Remove Photo">
+                <X size={12} /> <span>Remove</span>
+              </button>
+            </div>
+          </div>
+        ) : (
+          /* Textarea for typing text */
+          <>
+            <textarea
+              value={inputText}
+              onChange={(e) => setInputText(e.target.value)}
+              placeholder="Type or paste text, or select an image..."
+              className="ddo-translator-textarea"
+              maxLength={1000}
+            />
+            <div className="ddo-translator-textarea-controls">
+              <div style={{ position: 'relative' }}>
+                <button
+                  type="button"
+                  onClick={() => setIsAttachMenuOpen(!isAttachMenuOpen)}
+                  className={`ddo-translator-textarea-btn attach-btn ${isAttachMenuOpen ? 'active' : ''}`}
+                  title="Attach Photo or Camera"
+                >
+                  <Plus size={12} />
+                </button>
+                {isAttachMenuOpen && (
+                  <div className="ddo-attach-dropdown">
+                    <button type="button" onClick={handleUploadClick} className="ddo-attach-item">
+                      <ImageIcon size={12} /> <span>Upload Photo</span>
+                    </button>
+                    <button type="button" onClick={handleOpenCamera} className="ddo-attach-item">
+                      <Camera size={12} /> <span>Open Camera</span>
+                    </button>
+                  </div>
+                )}
+              </div>
+              {inputText && (
+                <>
+                  <button
+                    type="button"
+                    onClick={handleCopyInput}
+                    className="ddo-translator-textarea-btn"
+                    title="Copy Source Text"
+                  >
+                    {inputCopied ? <Check size={12} className="copied-icon" /> : <Copy size={12} />}
+                  </button>
+                  <button
+                    type="button"
+                    onClick={handleClear}
+                    className="ddo-translator-textarea-btn"
+                    title="Clear All"
+                  >
+                    <Trash2 size={12} />
+                  </button>
+                </>
+              )}
+            </div>
+          </>
         )}
       </div>
 
-      {/* Action Buttons Row */}
-      <div className="ddo-translator-actions-row">
-        <button
-          type="button"
-          onClick={() => setIsCapturing(true)}
-          disabled={isLoading || isOcrLoading}
-          className="ddo-translator-action-btn capture-btn"
-          title="Capture screen area and translate"
-        >
-          <Camera size={13} />
-          <span>Screen Select</span>
-        </button>
-
+      {/* Manual Translate Action (Only shown when camera is closed) */}
+      {!isCameraOpen && (
         <button
           type="button"
           onClick={handleTranslate}
-          disabled={isLoading || isOcrLoading || !inputText.trim()}
-          className="ddo-translator-action-btn translate-btn"
+          disabled={isLoading || isOcrLoading || (!inputText.trim() && !imagePreviewUrl)}
+          className="ddo-translator-submit-btn"
         >
-          {isLoading ? (
+          {isLoading && statusText === 'Translating' ? (
             <>
               <Loader2 className="spinner" size={13} />
               <span>Translating...</span>
@@ -523,14 +584,19 @@ export default function Translator() {
             <span>Translate</span>
           )}
         </button>
-      </div>
+      )}
 
-      {/* Result Text Area */}
+      {/* Result area */}
       <div className="ddo-translator-result-wrapper">
         {(isLoading || isOcrLoading) && (
           <div className="ddo-translator-status-overlay">
             <Loader2 className="spinner" size={24} />
-            {isOcrLoading && <span style={{ fontSize: '12px', marginTop: '6px', color: '#fff' }}>Running OCR...</span>}
+            {statusText && (
+              <span style={{ fontSize: '12px', marginTop: '6px', color: '#fff' }}>
+                {statusText === 'Reading text' ? 'Reading text...' :
+                 statusText === 'Translating' ? 'Translating...' : statusText}
+              </span>
+            )}
           </div>
         )}
 
@@ -560,19 +626,14 @@ export default function Translator() {
         )}
       </div>
 
-      {/* Footer Details */}
+      {/* Footer details */}
       <div className="ddo-translator-footer">
-        <span>{inputText.length}/1000 characters</span>
+        {imagePreviewUrl ? (
+          <span>Image loaded</span>
+        ) : (
+          <span>{inputText.length}/1000 characters</span>
+        )}
       </div>
-
-      {/* Full Screen Selection Mode Overlay */}
-      {isCapturing && (
-        <ScreenCaptureOverlay
-          sourceLang={sourceLang}
-          onCapture={handleScreenCapture}
-          onCancel={() => setIsCapturing(false)}
-        />
-      )}
     </div>
   );
 }

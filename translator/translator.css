@@ -182,7 +182,7 @@
   padding-right: 32px;
 }
 
-/* Controls overlaid in the textareas */
+/* Controls overlaid inside textareas */
 .ddo-translator-textarea-controls {
   position: absolute;
   top: 8px;
@@ -214,6 +214,11 @@
   border-color: rgba(255, 255, 255, 0.2);
 }
 
+.ddo-translator-textarea-btn.attach-btn.active {
+  background: rgba(255, 255, 255, 0.2);
+  color: #ffffff;
+}
+
 .ddo-translator-copy-btn {
   position: absolute;
   top: 8px;
@@ -225,69 +230,218 @@
   color: #ffffff;
 }
 
-/* Action button row layout */
-.ddo-translator-actions-row {
+/* Attachment Dropdown Panel */
+.ddo-attach-dropdown {
+  position: absolute;
+  top: 26px;
+  right: 0;
+  background: rgba(18, 18, 18, 0.98);
+  backdrop-filter: blur(20px);
+  -webkit-backdrop-filter: blur(20px);
+  border: 1px solid rgba(255, 255, 255, 0.12);
+  border-radius: 8px;
+  padding: 4px;
+  width: 130px;
   display: flex;
-  gap: 8px;
-  width: 100%;
+  flex-direction: column;
+  gap: 2px;
+  z-index: 200;
+  box-shadow: 0 8px 20px rgba(0, 0, 0, 0.7);
 }
 
-.ddo-translator-action-btn {
-  flex: 1;
+.ddo-attach-item {
+  background: transparent;
+  border: none;
+  color: rgba(255, 255, 255, 0.85);
+  font-size: 11px;
+  padding: 6px 8px;
+  border-radius: 5px;
+  cursor: pointer;
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  width: 100%;
+  text-align: left;
+  transition: all 0.15s ease;
+}
+
+.ddo-attach-item:hover {
+  background: rgba(255, 255, 255, 0.1);
+  color: #ffffff;
+}
+
+/* Photo Preview Box styles */
+.ddo-translator-preview-container {
+  width: 100%;
+  height: 94px;
+  background: rgba(0, 0, 0, 0.35);
+  border: 1px solid rgba(255, 255, 255, 0.1);
   border-radius: 8px;
+  position: relative;
+  overflow: hidden;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.ddo-translator-image-preview {
+  max-width: 100%;
+  max-height: 100%;
+  object-fit: contain;
+}
+
+.ddo-translator-preview-actions {
+  position: absolute;
+  bottom: 6px;
+  right: 6px;
+  display: flex;
+  gap: 4px;
+}
+
+.preview-action-btn {
+  background: rgba(0, 0, 0, 0.8);
+  border: 1px solid rgba(255, 255, 255, 0.12);
+  border-radius: 6px;
+  color: #ffffff;
+  font-size: 10px;
+  padding: 3px 8px;
+  cursor: pointer;
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  transition: all 0.15s ease;
+}
+
+.preview-action-btn:hover {
+  background: rgba(255, 255, 255, 0.15);
+  border-color: rgba(255, 255, 255, 0.25);
+}
+
+.preview-action-btn.remove {
+  background: rgba(180, 40, 40, 0.7);
+  border-color: rgba(180, 40, 40, 0.3);
+}
+
+.preview-action-btn.remove:hover {
+  background: rgba(200, 50, 50, 0.85);
+}
+
+/* Camera Preview Panel inside Translator Popup */
+.ddo-translator-camera-panel {
+  width: 100%;
+  height: 140px;
+  background: #000000;
+  border: 1px solid rgba(255, 255, 255, 0.12);
+  border-radius: 8px;
+  overflow: hidden;
+  position: relative;
+}
+
+.ddo-translator-video,
+.ddo-translator-video-captured {
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+  display: block;
+}
+
+.ddo-translator-camera-actions {
+  position: absolute;
+  bottom: 8px;
+  left: 0;
+  right: 0;
+  display: flex;
+  justify-content: center;
+  gap: 6px;
+  padding: 0 8px;
+  z-index: 10;
+}
+
+.ddo-camera-btn {
+  border: 1px solid;
+  border-radius: 6px;
+  font-size: 10px;
+  font-weight: 600;
+  padding: 4px 10px;
+  cursor: pointer;
+  transition: all 0.15s ease;
+}
+
+.ddo-camera-btn.capture-btn-action {
+  background: #ffffff;
+  border-color: #ffffff;
+  color: #000000;
+}
+
+.ddo-camera-btn.capture-btn-action:hover {
+  background: rgba(255, 255, 255, 0.9);
+}
+
+.ddo-camera-btn.cancel-btn-action {
+  background: rgba(0, 0, 0, 0.85);
+  border-color: rgba(255, 255, 255, 0.12);
+  color: #ffffff;
+}
+
+.ddo-camera-btn.cancel-btn-action:hover {
+  background: rgba(255, 255, 255, 0.15);
+}
+
+.ddo-camera-btn.use-btn-action {
+  background: #ffffff;
+  border-color: #ffffff;
+  color: #000000;
+}
+
+.ddo-camera-btn.use-btn-action:hover {
+  background: rgba(255, 255, 255, 0.9);
+}
+
+.ddo-camera-btn.retake-btn-action {
+  background: rgba(255, 255, 255, 0.15);
+  border-color: rgba(255, 255, 255, 0.2);
+  color: #ffffff;
+}
+
+.ddo-camera-btn.retake-btn-action:hover {
+  background: rgba(255, 255, 255, 0.25);
+}
+
+/* Submit translation button */
+.ddo-translator-submit-btn {
+  background: #ffffff;
+  border: 1px solid #ffffff;
+  border-radius: 8px;
+  color: #000000;
   font-size: 13px;
   font-weight: 600;
-  padding: 8px 10px;
+  padding: 8px 12px;
   cursor: pointer;
   transition: all 0.2s cubic-bezier(0.16, 1, 0.3, 1);
   display: flex;
   align-items: center;
   justify-content: center;
   gap: 6px;
-  outline: none;
+  width: 100%;
 }
 
-/* Screen Select (Dark theme) */
-.ddo-translator-action-btn.capture-btn {
-  background: rgba(255, 255, 255, 0.05);
-  border: 1px solid rgba(255, 255, 255, 0.12);
-  color: #ffffff;
-}
-
-.ddo-translator-action-btn.capture-btn:hover:not(:disabled) {
-  background: rgba(255, 255, 255, 0.12);
-  border-color: rgba(255, 255, 255, 0.25);
-}
-
-.ddo-translator-action-btn.capture-btn:active:not(:disabled) {
-  transform: scale(0.97);
-}
-
-/* Translate Button (White Solid theme) */
-.ddo-translator-action-btn.translate-btn {
-  background: #ffffff;
-  border: 1px solid #ffffff;
-  color: #000000;
-}
-
-.ddo-translator-action-btn.translate-btn:hover:not(:disabled) {
+.ddo-translator-submit-btn:hover:not(:disabled) {
   background: rgba(255, 255, 255, 0.9);
-  box-shadow: 0 0 10px rgba(255, 255, 255, 0.12);
+  box-shadow: 0 0 12px rgba(255, 255, 255, 0.15);
 }
 
-.ddo-translator-action-btn.translate-btn:active:not(:disabled) {
-  transform: scale(0.97);
+.ddo-translator-submit-btn:active:not(:disabled) {
+  transform: scale(0.98);
 }
 
-.ddo-translator-action-btn:disabled {
-  background: rgba(255, 255, 255, 0.15) !important;
-  border-color: transparent !important;
-  color: rgba(255, 255, 255, 0.3) !important;
+.ddo-translator-submit-btn:disabled {
+  background: rgba(255, 255, 255, 0.15);
+  border-color: transparent;
+  color: rgba(255, 255, 255, 0.35);
   cursor: not-allowed;
-  transform: none !important;
 }
 
-/* Status loading overlay and spinner */
+/* Status overlays and spinners */
 .ddo-translator-status-overlay {
   position: absolute;
   inset: 0;
@@ -315,7 +469,7 @@
   }
 }
 
-/* Error message banner */
+/* Error banner */
 .ddo-translator-error {
   position: absolute;
   bottom: 8px;
@@ -333,93 +487,11 @@
   z-index: 12;
 }
 
+/* Footer / character count */
 .ddo-translator-footer {
   display: flex;
   justify-content: flex-end;
   font-size: 11px;
   color: rgba(255, 255, 255, 0.35);
   padding: 0 4px;
-}
-
-/* Screen Capture Overlay Layout */
-.ddo-capture-overlay {
-  position: fixed;
-  inset: 0;
-  width: 100vw;
-  height: 100vh;
-  z-index: 99999;
-  cursor: crosshair;
-  background: transparent;
-  user-select: none;
-}
-
-/* Floating instruction card in selection screen */
-.ddo-capture-instructions {
-  position: fixed;
-  top: 24px;
-  left: 50%;
-  transform: translateX(-50%);
-  background: rgba(15, 15, 15, 0.85);
-  border: 1px solid rgba(255, 255, 255, 0.15);
-  border-radius: 20px;
-  padding: 8px 16px;
-  color: #ffffff;
-  font-size: 12px;
-  display: flex;
-  align-items: center;
-  gap: 12px;
-  z-index: 100000;
-  box-shadow: 0 8px 24px rgba(0, 0, 0, 0.7);
-  backdrop-filter: blur(12px);
-  -webkit-backdrop-filter: blur(12px);
-  pointer-events: auto;
-}
-
-.ddo-capture-instructions strong {
-  background: rgba(255, 255, 255, 0.2);
-  padding: 1px 5px;
-  border-radius: 4px;
-  font-family: monospace;
-}
-
-.ddo-capture-cancel-btn {
-  background: #ffffff;
-  border: 1px solid #ffffff;
-  border-radius: 12px;
-  color: #000000;
-  font-size: 11px;
-  font-weight: 600;
-  padding: 3px 10px;
-  cursor: pointer;
-  transition: all 0.15s ease;
-}
-
-.ddo-capture-cancel-btn:hover {
-  background: rgba(255, 255, 255, 0.9);
-}
-
-.ddo-capture-cancel-btn:active {
-  transform: scale(0.95);
-}
-
-/* Full screen capture loader */
-.ddo-capture-loader,
-.ddo-capture-error {
-  position: fixed;
-  inset: 0;
-  display: flex;
-  flex-direction: column;
-  align-items: center;
-  justify-content: center;
-  background: rgba(10, 10, 10, 0.85);
-  color: #ffffff;
-  font-size: 14px;
-  gap: 12px;
-  z-index: 100000;
-}
-
-.ddo-capture-error span {
-  color: #ff8e8e;
-  max-width: 280px;
-  text-align: center;
 }
