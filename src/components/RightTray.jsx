@@ -3310,7 +3310,7 @@ const RightTray = ({ onPopupStateChange = () => {} }) => {
             flexDirection: 'column',
             gap: '0'
           }}>
-            <Translator onVisibilityChange={setIsTranslatorOpen} />
+            <Translator onVisibilityChange={setIsTranslatorOpen} visible={isTranslatorOpen} />
           </div>
         </div>
 

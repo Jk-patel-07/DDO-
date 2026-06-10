@@ -1,5 +1,5 @@
 import React, { useState, useEffect, useRef } from 'react';
-import { ArrowLeftRight, Copy, Trash2, Check, AlertCircle, Loader2, Camera, ChevronDown, Plus, Image as ImageIcon, RefreshCw, X, Mic, Send, Pin, Search, Edit2, ChevronLeft, ChevronRight, History, Languages } from 'lucide-react';
+import { ArrowLeftRight, Copy, Trash2, Check, AlertCircle, Loader2, Camera, ChevronDown, Plus, Image as ImageIcon, RefreshCw, X, Mic, Send, Pin, Search, Edit2, Sidebar, Maximize2, Minimize2, Languages } from 'lucide-react';
 import { createWorker } from 'tesseract.js';
 import './translator.css';
 
@@ -64,7 +64,7 @@ function CustomSelect({ value, onChange, options, placeholder, isDarkHeader = fa
   );
 }
 
-export default function Translator({ onVisibilityChange }) {
+export default function Translator({ onVisibilityChange, visible }) {
   const [targetLang, setTargetLang] = useState('es');
   const [inputText, setInputText] = useState('');
   const [isLoading, setIsLoading] = useState(false);
@@ -75,7 +75,7 @@ export default function Translator({ onVisibilityChange }) {
 
   // UI responsive states
   const [isExpanded, setIsExpanded] = useState(false); // compact (320px) vs expanded (540px)
-  const [isFloatingHistoryOpen, setIsFloatingHistoryOpen] = useState(false);
+  const [isHistoryOpen, setIsHistoryOpen] = useState(false);
 
   // Photo & Camera States
   const [isAttachMenuOpen, setIsAttachMenuOpen] = useState(false);
@@ -135,6 +135,16 @@ export default function Translator({ onVisibilityChange }) {
       stopRecording();
     };
   }, []);
+
+  // Reset states when the Translator popup is closed
+  useEffect(() => {
+    if (!visible) {
+      setIsAttachMenuOpen(false);
+      setIsHistoryOpen(false);
+      stopCamera();
+      stopRecording();
+    }
+  }, [visible]);
 
   // Compute active messages
   const activeSession = history.find(s => s.id === activeSessionId);
@@ -266,6 +276,7 @@ export default function Translator({ onVisibilityChange }) {
   const handleKeyPress = (e) => {
     if (e.key === 'Enter' && !e.shiftKey) {
       e.preventDefault();
+      e.stopPropagation();
       handleTranslate();
     }
   };
@@ -280,7 +291,7 @@ export default function Translator({ onVisibilityChange }) {
       return result.data.text;
     } catch (err) {
       console.error('OCR failed:', err);
-      throw new Error('OCR failed. Could not recognize text.');
+      throw new Error('No readable text found');
     }
   };
 
@@ -307,38 +318,29 @@ export default function Translator({ onVisibilityChange }) {
 
         setImagePreviewUrl(base64Data);
         setIsOcrLoading(true);
-        setStatusText('Reading text');
+        setStatusText('Scanning photo...');
         setError('');
 
         const splitData = base64Data.split(',');
         const rawBase64 = splitData[1];
-        if (!rawBase64) throw new Error('Invalid image encoding.');
+        if (!rawBase64) throw new Error('No readable text found');
 
         const text = await runOCRFromBase64(rawBase64);
         if (!text || !text.trim()) {
-          setStatusText('No text found');
-          throw new Error('No text found');
+          throw new Error('No readable text found');
         }
 
-        setInputText(text);
-        setStatusText('Translating');
+        setStatusText('Translating...');
         await performTranslation(text, targetLang);
-        setStatusText('');
         setIsOcrLoading(false);
       } catch (err) {
         console.error(err);
-        if (err.message === 'No text found') {
-          setError('No text found in photo.');
-          setStatusText('No text found');
-        } else {
-          setError(err.message || 'OCR extraction failed.');
-          setStatusText('');
-        }
+        setError('No readable text found');
         setIsOcrLoading(false);
       }
     };
     reader.onerror = () => {
-      setError('Failed to read image file.');
+      setError('No readable text found');
       setIsOcrLoading(false);
     };
     reader.readAsDataURL(file);
@@ -408,30 +410,21 @@ export default function Translator({ onVisibilityChange }) {
     setIsCameraOpen(false);
     setImagePreviewUrl(capturedPhoto);
     setIsOcrLoading(true);
-    setStatusText('Reading text');
+    setStatusText('Scanning photo...');
     setError('');
 
     try {
       const rawBase64 = capturedPhoto.split(',')[1];
       const text = await runOCRFromBase64(rawBase64);
       if (!text || !text.trim()) {
-        setStatusText('No text found');
-        throw new Error('No text found');
+        throw new Error('No readable text found');
       }
-      setInputText(text);
-      setStatusText('Translating');
+      setStatusText('Translating...');
       await performTranslation(text, targetLang);
-      setStatusText('');
       setIsOcrLoading(false);
     } catch (err) {
       console.error(err);
-      if (err.message === 'No text found') {
-        setError('No text found in photo.');
-        setStatusText('No text found');
-      } else {
-        setError(err.message || 'OCR extraction failed.');
-        setStatusText('');
-      }
+      setError('No readable text found');
       setIsOcrLoading(false);
     }
   };
@@ -492,30 +485,21 @@ export default function Translator({ onVisibilityChange }) {
   const handleRetryOcr = async () => {
     if (!imagePreviewUrl) return;
     setIsOcrLoading(true);
-    setStatusText('Reading text');
+    setStatusText('Scanning photo...');
     setError('');
 
     try {
       const rawBase64 = imagePreviewUrl.split(',')[1];
       const text = await runOCRFromBase64(rawBase64);
       if (!text || !text.trim()) {
-        setStatusText('No text found');
-        throw new Error('No text found');
+        throw new Error('No readable text found');
       }
-      setInputText(text);
-      setStatusText('Translating');
+      setStatusText('Translating...');
       await performTranslation(text, targetLang);
-      setStatusText('');
       setIsOcrLoading(false);
     } catch (err) {
       console.error(err);
-      if (err.message === 'No text found') {
-        setError('No text found in photo.');
-        setStatusText('No text found');
-      } else {
-        setError(err.message || 'OCR extraction failed.');
-        setStatusText('');
-      }
+      setError('No readable text found');
       setIsOcrLoading(false);
     }
   };
@@ -527,14 +511,16 @@ export default function Translator({ onVisibilityChange }) {
     setStatusText('');
     setImagePreviewUrl(null);
     setActiveSessionId(null);
-    setIsFloatingHistoryOpen(false);
+    setIsHistoryOpen(false);
   };
 
   const selectHistorySession = (session) => {
     setActiveSessionId(session.id);
     setInputText('');
     setImagePreviewUrl(null);
-    setIsFloatingHistoryOpen(false);
+    if (!isExpanded) {
+      setIsHistoryOpen(false);
+    }
   };
 
   const togglePinSession = (id, e) => {
@@ -757,7 +743,7 @@ export default function Translator({ onVisibilityChange }) {
   return (
     <div className={`ddo-translator-layout ${isExpanded ? 'is-expanded' : 'is-compact'}`}>
       {/* 1. Sidebar History Panel (Visible only when Expanded/Maximized) */}
-      {isExpanded && (
+      {isExpanded && isHistoryOpen && (
         <div className="ddo-translator-sidebar">
           <div className="ddo-sidebar-header">
             <button type="button" onClick={handleNewTranslation} className="ddo-new-chat-btn">
@@ -784,33 +770,16 @@ export default function Translator({ onVisibilityChange }) {
         {/* Header toolbar */}
         <div className="ddo-translator-header">
           <div className="ddo-header-left">
-            {/* History Toggle Trigger */}
+            {/* Sidebar Toggle Trigger (History / Recents) */}
             <button
               type="button"
               onClick={() => {
-                if (isExpanded) {
-                  setIsExpanded(false);
-                } else {
-                  setIsFloatingHistoryOpen(!isFloatingHistoryOpen);
-                }
+                setIsHistoryOpen(!isHistoryOpen);
               }}
-              className={`ddo-header-btn ${isFloatingHistoryOpen ? 'active' : ''}`}
-              title="Translation History"
+              className={`ddo-header-btn ${isHistoryOpen ? 'active' : ''}`}
+              title="History"
             >
-              <History size={14} />
-            </button>
-
-            {/* Minimize / Maximize window expansion width toggle */}
-            <button
-              type="button"
-              onClick={() => {
-                setIsExpanded(!isExpanded);
-                setIsFloatingHistoryOpen(false); // Close dropdown if expanding
-              }}
-              className="ddo-header-btn"
-              title={isExpanded ? 'Collapse Layout' : 'Expand Layout'}
-            >
-              {isExpanded ? <ChevronLeft size={14} /> : <ChevronRight size={14} />}
+              <Sidebar size={14} />
             </button>
             <span className="ddo-translator-title">AI Translator</span>
           </div>
@@ -829,12 +798,25 @@ export default function Translator({ onVisibilityChange }) {
 
             {/* Target/Output Language Selector */}
             <CustomSelect
+              key={visible}
               value={targetLang}
               onChange={setTargetLang}
               options={LANGUAGES}
               placeholder="Select Target"
               isDarkHeader={true}
             />
+
+            {/* Maximize / Minimize toggle button */}
+            <button
+              type="button"
+              onClick={() => {
+                setIsExpanded(!isExpanded);
+              }}
+              className="ddo-header-btn"
+              title={isExpanded ? 'Minimize' : 'Maximize'}
+            >
+              {isExpanded ? <Minimize2 size={13} /> : <Maximize2 size={13} />}
+            </button>
 
             {/* Close button */}
             <button
@@ -849,13 +831,13 @@ export default function Translator({ onVisibilityChange }) {
         </div>
 
         {/* 3. Floating History Menu Dropdown (Compact mode) */}
-        {!isExpanded && isFloatingHistoryOpen && (
+        {!isExpanded && isHistoryOpen && (
           <div className="ddo-floating-history-menu">
             <div className="ddo-floating-history-header">
               <button type="button" onClick={handleNewTranslation} className="ddo-new-chat-btn">
                 <Plus size={11} /> <span>New Conversation</span>
               </button>
-              <button type="button" onClick={() => setIsFloatingHistoryOpen(false)} className="ddo-close-history-btn">
+              <button type="button" onClick={() => setIsHistoryOpen(false)} className="ddo-close-history-btn">
                 <X size={12} />
               </button>
             </div>
@@ -883,6 +865,37 @@ export default function Translator({ onVisibilityChange }) {
 
         {/* 5. Chat Input Composer (ChatGPT Style) */}
         <div className="ddo-chat-composer-wrapper">
+          {/* Small Image Scanner & Preview Bar above Composer */}
+          {imagePreviewUrl && (
+            <div className="ddo-image-preview-bar">
+              <div className="preview-image-wrapper">
+                <img src={imagePreviewUrl} alt="Preview" />
+              </div>
+              <div className="preview-status-details">
+                {isOcrLoading ? (
+                  <span>
+                    <Loader2 className="spinner" size={12} />
+                    <span>{statusText || 'Scanning photo...'}</span>
+                  </span>
+                ) : error ? (
+                  <span>{error}</span>
+                ) : (
+                  <span>Text detected</span>
+                )}
+              </div>
+              <div className="preview-actions">
+                {error && (
+                  <button type="button" onClick={handleRetryOcr} className="preview-action-btn" title="Retry OCR">
+                    <RefreshCw size={11} /> <span>Retry</span>
+                  </button>
+                )}
+                <button type="button" onClick={handleRemoveImage} className="preview-action-btn remove" title="Remove Photo">
+                  <X size={11} /> <span>Remove</span>
+                </button>
+              </div>
+            </div>
+          )}
+
           {/* Large rounded input composer box */}
           <div className="ddo-chat-composer-box">
             {/* Attachment + Button */}
@@ -935,19 +948,6 @@ export default function Translator({ onVisibilityChange }) {
                     )}
                   </div>
                 </div>
-              ) : imagePreviewUrl ? (
-                /* Compact Image Preview */
-                <div className="ddo-composer-preview-container">
-                  <img src={imagePreviewUrl} className="ddo-composer-image-preview" alt="Preview" />
-                  <div className="ddo-composer-preview-actions">
-                    <button type="button" onClick={handleRetryOcr} className="preview-action-btn" title="Retry OCR">
-                      <RefreshCw size={11} /> <span>Retry</span>
-                    </button>
-                    <button type="button" onClick={handleRemoveImage} className="preview-action-btn remove" title="Remove Photo">
-                      <X size={11} /> <span>Remove</span>
-                    </button>
-                  </div>
-                </div>
               ) : (
                 /* Standard Textarea Chat Composer */
                 <textarea
@@ -962,7 +962,7 @@ export default function Translator({ onVisibilityChange }) {
             </div>
 
             {/* Mic and ChatGPT send/translate button */}
-            {!isCameraOpen && !imagePreviewUrl && (
+            {!isCameraOpen && (
               <div className="ddo-composer-right">
                 {/* Voice recording mic trigger */}
                 <button
@@ -1059,20 +1059,19 @@ export default function Translator({ onVisibilityChange }) {
           )}
 
           {/* Loader status overlay */}
-          {(isLoading || isOcrLoading) && (
+          {((isLoading && messages.length === 0) || (isOcrLoading && !imagePreviewUrl)) && (
             <div className="ddo-translator-status-overlay">
               <Loader2 className="spinner" size={20} />
               {statusText && (
                 <span className="status-label-text">
-                  {statusText === 'Reading text' ? 'Reading text...' :
-                   statusText === 'Translating' ? 'Translating...' : statusText}
+                  {statusText}
                 </span>
               )}
             </div>
           )}
 
           {/* Error Banner */}
-          {error && (
+          {error && !imagePreviewUrl && (
             <div className="ddo-translator-error">
               <AlertCircle size={14} />
               <span>{error}</span>
