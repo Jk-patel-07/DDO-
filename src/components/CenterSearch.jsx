@@ -1781,8 +1781,7 @@ const AiChatPopup = ({
     if (!trimmedQuery) {
       return;
     }
-
-    const cmdInfo = providerId === 'stepfun' ? parseCommand(trimmedQuery) : null;
+    const cmdInfo = parseCommand(trimmedQuery);
     let requestPrompt = trimmedQuery;
     let systemInstructionOverride = undefined;
 
@@ -2240,9 +2239,8 @@ const AiChatPopup = ({
     };
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
-
   // eslint-disable-next-line react-hooks/rules-of-hooks
-  const isTypingCommand = provider === 'stepfun' && answerInput.startsWith('@') && !answerInput.includes(' ');
+  const isTypingCommand = answerInput.startsWith('@') && !answerInput.includes(' ');
   const commandQuery = isTypingCommand ? answerInput.slice(1).toLowerCase() : '';
   const filteredCommands = isTypingCommand
     ? COMMAND_OPTIONS.filter(cmd => cmd.name.slice(1).toLowerCase().startsWith(commandQuery))

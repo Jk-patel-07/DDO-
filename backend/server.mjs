@@ -1723,7 +1723,7 @@ app.post('/api/gemini/chat', async (req, res, next) => {
     }
 
     try {
-      const systemInstruction = getAiSystemPrompt('gemini');
+      const systemInstruction = req.body.systemInstruction || getAiSystemPrompt('gemini');
       const isLiveQuery = isLiveInformationQuery(normalizedPrompt);
       let answer;
 
@@ -1871,7 +1871,7 @@ app.post('/api/manus/chat', async (req, res, next) => {
     }
 
     try {
-      const systemInstruction = getAiSystemPrompt('manus');
+      const systemInstruction = req.body.systemInstruction || getAiSystemPrompt('manus');
       const isLiveQuery = isLiveInformationQuery(normalizedPrompt);
       let answer;
 
