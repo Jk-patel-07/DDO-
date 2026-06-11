@@ -8,6 +8,8 @@ const isAiPopup = (key) => {
     lowercaseKey === 'stepfun' ||
     lowercaseKey === 'manus' ||
     lowercaseKey === 'meta' ||
+    lowercaseKey === 'claude' ||
+    lowercaseKey === 'openai' ||
     lowercaseKey.includes('ai') ||
     lowercaseKey.includes('chat')
   ) && !lowercaseKey.includes('animation');
@@ -34,6 +36,21 @@ export function useDraggablePopup(popupKey) {
   const onMouseDown = (e) => {
     if (!isAi) return;
     if (e.button !== 0) return; // Only left click
+
+    // Prevent dragging from buttons, input controls, select dropdowns, textareas, etc.
+    if (
+      e.target.closest('button') ||
+      e.target.closest('input') ||
+      e.target.closest('select') ||
+      e.target.closest('textarea')
+    ) {
+      return;
+    }
+
+    // Do not allow dragging if the popup is maximized
+    if (popupRef.current && popupRef.current.classList.contains('is-maximized')) {
+      return;
+    }
     
     let startX = 0;
     let startY = 0;
@@ -154,10 +171,15 @@ export function useDraggablePopup(popupKey) {
     dragStyle,
     dragProps: {
       onMouseDown,
-      onDoubleClick: handleDoubleClick,
-      onContextMenu: handleContextMenu,
-      style: { cursor: dragging ? 'grabbing' : 'grab' },
-      title: 'Drag to Move / Double-click or Right-click to Reset'
+      ...(isAi ? {} : {
+        onDoubleClick: handleDoubleClick,
+        onContextMenu: handleContextMenu,
+      }),
+      style: {
+        cursor: dragging ? 'grabbing' : 'grab',
+        userSelect: 'none',
+      },
+      title: isAi ? undefined : 'Drag to Move / Double-click or Right-click to Reset'
     }
   };
 }

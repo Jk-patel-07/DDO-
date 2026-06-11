@@ -3439,6 +3439,19 @@ const AiChatPopup = ({
     void submitAiPrompt(provider, text, attach);
   }, [provider, activeTabId, submitAiPrompt]);
 
+  const handleHeaderDoubleClick = useCallback((e) => {
+    if (
+      e.target.closest('button') ||
+      e.target.closest('input') ||
+      e.target.closest('select') ||
+      e.target.closest('textarea')
+    ) {
+      return;
+    }
+    setIsMaximized(prev => !prev);
+    setIsMinimized(false);
+  }, []);
+
   if (!isOpen) return null;
 
   const activeTab = chatTabs.find(t => t.id === activeTabId);
@@ -3453,7 +3466,11 @@ const AiChatPopup = ({
       className={`center-search-answer-popup popup-aurora-surface ${isMinimized ? 'is-minimized' : ''} ${isMaximized ? 'is-maximized' : ''}`}
       data-provider={provider}
     >
-      <div className="center-search-answer-header">
+      <div 
+        className="center-search-answer-header"
+        {...drag.dragProps}
+        onDoubleClick={handleHeaderDoubleClick}
+      >
         <div style={{ display: 'flex', alignItems: 'center', gap: '10px' }}>
           <button
             type="button"
@@ -3469,13 +3486,6 @@ const AiChatPopup = ({
           </div>
         </div>
         <div className="center-search-answer-actions">
-          <button
-            type="button"
-            className="center-search-answer-action-btn popup-drag-btn"
-            {...drag.dragProps}
-          >
-            ⠿
-          </button>
           <button
             type="button"
             className="center-search-answer-action-btn"
