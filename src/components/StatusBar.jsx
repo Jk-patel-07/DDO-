@@ -8,6 +8,101 @@ const StatusBar = () => {
   const [isBackdropActive, setIsBackdropActive] = useState(false);
   const hasPointerLeftTopZoneRef = useRef(false);
 
+  const [isNavBarVisible, setIsNavBarVisible] = useState(false);
+  const isMouseOverStatusBarRef = useRef(false);
+  const isMouseOverNavBarRef = useRef(false);
+  const navBarHideTimeoutRef = useRef(null);
+
+  const handleStatusBarMouseEnter = () => {
+    isMouseOverStatusBarRef.current = true;
+    if (navBarHideTimeoutRef.current) {
+      clearTimeout(navBarHideTimeoutRef.current);
+      navBarHideTimeoutRef.current = null;
+    }
+    setIsNavBarVisible(true);
+  };
+
+  const handleStatusBarMouseLeave = () => {
+    isMouseOverStatusBarRef.current = false;
+    startNavBarHideTimeout();
+  };
+
+  const handleNavBarMouseEnter = () => {
+    isMouseOverNavBarRef.current = true;
+    if (navBarHideTimeoutRef.current) {
+      clearTimeout(navBarHideTimeoutRef.current);
+      navBarHideTimeoutRef.current = null;
+    }
+    setIsNavBarVisible(true);
+  };
+
+  const handleNavBarMouseLeave = () => {
+    isMouseOverNavBarRef.current = false;
+    startNavBarHideTimeout();
+  };
+
+  const startNavBarHideTimeout = () => {
+    if (navBarHideTimeoutRef.current) {
+      clearTimeout(navBarHideTimeoutRef.current);
+    }
+    navBarHideTimeoutRef.current = setTimeout(() => {
+      if (!isMouseOverStatusBarRef.current && !isMouseOverNavBarRef.current) {
+        setIsNavBarVisible(false);
+      }
+    }, 350);
+  };
+
+  // Click outside and window blur handlers to hide immediately
+  useEffect(() => {
+    const handleClickOutside = (e) => {
+      const statusBarEl = document.querySelector('.status-bar-container');
+      const navBarEl = document.querySelector('.ddo-floating-nav-container');
+
+      const clickedOutsideStatusBar = !statusBarEl || !statusBarEl.contains(e.target);
+      const clickedOutsideNavBar = !navBarEl || !navBarEl.contains(e.target);
+
+      if (clickedOutsideStatusBar && clickedOutsideNavBar) {
+        setIsNavBarVisible(false);
+        isMouseOverStatusBarRef.current = false;
+        isMouseOverNavBarRef.current = false;
+        if (navBarHideTimeoutRef.current) {
+          clearTimeout(navBarHideTimeoutRef.current);
+          navBarHideTimeoutRef.current = null;
+        }
+      }
+    };
+
+    const handleWindowBlur = () => {
+      setIsNavBarVisible(false);
+      isMouseOverStatusBarRef.current = false;
+      isMouseOverNavBarRef.current = false;
+      if (navBarHideTimeoutRef.current) {
+        clearTimeout(navBarHideTimeoutRef.current);
+        navBarHideTimeoutRef.current = null;
+      }
+    };
+
+    document.addEventListener('mousedown', handleClickOutside, true);
+    window.addEventListener('blur', handleWindowBlur);
+
+    return () => {
+      document.removeEventListener('mousedown', handleClickOutside, true);
+      window.removeEventListener('blur', handleWindowBlur);
+    };
+  }, []);
+
+  // Monitor nav bar visibility to auto-hide status bar when nav bar closes
+  useEffect(() => {
+    if (!isNavBarVisible && !isBackdropActive) {
+      if (document.activeElement && document.activeElement.tagName === 'INPUT') {
+        return;
+      }
+      if (!isMouseOverStatusBarRef.current) {
+        setIsVisible(false);
+      }
+    }
+  }, [isNavBarVisible, isBackdropActive]);
+
   useEffect(() => {
     let timeout;
     const handleMouseMove = (e) => {
@@ -26,8 +121,8 @@ const StatusBar = () => {
           if (document.activeElement && document.activeElement.tagName === 'INPUT') {
             return; // Do not hide if user is typing in search
           }
-          if (isBackdropActive) {
-            return; // Do not hide if any popup is active
+          if (isBackdropActive || isNavBarVisible) {
+            return; // Do not hide if any popup is active or if nav bar is visible
           }
           setIsVisible(false);
         }, 1500);
@@ -39,7 +134,7 @@ const StatusBar = () => {
       window.removeEventListener('mousemove', handleMouseMove);
       clearTimeout(timeout);
     };
-  }, [isBackdropActive]);
+  }, [isBackdropActive, isNavBarVisible]);
 
   useEffect(() => {
     document.body.dataset.theme = 'dark';
@@ -51,13 +146,20 @@ const StatusBar = () => {
       <div className="hover-trigger-area" />
       <div
         className={`status-bar-container glass-panel flex-between status-bar ${isVisible ? '' : 'hidden'}`}
+        onMouseEnter={handleStatusBarMouseEnter}
+        onMouseLeave={handleStatusBarMouseLeave}
       >
         <div className={`status-popup-backdrop ${isBackdropActive ? 'active' : ''}`} />
         <div className="status-bar-content flex-between">
           <LeftMenu onPopupStateChange={setIsBackdropActive} />
           <RightTray onPopupStateChange={setIsBackdropActive} />
         </div>
-        <FloatingNavBar onPopupStateChange={setIsBackdropActive} />
+        <FloatingNavBar
+          isNavBarVisible={isNavBarVisible}
+          onNavBarMouseEnter={handleNavBarMouseEnter}
+          onNavBarMouseLeave={handleNavBarMouseLeave}
+          onPopupStateChange={setIsBackdropActive}
+        />
       </div>
     </>
   );

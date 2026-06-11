@@ -1,7 +1,12 @@
 import { useState, useEffect, useRef } from 'react';
 import { Home, CheckCircle2, Calendar, Target, X, Check, ChevronLeft, ChevronRight } from 'lucide-react';
 
-const FloatingNavBar = ({ onPopupStateChange }) => {
+const FloatingNavBar = ({
+  isNavBarVisible,
+  onNavBarMouseEnter,
+  onNavBarMouseLeave,
+  onPopupStateChange,
+}) => {
   const [activeTab, setActiveTab] = useState(null);
   const [time, setTime] = useState(new Date());
 
@@ -69,6 +74,13 @@ const FloatingNavBar = ({ onPopupStateChange }) => {
       onPopupStateChange(activeTab !== null);
     }
   }, [activeTab, onPopupStateChange]);
+
+  // Collapse active tab if navigation bar becomes hidden
+  useEffect(() => {
+    if (!isNavBarVisible) {
+      setActiveTab(null);
+    }
+  }, [isNavBarVisible]);
 
   // Click outside handler to collapse panel
   useEffect(() => {
@@ -177,7 +189,12 @@ const FloatingNavBar = ({ onPopupStateChange }) => {
   };
 
   return (
-    <div ref={containerRef} className="ddo-floating-nav-container">
+    <div
+      ref={containerRef}
+      className={`ddo-floating-nav-container ${isNavBarVisible ? 'ddo-visible' : ''}`}
+      onMouseEnter={onNavBarMouseEnter}
+      onMouseLeave={onNavBarMouseLeave}
+    >
       {/* Pill-shaped Navigation Dock */}
       <div className="ddo-floating-nav-dock">
         <button
