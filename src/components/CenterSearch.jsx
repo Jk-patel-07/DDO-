@@ -630,6 +630,29 @@ const CenterSearch = ({ onPopupStateChange = () => {} }) => {
   // Focus z-index state
   const [frontProvider, setFrontProvider] = useState('gemini');
 
+  const sortedMainHistory = useMemo(() => {
+    const aiChats = historyChats || [];
+    const googleItems = searchHistory.map((item, index) => ({
+      id: `google_${item}`,
+      title: item,
+      provider: 'google',
+      providerDisplayName: 'Google',
+      updatedAt: Date.now() - (index + 1) * 1000,
+      pinned: false
+    }));
+
+    const combined = [
+      ...aiChats,
+      ...googleItems
+    ];
+
+    return combined.sort((a, b) => {
+      if (a.pinned && !b.pinned) return -1;
+      if (!a.pinned && b.pinned) return 1;
+      return (b.updatedAt || 0) - (a.updatedAt || 0);
+    });
+  }, [historyChats, searchHistory]);
+
   const providerMenuRef = useRef(null);
   const activeProvider = providerOptions.find((option) => option.id === searchProvider) || providerOptions[0];
 
@@ -1172,33 +1195,51 @@ const CenterSearch = ({ onPopupStateChange = () => {} }) => {
                <div className="center-search-auth-error">{googleAuthError}</div>
             ) : null}
 
-            {searchHistory.length ? (
+            {sortedMainHistory.length ? (
               <div className="center-search-history-list">
-                {searchHistory.map((historyItem) => (
-                  <div key={historyItem} className="center-search-history-row">
+                {sortedMainHistory.map((item) => (
+                  <div key={item.id} className="center-search-history-row">
                     <button
                       type="button"
                       className="center-search-history-fill"
-                      onClick={() => handleHistoryItemSelect(historyItem)}
+                      onClick={() => {
+                        if (item.provider === 'google') {
+                          handleHistoryItemSelect(item.title);
+                        } else {
+                          handleReopenChatFromPopup(item.provider, item.id);
+                        }
+                      }}
                     >
                       <Search size={13} />
-                      <span>{historyItem}</span>
+                      <span>{item.title || 'New Chat'}</span>
                     </button>
 
-                    <button
-                      type="button"
-                      className="center-search-history-delete"
-                      onClick={() => handleHistoryItemDelete(historyItem)}
-                      aria-label={`Delete ${historyItem}`}
-                    >
-                      <X size={12} />
-                    </button>
+                    <div className="center-search-history-right-panel" onClick={(e) => e.stopPropagation()}>
+                      <span className={`ai-chat-history-item-provider prov-${(item.provider || 'gemini').toLowerCase()}`}>
+                        {item.providerDisplayName || getProviderDisplayName(item.provider)}
+                      </span>
+                      <button
+                        type="button"
+                        className="center-search-history-delete"
+                        onClick={(e) => {
+                          e.stopPropagation();
+                          if (item.provider === 'google') {
+                            handleHistoryItemDelete(item.title);
+                          } else {
+                            setHistoryChats(prev => prev.filter(t => t.id !== item.id));
+                          }
+                        }}
+                        aria-label={`Delete ${item.title}`}
+                      >
+                        <X size={12} />
+                      </button>
+                    </div>
                   </div>
                 ))}
               </div>
             ) : (
               <div className="center-search-history-empty">
-                Your recent Google searches will appear here.
+                Your recent searches and chats will appear here.
               </div>
             )}
           </div>
@@ -2669,8 +2710,9 @@ const AiChatPopup = ({
 
   const sortedHistory = useMemo(() => {
     const filtered = historyChats.filter(chat => 
-      chat.title?.toLowerCase().includes(historySearchQuery.toLowerCase()) ||
-      chat.messages?.some(m => m.text?.toLowerCase().includes(historySearchQuery.toLowerCase()))
+      chat.provider === provider &&
+      (chat.title?.toLowerCase().includes(historySearchQuery.toLowerCase()) ||
+       chat.messages?.some(m => m.text?.toLowerCase().includes(historySearchQuery.toLowerCase())))
     );
     
     return [...filtered].sort((a, b) => {
@@ -2678,7 +2720,7 @@ const AiChatPopup = ({
       if (!a.pinned && b.pinned) return 1;
       return (b.updatedAt || 0) - (a.updatedAt || 0);
     });
-  }, [historyChats, historySearchQuery]);
+  }, [historyChats, historySearchQuery, provider]);
 
   const historyGroups = useMemo(() => {
     const pinned = sortedHistory.filter(c => c.pinned);
@@ -3732,21 +3774,16 @@ const AiChatPopup = ({
                             >
                               <Edit2 size={11} />
                             </button>
-                          </div>
-                          <div className="ai-chat-history-item-right-panel" onClick={(e) => e.stopPropagation()}>
-                            <span className={`ai-chat-history-item-provider prov-${(chat.provider || 'gemini').toLowerCase()}`}>
-                              {chat.providerDisplayName || getProviderDisplayName(chat.provider)}
-                            </span>
                             <button
                               type="button"
-                              className="ai-chat-history-item-delete-btn"
+                              className="ai-chat-history-item-action-btn delete"
                               onClick={(e) => {
                                 e.stopPropagation();
                                 handleDeleteHistoryChat(chat.id);
                               }}
                               title="Delete chat"
                             >
-                              <X size={11} />
+                              <Trash2 size={11} />
                             </button>
                           </div>
                         </>
@@ -3808,21 +3845,16 @@ const AiChatPopup = ({
                             >
                               <Edit2 size={11} />
                             </button>
-                          </div>
-                          <div className="ai-chat-history-item-right-panel" onClick={(e) => e.stopPropagation()}>
-                            <span className={`ai-chat-history-item-provider prov-${(chat.provider || 'gemini').toLowerCase()}`}>
-                              {chat.providerDisplayName || getProviderDisplayName(chat.provider)}
-                            </span>
                             <button
                               type="button"
-                              className="ai-chat-history-item-delete-btn"
+                              className="ai-chat-history-item-action-btn delete"
                               onClick={(e) => {
                                 e.stopPropagation();
                                 handleDeleteHistoryChat(chat.id);
                               }}
                               title="Delete chat"
                             >
-                              <X size={11} />
+                              <Trash2 size={11} />
                             </button>
                           </div>
                         </>

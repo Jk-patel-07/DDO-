@@ -9198,5 +9198,15 @@ button:active::after,
   color: #ff6b6b;
   background: rgba(255, 107, 107, 0.15);
 }
+.ai-chat-history-item-provider.prov-google {
+  background: rgba(255, 255, 255, 0.08);
+  color: rgba(255, 255, 255, 0.65);
+  border: 1px solid rgba(255, 255, 255, 0.1);
+}
 
-
+.center-search-history-right-panel {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding-right: 8px;
+}
