@@ -1,9 +1,13 @@
 import { useState, useEffect, useRef } from 'react';
-import { Home, CheckCircle2, Calendar, Target, X, Check } from 'lucide-react';
+import { Home, CheckCircle2, Calendar, Target, X, Check, ChevronLeft, ChevronRight } from 'lucide-react';
 
 const FloatingNavBar = ({ onPopupStateChange }) => {
   const [activeTab, setActiveTab] = useState(null);
   const [time, setTime] = useState(new Date());
+
+  // Calendar Navigation State (defaulting to Feb 2026 as per reference)
+  const [calendarDate, setCalendarDate] = useState(() => new Date(2026, 1, 20));
+  const [selectedDate, setSelectedDate] = useState(() => new Date(2026, 1, 20));
   
   // Battery State
   const [batteryLevel, setBatteryLevel] = useState(85);
@@ -107,40 +111,69 @@ const FloatingNavBar = ({ onPopupStateChange }) => {
   const totalCount = todoItems.length;
   const progressPercent = totalCount > 0 ? Math.round((completedCount / totalCount) * 100) : 0;
 
-  // Render Mini Month Calendar
-  const renderCalendar = () => {
-    const currentDay = time.getDate();
-    const daysInMonth = new Date(time.getFullYear(), time.getMonth() + 1, 0).getDate();
-    const firstDayIndex = new Date(time.getFullYear(), time.getMonth(), 1).getDay();
-    
-    const calendarCells = [];
-    
-    // Add empty spaces for offset
-    for (let i = 0; i < firstDayIndex; i++) {
-      calendarCells.push(<span key={`empty-${i}`} className="ddo-calendar-day-cell empty" />);
-    }
-    
-    // Add day cells
-    for (let day = 1; day <= daysInMonth; day++) {
-      const isToday = day === currentDay;
-      calendarCells.push(
-        <span
-          key={`day-${day}`}
-          className={`ddo-calendar-day-cell ${isToday ? 'current' : ''}`}
-        >
-          {day}
-        </span>
-      );
-    }
+  const handlePrevMonth = () => {
+    setCalendarDate((prev) => new Date(prev.getFullYear(), prev.getMonth() - 1, 1));
+  };
 
+  const handleNextMonth = () => {
+    setCalendarDate((prev) => new Date(prev.getFullYear(), prev.getMonth() + 1, 1));
+  };
+
+  const isSameDay = (d1, d2) => {
+    if (!d1 || !d2) return false;
     return (
-      <div className="ddo-calendar-grid">
-        {['S', 'M', 'T', 'W', 'T', 'F', 'S'].map((day, i) => (
-          <span key={`header-${i}`} className="ddo-calendar-day-header">{day}</span>
-        ))}
-        {calendarCells}
-      </div>
+      d1.getFullYear() === d2.getFullYear() &&
+      d1.getMonth() === d2.getMonth() &&
+      d1.getDate() === d2.getDate()
     );
+  };
+
+  const getCalendarDays = () => {
+    const year = calendarDate.getFullYear();
+    const month = calendarDate.getMonth();
+    
+    // First day of the current month
+    const firstDayOfMonth = new Date(year, month, 1);
+    // Day of the week (0 = Sunday, 1 = Monday, ..., 6 = Saturday)
+    let firstDayOfWeek = firstDayOfMonth.getDay();
+    // Adjust to Monday-start (0 = Monday, ..., 6 = Sunday)
+    firstDayOfWeek = firstDayOfWeek === 0 ? 6 : firstDayOfWeek - 1;
+    
+    const days = [];
+    
+    // Previous month trailing days
+    const prevMonthDaysCount = new Date(year, month, 0).getDate();
+    for (let i = firstDayOfWeek - 1; i >= 0; i--) {
+      const dayNum = prevMonthDaysCount - i;
+      days.push({
+        day: dayNum,
+        isCurrentMonth: false,
+        date: new Date(year, month - 1, dayNum)
+      });
+    }
+    
+    // Current month days
+    const currentMonthDaysCount = new Date(year, month + 1, 0).getDate();
+    for (let i = 1; i <= currentMonthDaysCount; i++) {
+      days.push({
+        day: i,
+        isCurrentMonth: true,
+        date: new Date(year, month, i)
+      });
+    }
+    
+    // Next month leading days to complete grid
+    const totalCells = days.length > 35 ? 42 : 35;
+    const nextMonthDaysToAdd = totalCells - days.length;
+    for (let i = 1; i <= nextMonthDaysToAdd; i++) {
+      days.push({
+        day: i,
+        isCurrentMonth: false,
+        date: new Date(year, month + 1, i)
+      });
+    }
+    
+    return days;
   };
 
   return (
@@ -203,7 +236,7 @@ const FloatingNavBar = ({ onPopupStateChange }) => {
 
       {/* Slide-out/Fade-in Content Panel */}
       {activeTab && (
-        <div className="ddo-floating-nav-panel popup-aurora-surface">
+        <div className={`ddo-floating-nav-panel popup-aurora-surface ${activeTab === 'calendar' ? 'ddo-calendar-panel-style' : ''}`}>
           {activeTab === 'home' && (
             <div className="ddo-tab-content ddo-tab-home">
               <div className="ddo-panel-greeting">Dashboard</div>
@@ -271,10 +304,60 @@ const FloatingNavBar = ({ onPopupStateChange }) => {
 
           {activeTab === 'calendar' && (
             <div className="ddo-tab-content ddo-tab-calendar">
-              <div className="ddo-panel-title">
-                {time.toLocaleDateString('en-US', { month: 'long', year: 'numeric' })}
+              {/* Thin bright purple indicator line at top center */}
+              <div className="ddo-calendar-indicator-line" />
+
+              {/* Month navigation header */}
+              <div className="ddo-calendar-header">
+                <button
+                  type="button"
+                  className="ddo-calendar-nav-btn"
+                  onClick={handlePrevMonth}
+                  aria-label="Previous month"
+                >
+                  <ChevronLeft size={14} strokeWidth={1.5} />
+                </button>
+                <div className="ddo-calendar-title">
+                  {calendarDate.toLocaleDateString('en-US', { month: 'short', year: 'numeric' })}
+                </div>
+                <button
+                  type="button"
+                  className="ddo-calendar-nav-btn"
+                  onClick={handleNextMonth}
+                  aria-label="Next month"
+                >
+                  <ChevronRight size={14} strokeWidth={1.5} />
+                </button>
               </div>
-              {renderCalendar()}
+
+              {/* Weekday headers & grid */}
+              <div className="ddo-calendar-grid" key={calendarDate.getMonth()}>
+                {['MON', 'TUE', 'WED', 'THU', 'FRI', 'SAT', 'SUN'].map((day) => (
+                  <span key={day} className="ddo-calendar-day-header">
+                    {day}
+                  </span>
+                ))}
+                {getCalendarDays().map((dayObj, index) => {
+                  const isSelected = isSameDay(dayObj.date, selectedDate);
+                  return (
+                    <button
+                      key={index}
+                      type="button"
+                      onClick={() => {
+                        setSelectedDate(dayObj.date);
+                        if (!dayObj.isCurrentMonth) {
+                          setCalendarDate(new Date(dayObj.date.getFullYear(), dayObj.date.getMonth(), 1));
+                        }
+                      }}
+                      className={`ddo-calendar-day-cell ${
+                        dayObj.isCurrentMonth ? 'current-month' : 'other-month'
+                      } ${isSelected ? 'selected' : ''}`}
+                    >
+                      {dayObj.day}
+                    </button>
+                  );
+                })}
+              </div>
             </div>
           )}
 

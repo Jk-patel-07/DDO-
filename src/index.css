@@ -8668,45 +8668,146 @@ button:active::after,
   background: rgba(255, 255, 255, 0.15);
 }
 
-/* Calendar Tab */
+/* Calendar Tab - Custom modern dark theme inspired by reference */
+.ddo-calendar-panel-style {
+  background: linear-gradient(180deg, #121212 0%, #171717 100%) !important;
+  border-color: rgba(255, 255, 255, 0.05) !important;
+  box-shadow: 
+    0 0 30px rgba(139, 92, 246, 0.15), /* Soft purple glow */
+    0 25px 50px rgba(0, 0, 0, 0.75) !important;
+  position: relative;
+  overflow: hidden;
+}
+
+.ddo-calendar-panel-style::before {
+  content: '';
+  position: absolute;
+  top: 0;
+  left: 50%;
+  transform: translateX(-50%);
+  width: 150px;
+  height: 60px;
+  background: radial-gradient(circle, rgba(139, 92, 246, 0.2) 0%, rgba(139, 92, 246, 0) 70%);
+  pointer-events: none;
+  z-index: 1;
+}
+
+.ddo-calendar-indicator-line {
+  position: absolute;
+  top: 0;
+  left: 50%;
+  transform: translateX(-50%);
+  width: 60px;
+  height: 3px;
+  background: #8b5cf6;
+  border-bottom-left-radius: 3px;
+  border-bottom-right-radius: 3px;
+  box-shadow: 0 0 10px rgba(139, 92, 246, 0.8);
+  z-index: 10;
+}
+
+.ddo-calendar-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  margin-bottom: 16px;
+  margin-top: 6px;
+  position: relative;
+  z-index: 2;
+}
+
+.ddo-calendar-nav-btn {
+  background: transparent;
+  border: 1px solid rgba(255, 255, 255, 0.15);
+  border-radius: 50%;
+  width: 32px;
+  height: 32px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  color: #ffffff;
+  cursor: pointer;
+  transition: all 0.2s cubic-bezier(0.16, 1, 0.3, 1);
+}
+
+.ddo-calendar-nav-btn:hover {
+  background: rgba(255, 255, 255, 0.08);
+  border-color: rgba(255, 255, 255, 0.3);
+}
+
+.ddo-calendar-title {
+  font-size: 14px;
+  font-weight: 600;
+  color: #ffffff;
+  letter-spacing: -0.01em;
+}
+
 .ddo-calendar-grid {
   display: grid;
   grid-template-columns: repeat(7, 1fr);
-  gap: 4px;
+  gap: 8px 6px;
   text-align: center;
-  margin-top: 8px;
+  position: relative;
+  z-index: 2;
+  animation: ddo-calendar-switch 0.25s cubic-bezier(0.16, 1, 0.3, 1);
+}
+
+@keyframes ddo-calendar-switch {
+  from {
+    opacity: 0.6;
+    transform: translateY(2px) scale(0.99);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0) scale(1);
+  }
 }
 
 .ddo-calendar-day-header {
   font-size: 9px;
-  font-weight: 700;
-  color: rgba(255, 255, 255, 0.4);
+  font-weight: 600;
+  color: rgba(255, 255, 255, 0.35) !important;
   padding: 4px 0;
-  text-transform: uppercase;
+  letter-spacing: 0.05em;
+  text-align: center;
 }
 
 .ddo-calendar-day-cell {
-  font-size: 10px;
-  color: rgba(255, 255, 255, 0.8);
-  padding: 6px 0;
-  border-radius: 8px;
-  transition: all 0.2s ease;
-  display: flex;
+  background: transparent;
+  border: none;
+  font-size: 11px;
+  height: 32px;
+  width: 32px;
+  border-radius: 50%;
+  display: inline-flex;
   align-items: center;
   justify-content: center;
-  height: 24px;
+  cursor: pointer;
+  margin: 0 auto;
+  transition: all 0.2s cubic-bezier(0.16, 1, 0.3, 1);
+  padding: 0;
+  outline: none;
 }
 
-.ddo-calendar-day-cell:hover:not(.empty) {
-  background: rgba(255, 255, 255, 0.05);
+.ddo-calendar-day-cell.other-month {
+  color: rgba(255, 255, 255, 0.22) !important;
 }
 
-.ddo-calendar-day-cell.current {
-  background: rgba(0, 242, 254, 0.12);
-  color: #00f2fe;
-  font-weight: 700;
-  border: 1px solid rgba(0, 242, 254, 0.3);
-  box-shadow: 0 0 10px rgba(0, 242, 254, 0.2);
+.ddo-calendar-day-cell.current-month {
+  color: #ffffff !important;
+}
+
+.ddo-calendar-day-cell:hover:not(.selected) {
+  background: rgba(255, 255, 255, 0.08);
+}
+
+.ddo-calendar-day-cell.selected {
+  background: #8b5cf6 !important;
+  color: #ffffff !important;
+  font-weight: 600;
+  box-shadow: 
+    0 0 12px rgba(139, 92, 246, 0.5),
+    0 2px 6px rgba(0, 0, 0, 0.3);
 }
 
 /* Goals Tab */
