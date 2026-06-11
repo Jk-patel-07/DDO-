@@ -1,5 +1,5 @@
 import { useState, useEffect, useRef } from 'react';
-import { Home, CheckCircle2, Calendar, Target, X, Check, ChevronLeft, ChevronRight } from 'lucide-react';
+import { Home, CheckCircle2, Calendar, Target, X, Check, ChevronLeft, ChevronRight, CloudRain, CloudLightning, CloudSun, Flame, Footprints } from 'lucide-react';
 
 const FloatingNavBar = ({
   isNavBarVisible,
@@ -253,11 +253,45 @@ const FloatingNavBar = ({
             strokeWidth={activeTab === 'goals' ? 2 : 1.5}
           />
         </button>
+        <button
+          type="button"
+          className={`ddo-dock-item ${activeTab === 'weather' ? 'active' : ''}`}
+          onClick={() => handleTabClick('weather')}
+          aria-label="Weather"
+        >
+          <CloudRain
+            size={18}
+            className="ddo-dock-icon"
+            fill="none"
+            stroke={activeTab === 'weather' ? '#ffffff' : 'rgba(255, 255, 255, 0.45)'}
+            strokeWidth={activeTab === 'weather' ? 2 : 1.5}
+          />
+        </button>
+        <button
+          type="button"
+          className={`ddo-dock-item ${activeTab === 'fitness' ? 'active' : ''}`}
+          onClick={() => handleTabClick('fitness')}
+          aria-label="Fitness"
+        >
+          <Flame
+            size={18}
+            className="ddo-dock-icon"
+            fill="none"
+            stroke={activeTab === 'fitness' ? '#ffffff' : 'rgba(255, 255, 255, 0.45)'}
+            strokeWidth={activeTab === 'fitness' ? 2 : 1.5}
+          />
+        </button>
       </div>
 
       {/* Slide-out/Fade-in Content Panel */}
       {activeTab && (
-        <div className={`ddo-floating-nav-panel popup-aurora-surface ${activeTab === 'calendar' ? 'ddo-calendar-panel-style' : ''}`}>
+        <div className={`ddo-floating-nav-panel popup-aurora-surface ${
+          activeTab === 'calendar' ? 'ddo-calendar-panel-style' : ''
+        } ${
+          activeTab === 'weather' ? 'ddo-weather-panel-style' : ''
+        } ${
+          activeTab === 'fitness' ? 'ddo-fitness-panel-style' : ''
+        }`}>
           {activeTab === 'home' && (
             <div className="ddo-tab-content ddo-tab-home">
               <div className="ddo-panel-greeting">Dashboard</div>
@@ -423,6 +457,120 @@ const FloatingNavBar = ({
                       style={{ width: '90%' }}
                     />
                   </div>
+                </div>
+              </div>
+            </div>
+          )}
+
+          {activeTab === 'weather' && (
+            <div className="ddo-tab-content ddo-tab-weather">
+              <div className="ddo-weather-widget-container">
+                {/* Left: Current Weather */}
+                <div className="ddo-weather-current">
+                  <CloudRain className="ddo-weather-current-icon" size={32} />
+                  <span className="ddo-weather-current-temp">23°</span>
+                </div>
+
+                {/* Vertical Divider */}
+                <div className="ddo-weather-divider" />
+
+                {/* Right: Hourly Forecast */}
+                <div className="ddo-weather-hourly-list">
+                  <div className="ddo-weather-hourly-item">
+                    <span className="ddo-weather-hourly-time">4PM</span>
+                    <CloudRain size={16} className="ddo-weather-hourly-icon" />
+                    <span className="ddo-weather-hourly-temp">23°</span>
+                  </div>
+                  <div className="ddo-weather-hourly-item">
+                    <span className="ddo-weather-hourly-time">5PM</span>
+                    <CloudLightning size={16} className="ddo-weather-hourly-icon" />
+                    <span className="ddo-weather-hourly-temp">22°</span>
+                  </div>
+                  <div className="ddo-weather-hourly-item">
+                    <span className="ddo-weather-hourly-time">6PM</span>
+                    <CloudSun size={16} className="ddo-weather-hourly-icon" />
+                    <span className="ddo-weather-hourly-temp">21°</span>
+                  </div>
+                  <div className="ddo-weather-hourly-item">
+                    <span className="ddo-weather-hourly-time">7PM</span>
+                    <CloudSun size={16} className="ddo-weather-hourly-icon" />
+                    <span className="ddo-weather-hourly-temp">21°</span>
+                  </div>
+                </div>
+              </div>
+            </div>
+          )}
+
+          {activeTab === 'fitness' && (
+            <div className="ddo-tab-content ddo-tab-fitness">
+              {/* Top Section */}
+              <div className="ddo-fitness-top">
+                <div className="ddo-fitness-streak-info">
+                  <Flame size={20} className="ddo-fitness-flame-icon" />
+                  <div className="ddo-fitness-streak-text">
+                    <span className="ddo-fitness-label">STREAK</span>
+                    <span className="ddo-fitness-days">32 DAYS</span>
+                  </div>
+                </div>
+                <Footprints size={24} className="ddo-fitness-footprints-icon" />
+              </div>
+
+              <div className="ddo-fitness-divider" />
+
+              {/* Weekly Streak Section */}
+              <div className="ddo-fitness-weekly">
+                <div className="ddo-fitness-days-row">
+                  <div className="ddo-fitness-day-col">
+                    <div className="ddo-fitness-circle filled">
+                      <Check size={8} strokeWidth={3} />
+                    </div>
+                    <span className="ddo-fitness-day-label">Mon</span>
+                  </div>
+                  <div className="ddo-fitness-day-col">
+                    <div className="ddo-fitness-circle filled">
+                      <Check size={8} strokeWidth={3} />
+                    </div>
+                    <span className="ddo-fitness-day-label">Tue</span>
+                  </div>
+                  <div className="ddo-fitness-day-col">
+                    <div className="ddo-fitness-circle filled">
+                      <Check size={8} strokeWidth={3} />
+                    </div>
+                    <span className="ddo-fitness-day-label">Wed</span>
+                  </div>
+                  <div className="ddo-fitness-day-col">
+                    <div className="ddo-fitness-circle progress-circle" />
+                    <span className="ddo-fitness-day-label">Thu</span>
+                  </div>
+                  <div className="ddo-fitness-day-col">
+                    <div className="ddo-fitness-circle inactive" />
+                    <span className="ddo-fitness-day-label">Fri</span>
+                  </div>
+                  <div className="ddo-fitness-day-col">
+                    <div className="ddo-fitness-circle inactive" />
+                    <span className="ddo-fitness-day-label">Sat</span>
+                  </div>
+                  <div className="ddo-fitness-day-col">
+                    <div className="ddo-fitness-circle inactive" />
+                    <span className="ddo-fitness-day-label">Sun</span>
+                  </div>
+                </div>
+              </div>
+
+              <div className="ddo-fitness-divider" />
+
+              {/* Steps Section */}
+              <div className="ddo-fitness-steps-container">
+                <span className="ddo-fitness-label">STEPS</span>
+                <div className="ddo-fitness-steps-row">
+                  <div className="ddo-fitness-steps-numbers">
+                    <span className="ddo-fitness-steps-count">6825</span>
+                    <span className="ddo-fitness-steps-goal">/10,000</span>
+                  </div>
+                  <span className="ddo-fitness-steps-percentage">68%</span>
+                </div>
+                <div className="ddo-fitness-progress-track">
+                  <div className="ddo-fitness-progress-bar" style={{ width: '68%' }} />
                 </div>
               </div>
             </div>

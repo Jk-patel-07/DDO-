@@ -8391,6 +8391,19 @@ body[data-search-animation="off"] .center-search-popup {
   padding-right: 8px;
 }
 
+/* Middle Trigger Area for Floating Navigation Bar */
+.status-bar-middle-trigger {
+  position: absolute;
+  left: 50%;
+  top: 0;
+  transform: translateX(-50%);
+  width: 280px;
+  height: 100%;
+  background: transparent;
+  z-index: 5;
+  pointer-events: auto;
+}
+
 /* DDO Floating Navigation Dock inspired by Instagram */
 .ddo-floating-nav-container {
   position: absolute;
@@ -8404,18 +8417,19 @@ body[data-search-animation="off"] .center-search-popup {
   margin-top: 16px;
   pointer-events: none; /* Disable mouse events when hidden */
   
-  /* Initial hidden state: slightly shifted up and faded out */
+  /* Initial hidden state: shifted up, scaled down, and faded out */
   opacity: 0;
-  transform: translate(-50%, -10px);
+  transform: translate(-50%, -10px) scale(0.92);
+  transform-origin: top center;
   visibility: hidden;
-  transition: opacity 0.25s cubic-bezier(0.16, 1, 0.3, 1),
-              transform 0.25s cubic-bezier(0.16, 1, 0.3, 1),
-              visibility 0.25s cubic-bezier(0.16, 1, 0.3, 1);
+  transition: opacity 0.28s cubic-bezier(0.16, 1, 0.3, 1),
+              transform 0.28s cubic-bezier(0.16, 1, 0.3, 1),
+              visibility 0.28s cubic-bezier(0.16, 1, 0.3, 1);
 }
 
 .ddo-floating-nav-container.ddo-visible {
   opacity: 1;
-  transform: translate(-50%, 0);
+  transform: translate(-50%, 0) scale(1);
   visibility: visible;
   pointer-events: auto; /* Enable mouse events when visible */
 }
@@ -8882,4 +8896,279 @@ body[data-search-animation="off"] .center-search-popup {
 
 .ddo-goal-progress-bar.security-progress {
   background: linear-gradient(90deg, #ff914d, #ffb07a);
+}
+
+/* Weather Tab Styles */
+.ddo-floating-nav-panel.ddo-weather-panel-style {
+  background: rgba(0, 0, 0, 0.95) !important;
+  border: 1px solid rgba(255, 255, 255, 0.05) !important;
+  box-shadow: 
+    0 0 25px rgba(255, 255, 255, 0.03),
+    0 20px 40px rgba(0, 0, 0, 0.8) !important;
+  padding: 14px 16px !important; /* Slightly more compact */
+}
+
+.ddo-weather-widget-container {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  width: 100%;
+}
+
+.ddo-weather-current {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+}
+
+.ddo-weather-current-icon {
+  color: #ffffff;
+  filter: drop-shadow(0 0 8px rgba(255, 255, 255, 0.65));
+}
+
+.ddo-weather-current-temp {
+  font-size: 38px;
+  font-weight: 300;
+  color: #ffffff;
+  font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
+  line-height: 1;
+  letter-spacing: -0.02em;
+}
+
+.ddo-weather-divider {
+  width: 1px;
+  height: 40px;
+  background: rgba(255, 255, 255, 0.1);
+  margin: 0 10px;
+  align-self: center;
+}
+
+.ddo-weather-hourly-list {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  flex-grow: 1;
+  gap: 6px;
+}
+
+.ddo-weather-hourly-item {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 6px;
+  min-width: 42px;
+}
+
+.ddo-weather-hourly-time {
+  font-size: 10px;
+  color: #888888;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+}
+
+.ddo-weather-hourly-icon {
+  color: #ffffff;
+  filter: drop-shadow(0 0 3px rgba(255, 255, 255, 0.3));
+}
+
+.ddo-weather-hourly-temp {
+  font-size: 13px;
+  color: #cccccc;
+  font-weight: 500;
+}
+
+/* Fitness Tab Styles */
+.ddo-floating-nav-panel.ddo-fitness-panel-style {
+  background: rgba(0, 0, 0, 0.95) !important;
+  border: 1px solid rgba(255, 255, 255, 0.08) !important;
+  box-shadow: 
+    0 0 25px rgba(34, 197, 94, 0.04), /* subtle green glow */
+    0 0 30px rgba(236, 72, 153, 0.04), /* subtle pink glow */
+    0 24px 50px rgba(0, 0, 0, 0.6) !important;
+  padding: 16px 18px !important;
+}
+
+.ddo-tab-content.ddo-tab-fitness {
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+}
+
+.ddo-fitness-top {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  width: 100%;
+}
+
+.ddo-fitness-streak-info {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+
+.ddo-fitness-flame-icon {
+  color: #ec4899; /* pink-500 */
+  filter: drop-shadow(0 0 6px rgba(236, 72, 153, 0.7));
+  animation: ddo-flame-flicker 1.5s ease-in-out infinite alternate;
+}
+
+@keyframes ddo-flame-flicker {
+  0% { transform: scale(1); filter: drop-shadow(0 0 4px rgba(236, 72, 153, 0.6)); }
+  100% { transform: scale(1.08); filter: drop-shadow(0 0 8px rgba(236, 72, 153, 0.8)); }
+}
+
+.ddo-fitness-streak-text {
+  display: flex;
+  flex-direction: column;
+  line-height: 1.25;
+}
+
+.ddo-fitness-label {
+  font-size: 9px;
+  font-weight: 700;
+  color: #888888;
+  letter-spacing: 0.1em;
+  text-transform: uppercase;
+}
+
+.ddo-fitness-days {
+  font-size: 16px;
+  font-weight: 700;
+  color: #ffffff;
+}
+
+.ddo-fitness-footprints-icon {
+  color: rgba(255, 255, 255, 0.25);
+  stroke-width: 1.5px;
+}
+
+.ddo-fitness-divider {
+  width: 100%;
+  height: 1px;
+  background: rgba(255, 255, 255, 0.08);
+}
+
+.ddo-fitness-weekly {
+  width: 100%;
+}
+
+.ddo-fitness-days-row {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+}
+
+.ddo-fitness-day-col {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 6px;
+}
+
+.ddo-fitness-circle {
+  width: 20px;
+  height: 20px;
+  border-radius: 50%;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  transition: all 0.3s ease;
+}
+
+.ddo-fitness-circle.filled {
+  background: #22c55e; /* green-500 */
+  color: #ffffff;
+  box-shadow: 0 0 8px rgba(34, 197, 94, 0.5);
+}
+
+.ddo-fitness-circle.progress-circle {
+  border: 2px solid #22c55e;
+  background: transparent;
+  box-shadow: 0 0 6px rgba(34, 197, 94, 0.2);
+  position: relative;
+}
+
+.ddo-fitness-circle.progress-circle::after {
+  content: "";
+  position: absolute;
+  top: -2px;
+  left: -2px;
+  right: -2px;
+  bottom: -2px;
+  border-radius: 50%;
+  border: 2px solid transparent;
+  border-top-color: rgba(255, 255, 255, 0.4);
+  animation: ddo-circle-spin 2s linear infinite;
+}
+
+@keyframes ddo-circle-spin {
+  from { transform: rotate(0deg); }
+  to { transform: rotate(360deg); }
+}
+
+.ddo-fitness-circle.inactive {
+  background: rgba(255, 255, 255, 0.05);
+  border: 1.5px dashed rgba(255, 255, 255, 0.15);
+}
+
+.ddo-fitness-day-label {
+  font-size: 9px;
+  color: #888888;
+  font-weight: 500;
+}
+
+.ddo-fitness-steps-container {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.ddo-fitness-steps-row {
+  display: flex;
+  justify-content: space-between;
+  align-items: flex-end;
+}
+
+.ddo-fitness-steps-numbers {
+  display: flex;
+  align-items: flex-end;
+  gap: 4px;
+  line-height: 1;
+}
+
+.ddo-fitness-steps-count {
+  font-size: 24px;
+  font-weight: 700;
+  color: #ffffff;
+}
+
+.ddo-fitness-steps-goal {
+  font-size: 11px;
+  color: #888888;
+  font-weight: 500;
+  margin-bottom: 2px;
+}
+
+.ddo-fitness-steps-percentage {
+  font-size: 14px;
+  font-weight: 700;
+  color: #22c55e;
+}
+
+.ddo-fitness-progress-track {
+  height: 6px;
+  background: rgba(255, 255, 255, 0.05);
+  border-radius: 999px;
+  overflow: hidden;
+  position: relative;
+}
+
+.ddo-fitness-progress-bar {
+  height: 100%;
+  background: #22c55e;
+  border-radius: 999px;
+  box-shadow: 0 0 10px rgba(34, 197, 94, 0.8);
+  transition: width 0.6s cubic-bezier(0.16, 1, 0.3, 1);
 }

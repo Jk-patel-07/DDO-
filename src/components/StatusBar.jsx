@@ -5,7 +5,14 @@ import FloatingNavBar from './FloatingNavBar';
 
 const StatusBar = () => {
   const [isVisible, setIsVisible] = useState(true);
-  const [isBackdropActive, setIsBackdropActive] = useState(false);
+
+  const [isLeftMenuPopupActive, setIsLeftMenuPopupActive] = useState(false);
+  const [isRightTrayPopupActive, setIsRightTrayPopupActive] = useState(false);
+  const [isNavBarPanelActive, setIsNavBarPanelActive] = useState(false);
+
+  const isBackdropActive = isLeftMenuPopupActive || isRightTrayPopupActive || isNavBarPanelActive;
+  const isOtherPopupActive = isLeftMenuPopupActive || isRightTrayPopupActive;
+
   const hasPointerLeftTopZoneRef = useRef(false);
 
   const [isNavBarVisible, setIsNavBarVisible] = useState(false);
@@ -14,6 +21,9 @@ const StatusBar = () => {
   const navBarHideTimeoutRef = useRef(null);
 
   const handleStatusBarMouseEnter = () => {
+    // If another popup is active, do not allow showing the navigation bar
+    if (isOtherPopupActive) return;
+
     isMouseOverStatusBarRef.current = true;
     if (navBarHideTimeoutRef.current) {
       clearTimeout(navBarHideTimeoutRef.current);
@@ -28,6 +38,8 @@ const StatusBar = () => {
   };
 
   const handleNavBarMouseEnter = () => {
+    if (isOtherPopupActive) return;
+
     isMouseOverNavBarRef.current = true;
     if (navBarHideTimeoutRef.current) {
       clearTimeout(navBarHideTimeoutRef.current);
@@ -51,6 +63,19 @@ const StatusBar = () => {
       }
     }, 350);
   };
+
+  // Hide immediately when any other DDO popup opens
+  useEffect(() => {
+    if (isOtherPopupActive) {
+      setIsNavBarVisible(false);
+      isMouseOverStatusBarRef.current = false;
+      isMouseOverNavBarRef.current = false;
+      if (navBarHideTimeoutRef.current) {
+        clearTimeout(navBarHideTimeoutRef.current);
+        navBarHideTimeoutRef.current = null;
+      }
+    }
+  }, [isOtherPopupActive]);
 
   // Click outside and window blur handlers to hide immediately
   useEffect(() => {
@@ -146,19 +171,22 @@ const StatusBar = () => {
       <div className="hover-trigger-area" />
       <div
         className={`status-bar-container glass-panel flex-between status-bar ${isVisible ? '' : 'hidden'}`}
-        onMouseEnter={handleStatusBarMouseEnter}
-        onMouseLeave={handleStatusBarMouseLeave}
       >
         <div className={`status-popup-backdrop ${isBackdropActive ? 'active' : ''}`} />
         <div className="status-bar-content flex-between">
-          <LeftMenu onPopupStateChange={setIsBackdropActive} />
-          <RightTray onPopupStateChange={setIsBackdropActive} />
+          <LeftMenu onPopupStateChange={setIsLeftMenuPopupActive} />
+          <div
+            className="status-bar-middle-trigger"
+            onMouseEnter={handleStatusBarMouseEnter}
+            onMouseLeave={handleStatusBarMouseLeave}
+          />
+          <RightTray onPopupStateChange={setIsRightTrayPopupActive} />
         </div>
         <FloatingNavBar
           isNavBarVisible={isNavBarVisible}
           onNavBarMouseEnter={handleNavBarMouseEnter}
           onNavBarMouseLeave={handleNavBarMouseLeave}
-          onPopupStateChange={setIsBackdropActive}
+          onPopupStateChange={setIsNavBarPanelActive}
         />
       </div>
     </>
