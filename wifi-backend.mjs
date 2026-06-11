@@ -235,27 +235,6 @@ const validateNetworkName = (value) => {
   return name;
 };
 
-const validateShortcutPath = (value) => {
-  const shortcutPath = String(value || '').trim();
-  if (!shortcutPath) {
-    throw new HttpError(400, 'App not found or path is invalid.');
-  }
-  return shortcutPath;
-};
-
-const validateOpenPath = (value) => {
-  const appPath = String(value || '').trim();
-  if (!appPath) {
-    throw new HttpError(400, 'App not found or path is invalid.');
-  }
-
-  const lower = appPath.toLowerCase();
-  if (!lower.endsWith('.lnk') && !lower.endsWith('.exe') && !lower.endsWith('.bat') && !lower.endsWith('.cmd')) {
-    throw new HttpError(400, 'App not found or path is invalid.');
-  }
-
-  return appPath;
-};
 
 const getAllowedOrigins = async () => {
   const env = await readProjectEnv();
@@ -524,10 +503,6 @@ const enforceRateLimit = (request, key, maxRequests, windowMs) => {
 };
 
 const sleep = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
-const START_MENU_DIRECTORIES = [
-  path.join(process.env.ProgramData || 'C:\\ProgramData', 'Microsoft', 'Windows', 'Start Menu', 'Programs'),
-  path.join(process.env.APPDATA || path.join(os.homedir(), 'AppData', 'Roaming'), 'Microsoft', 'Windows', 'Start Menu', 'Programs'),
-];
 
 const runNetsh = async (args) => {
   const { stdout } = await execFileAsync('netsh', args, {
@@ -538,118 +513,6 @@ const runNetsh = async (args) => {
   return stdout;
 };
 
-const sanitizeAppName = (name) =>
-  name
-    .replace(/\.lnk$/i, '')
-    .replace(/[_-]+/g, ' ')
-    .replace(/\s+/g, ' ')
-    .trim();
-
-const collectShortcutFiles = async (directory, results = []) => {
-  let entries = [];
-  try {
-    entries = await readdir(directory, { withFileTypes: true });
-  } catch {
-    return results;
-  }
-
-  for (const entry of entries) {
-    const fullPath = path.join(directory, entry.name);
-
-    if (entry.isDirectory()) {
-      await collectShortcutFiles(fullPath, results);
-      continue;
-    }
-
-    if (!entry.isFile() || !entry.name.toLowerCase().endsWith('.lnk')) {
-      continue;
-    }
-
-    try {
-      const fileStats = await stat(fullPath);
-      results.push({
-        id: fullPath,
-        name: sanitizeAppName(entry.name),
-        shortcutPath: fullPath,
-        iconLabel: sanitizeAppName(entry.name).slice(0, 2).toUpperCase(),
-        modifiedAt: fileStats.mtimeMs,
-      });
-    } catch {
-      // Ignore unreadable shortcuts and continue scanning.
-    }
-  }
-
-  return results;
-};
-
-const resolveShortcutVisual = async (shortcutPath) => {
-  const escapedShortcutPath = String(shortcutPath).replace(/'/g, "''");
-  const script = `
-$ErrorActionPreference = 'Stop'
-$shortcutPath = '${escapedShortcutPath}'
-$wsh = New-Object -ComObject WScript.Shell
-$shortcut = $wsh.CreateShortcut($shortcutPath)
-$targetPath = $shortcut.TargetPath
-$iconLocation = $shortcut.IconLocation
-$iconPath = $null
-if ($iconLocation) {
-  $iconPath = ($iconLocation -split ',')[0].Trim('"')
-}
-if ((-not $iconPath) -or (-not (Test-Path $iconPath))) {
-  $iconPath = $targetPath
-}
-$iconData = $null
-if ($iconPath -and (Test-Path $iconPath)) {
-  Add-Type -AssemblyName System.Drawing
-  $icon = [System.Drawing.Icon]::ExtractAssociatedIcon($iconPath)
-  if ($icon) {
-    $bitmap = $icon.ToBitmap()
-    $stream = New-Object System.IO.MemoryStream
-    $bitmap.Save($stream, [System.Drawing.Imaging.ImageFormat]::Png)
-    $iconData = [Convert]::ToBase64String($stream.ToArray())
-    $bitmap.Dispose()
-    $icon.Dispose()
-    $stream.Dispose()
-  }
-}
-[PSCustomObject]@{
-  targetPath = $targetPath
-  iconData = $iconData
-} | ConvertTo-Json -Compress
-`;
-
-  const { stdout } = await execFileAsync(
-    'powershell.exe',
-    ['-NoProfile', '-ExecutionPolicy', 'Bypass', '-Command', script],
-    {
-      windowsHide: true,
-      maxBuffer: 1024 * 1024 * 4,
-    },
-  );
-
-  return JSON.parse((stdout || '{}').trim() || '{}');
-};
-
-const buildInstalledAppsSnapshot = async () => {
-  const shortcuts = [];
-  for (const directory of START_MENU_DIRECTORIES) {
-    await collectShortcutFiles(directory, shortcuts);
-  }
-
-  const uniqueApps = new Map();
-  for (const app of shortcuts) {
-    const key = app.name.toLowerCase();
-    const existing = uniqueApps.get(key);
-
-    if (!existing || existing.modifiedAt < app.modifiedAt) {
-      uniqueApps.set(key, app);
-    }
-  }
-
-  return Array.from(uniqueApps.values())
-    .sort((left, right) => left.name.localeCompare(right.name))
-    .map(({ modifiedAt, ...app }) => app);
-};
 
 const escapeXml = (value) =>
   String(value)
@@ -975,21 +838,6 @@ Add-Type -AssemblyName System.Windows.Forms
   return { ok: true };
 };
 
-const openInstalledApp = async ({ shortcutPath, appPath }) => {
-  const launchPath = validateOpenPath(appPath || shortcutPath);
-
-  try {
-    await stat(launchPath);
-  } catch {
-    throw new HttpError(404, 'App not found or path is invalid.');
-  }
-
-  await execFileAsync('cmd', ['/c', 'start', '', launchPath], {
-    windowsHide: true,
-  });
-
-  return { ok: true };
-};
 
 const extractGeminiText = (payload) => {
   const firstCandidate = Array.isArray(payload?.candidates) ? payload.candidates[0] : null;
@@ -1334,28 +1182,6 @@ const server = http.createServer(async (request, response) => {
       return;
     }
 
-    if (requestUrl.pathname === '/api/system/apps' && request.method === 'GET') {
-      await sendJson(response, 200, { apps: await buildInstalledAppsSnapshot() }, origin);
-      return;
-    }
-
-    if (requestUrl.pathname === '/api/system/apps/open' && request.method === 'POST') {
-      requireAuth(request);
-      const body = await readBody(request);
-      await sendJson(response, 200, await openInstalledApp(body), origin);
-      return;
-    }
-
-    if (requestUrl.pathname === '/api/system/apps/icon' && request.method === 'POST') {
-      const body = await readBody(request);
-      const shortcutPath = validateShortcutPath(body.shortcutPath);
-      const visual = await resolveShortcutVisual(shortcutPath);
-      await sendJson(response, 200, {
-        targetPath: visual.targetPath || '',
-        iconDataUrl: visual.iconData ? `data:image/png;base64,${visual.iconData}` : '',
-      }, origin);
-      return;
-    }
 
     if (requestUrl.pathname === '/api/ai/respond' && request.method === 'POST') {
       requireAuth(request);
