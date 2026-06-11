@@ -43,6 +43,11 @@ const FloatingNavBar = ({
   const [weatherLoading, setWeatherLoading] = useState(false);
   const [weatherError, setWeatherError] = useState(null);
   const [searchCityQuery, setSearchCityQuery] = useState('');
+
+  // Screen Time State
+  const [screenTimeData, setScreenTimeData] = useState(null);
+  const [goalInput, setGoalInput] = useState('');
+  const [goalEditing, setGoalEditing] = useState(false);
   const [showCitySearch, setShowCitySearch] = useState(false);
 
   const fetchLiveWeather = useCallback(async (lat, lon, city) => {
@@ -136,6 +141,67 @@ const FloatingNavBar = ({
       setWeatherError('Location services unavailable. Search manually.');
       setShowCitySearch(true);
     }
+  };
+
+  const fetchScreenTime = useCallback(async () => {
+    try {
+      const headers = createAuthHeaders ? createAuthHeaders() : {};
+      const res = await fetch(buildApiUrl('/api/screentime'), { headers });
+      if (res.ok) {
+        const data = await res.json();
+        setScreenTimeData(data);
+        if (!goalEditing) {
+          setGoalInput(String(data.dailyGoalMinutes / 60));
+        }
+      }
+    } catch (err) {
+      console.error('Failed to fetch screen time:', err);
+    }
+  }, [goalEditing]);
+
+  useEffect(() => {
+    if (activeTab !== 'fitness') return;
+    
+    fetchScreenTime();
+    
+    const interval = setInterval(() => {
+      fetchScreenTime();
+    }, 10000);
+    
+    return () => clearInterval(interval);
+  }, [activeTab, fetchScreenTime]);
+
+  const handleSaveGoal = async (e) => {
+    if (e) e.preventDefault();
+    const hours = parseFloat(goalInput);
+    if (isNaN(hours) || hours <= 0) {
+      alert('Please enter a valid number of hours');
+      return;
+    }
+    const minutes = Math.round(hours * 60);
+    try {
+      const headers = createAuthHeaders ? createAuthHeaders() : {};
+      headers['Content-Type'] = 'application/json';
+      const res = await fetch(buildApiUrl('/api/screentime/goal'), {
+        method: 'POST',
+        headers,
+        body: JSON.stringify({ dailyGoalMinutes: minutes }),
+      });
+      if (res.ok) {
+        const data = await res.json();
+        setScreenTimeData(prev => prev ? { ...prev, dailyGoalMinutes: data.dailyGoalMinutes } : null);
+        setGoalEditing(false);
+      }
+    } catch (err) {
+      console.error('Failed to save screen time goal:', err);
+    }
+  };
+
+  const formatTime = (totalSeconds) => {
+    const totalMinutes = Math.floor(totalSeconds / 60);
+    const hrs = Math.floor(totalMinutes / 60);
+    const mins = totalMinutes % 60;
+    return `${hrs}h ${mins}m`;
   };
 
   const handleCitySearchSubmit = (e) => {
@@ -775,6 +841,149 @@ const FloatingNavBar = ({
                 </div>
                 <div className="ddo-fitness-progress-track">
                   <div className="ddo-fitness-progress-bar" style={{ width: '68%' }} />
+                </div>
+              </div>
+
+              <div className="ddo-fitness-divider" />
+
+              {/* Screen Time Section */}
+              <div className="ddo-screentime-section">
+                <div className="ddo-screentime-header">
+                  <span className="ddo-fitness-label">SCREEN TIME</span>
+                  {screenTimeData && (
+                    <span className="ddo-screentime-today-value">
+                      {formatTime(screenTimeData.todaySeconds)}
+                    </span>
+                  )}
+                </div>
+
+                {/* Warning when goal reached */}
+                {screenTimeData && screenTimeData.todaySeconds >= screenTimeData.dailyGoalMinutes * 60 && (
+                  <div className="ddo-screentime-warning">
+                    <span>⚠️ Goal reached ({formatTime(screenTimeData.dailyGoalMinutes * 60)})!</span>
+                  </div>
+                )}
+
+                {/* Progress bar relative to goal */}
+                {screenTimeData && (
+                  <div className="ddo-screentime-progress-container">
+                    <div className="ddo-screentime-progress-row">
+                      <span className="ddo-screentime-progress-percent">
+                        {Math.min(100, Math.round((screenTimeData.todaySeconds / (screenTimeData.dailyGoalMinutes * 60)) * 100))}% of goal
+                      </span>
+                      <span className="ddo-screentime-progress-goal-label">
+                        Goal: {screenTimeData.dailyGoalMinutes / 60}h
+                      </span>
+                    </div>
+                    <div className="ddo-screentime-progress-track">
+                      <div 
+                        className={`ddo-screentime-progress-bar ${screenTimeData.todaySeconds >= screenTimeData.dailyGoalMinutes * 60 ? 'exceeded' : ''}`}
+                        style={{ width: `${Math.min(100, (screenTimeData.todaySeconds / (screenTimeData.dailyGoalMinutes * 60)) * 100)}%` }} 
+                      />
+                    </div>
+                  </div>
+                )}
+
+                {/* Grid stats */}
+                {screenTimeData && (
+                  <div className="ddo-screentime-grid">
+                    <div className="ddo-screentime-stat-card">
+                      <span className="ddo-screentime-stat-label">YESTERDAY</span>
+                      <span className="ddo-screentime-stat-val">
+                        {formatTime(screenTimeData.yesterdaySeconds)}
+                      </span>
+                    </div>
+                    <div className="ddo-screentime-stat-card">
+                      <span className="ddo-screentime-stat-label">WEEKLY AVG</span>
+                      <span className="ddo-screentime-stat-val">
+                        {formatTime(screenTimeData.weeklyAverageSeconds)}
+                      </span>
+                    </div>
+                    <div className="ddo-screentime-stat-card">
+                      <span className="ddo-screentime-stat-label">STREAK</span>
+                      <span className="ddo-screentime-stat-val">
+                        {screenTimeData.currentStreak} {screenTimeData.currentStreak === 1 ? 'Day' : 'Days'}
+                      </span>
+                    </div>
+                    <div className="ddo-screentime-stat-card">
+                      <span className="ddo-screentime-stat-label">LONGEST</span>
+                      <span className="ddo-screentime-stat-val">
+                        {screenTimeData.longestStreak} {screenTimeData.longestStreak === 1 ? 'Day' : 'Days'}
+                      </span>
+                    </div>
+                  </div>
+                )}
+
+                {/* 7-Day Usage Graph */}
+                {screenTimeData && screenTimeData.last7Days && (
+                  <div className="ddo-screentime-graph-container">
+                    <span className="ddo-fitness-label">LAST 7 DAYS</span>
+                    <div className="ddo-screentime-graph">
+                      {screenTimeData.last7Days.map((day, idx) => {
+                        const maxSec = Math.max(...screenTimeData.last7Days.map(d => d.seconds), screenTimeData.dailyGoalMinutes * 60, 3600);
+                        const pct = (day.seconds / maxSec) * 100;
+                        const isGoalReached = day.seconds >= screenTimeData.dailyGoalMinutes * 60;
+                        return (
+                          <div key={idx} className="ddo-screentime-graph-col">
+                            <div className="ddo-screentime-graph-bar-wrapper">
+                              <div 
+                                className={`ddo-screentime-graph-bar ${isGoalReached ? 'goal-reached' : ''}`}
+                                style={{ height: `${Math.max(4, pct)}%` }}
+                                title={`${day.date}: ${formatTime(day.seconds)}`}
+                              />
+                            </div>
+                            <span className="ddo-screentime-graph-label">{day.label}</span>
+                          </div>
+                        );
+                      })}
+                    </div>
+                  </div>
+                )}
+
+                {/* Goal setting form */}
+                <div className="ddo-screentime-goal-form-container">
+                  {goalEditing ? (
+                    <form onSubmit={handleSaveGoal} className="ddo-screentime-goal-form">
+                      <label htmlFor="screen-time-goal-input" className="ddo-fitness-label">SET GOAL (HRS)</label>
+                      <div className="ddo-screentime-goal-input-row">
+                        <input
+                          id="screen-time-goal-input"
+                          type="number"
+                          step="0.5"
+                          min="0.5"
+                          max="24"
+                          className="ddo-screentime-goal-input"
+                          value={goalInput}
+                          onChange={(e) => setGoalInput(e.target.value)}
+                        />
+                        <button type="submit" className="ddo-screentime-goal-btn save">
+                          Save
+                        </button>
+                        <button 
+                          type="button" 
+                          className="ddo-screentime-goal-btn cancel"
+                          onClick={() => {
+                            setGoalEditing(false);
+                            if (screenTimeData) {
+                              setGoalInput(String(screenTimeData.dailyGoalMinutes / 60));
+                            }
+                          }}
+                        >
+                          Cancel
+                        </button>
+                      </div>
+                    </form>
+                  ) : (
+                    <div className="ddo-screentime-goal-display-row">
+                      <span className="ddo-fitness-label">DAILY GOAL</span>
+                      <button 
+                        className="ddo-screentime-goal-edit-btn"
+                        onClick={() => setGoalEditing(true)}
+                      >
+                        Adjust Goal
+                      </button>
+                    </div>
+                  )}
                 </div>
               </div>
             </div>

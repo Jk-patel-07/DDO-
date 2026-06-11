@@ -3147,6 +3147,244 @@ app.post('/api/system/sleep', async (request, response, next) => {
   }
 });
 
+// --- SCREEN TIME SYSTEM TRACKING & DB & ENDPOINTS ---
+const checkSystemActivity = async () => {
+  try {
+    const scriptPath = path.join(__dirname, 'check-idle.ps1');
+    const { stdout } = await execFileAsync(
+      'powershell.exe',
+      ['-NoProfile', '-ExecutionPolicy', 'Bypass', '-File', scriptPath],
+      { windowsHide: true, timeout: 5000 }
+    );
+    const parts = stdout.trim().split('|');
+    if (parts.length === 2) {
+      const idleTimeMs = parseInt(parts[0], 10);
+      const isLocked = parts[1].trim().toLowerCase() === 'true';
+      return { idleTimeMs, isLocked };
+    }
+  } catch (error) {
+    // Silently ignore execution/timeout errors to avoid spamming console
+  }
+  return { idleTimeMs: 0, isLocked: false };
+};
+
+const getLocalDateString = () => {
+  const d = new Date();
+  const year = d.getFullYear();
+  const month = String(d.getMonth() + 1).padStart(2, '0');
+  const day = String(d.getDate()).padStart(2, '0');
+  return `${year}-${month}-${day}`;
+};
+
+const getLast7DaysData = (history) => {
+  const result = [];
+  const daysOfWeek = ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'];
+  for (let i = 6; i >= 0; i--) {
+    const d = new Date();
+    d.setDate(d.getDate() - i);
+    const dateStr = `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
+    const label = daysOfWeek[d.getDay()];
+    const seconds = history[dateStr] || 0;
+    result.push({ date: dateStr, label, seconds });
+  }
+  return result;
+};
+
+const calculateStreaks = (history) => {
+  const activeDates = Object.keys(history)
+    .filter(date => history[date] > 0)
+    .sort((a, b) => new Date(a) - new Date(b));
+
+  if (activeDates.length === 0) {
+    return { currentStreak: 0, longestStreak: 0 };
+  }
+
+  const isConsecutive = (d1, d2) => {
+    const date1 = new Date(d1);
+    const date2 = new Date(d2);
+    date1.setHours(0, 0, 0, 0);
+    date2.setHours(0, 0, 0, 0);
+    const diffTime = Math.abs(date1 - date2);
+    const diffDays = Math.round(diffTime / (1000 * 60 * 60 * 24));
+    return diffDays === 1;
+  };
+
+  const todayStr = getLocalDateString();
+  const yesterdayStr = (() => {
+    const d = new Date();
+    d.setDate(d.getDate() - 1);
+    return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
+  })();
+
+  let currentStreak = 0;
+  const hasToday = (history[todayStr] || 0) > 0;
+  const hasYesterday = (history[yesterdayStr] || 0) > 0;
+
+  if (hasToday) {
+    currentStreak = 1;
+    let checkDate = new Date(todayStr);
+    while (true) {
+      checkDate.setDate(checkDate.getDate() - 1);
+      const checkStr = `${checkDate.getFullYear()}-${String(checkDate.getMonth() + 1).padStart(2, '0')}-${String(checkDate.getDate()).padStart(2, '0')}`;
+      if ((history[checkStr] || 0) > 0) {
+        currentStreak++;
+      } else {
+        break;
+      }
+    }
+  } else if (hasYesterday) {
+    currentStreak = 1;
+    let checkDate = new Date(yesterdayStr);
+    while (true) {
+      checkDate.setDate(checkDate.getDate() - 1);
+      const checkStr = `${checkDate.getFullYear()}-${String(checkDate.getMonth() + 1).padStart(2, '0')}-${String(checkDate.getDate()).padStart(2, '0')}`;
+      if ((history[checkStr] || 0) > 0) {
+        currentStreak++;
+      } else {
+        break;
+      }
+    }
+  } else {
+    currentStreak = 0;
+  }
+
+  let longestStreak = 0;
+  let tempStreak = 0;
+  let prevDate = null;
+
+  for (const dateStr of activeDates) {
+    if (!prevDate) {
+      tempStreak = 1;
+    } else if (isConsecutive(prevDate, dateStr)) {
+      tempStreak++;
+    } else {
+      if (tempStreak > longestStreak) {
+        longestStreak = tempStreak;
+      }
+      tempStreak = 1;
+    }
+    prevDate = dateStr;
+  }
+  if (tempStreak > longestStreak) {
+    longestStreak = tempStreak;
+  }
+
+  return { currentStreak, longestStreak };
+};
+
+let cachedScreenTimeData = null;
+
+const loadScreenTimeData = async () => {
+  if (cachedScreenTimeData) {
+    return cachedScreenTimeData;
+  }
+  const filePath = path.join(path.dirname(__dirname), '.ddo-screentime.json');
+  try {
+    const content = await readFile(filePath, 'utf-8');
+    cachedScreenTimeData = JSON.parse(content);
+    if (!cachedScreenTimeData.dailyGoalMinutes) cachedScreenTimeData.dailyGoalMinutes = 240;
+    if (!cachedScreenTimeData.history) cachedScreenTimeData.history = {};
+  } catch (error) {
+    cachedScreenTimeData = {
+      dailyGoalMinutes: 240,
+      history: {},
+    };
+  }
+  return cachedScreenTimeData;
+};
+
+const saveScreenTimeData = async (data) => {
+  cachedScreenTimeData = data;
+  const filePath = path.join(path.dirname(__dirname), '.ddo-screentime.json');
+  try {
+    await writeFile(filePath, JSON.stringify(data, null, 2), 'utf-8');
+  } catch (error) {
+    console.error('Failed to save screen time data:', error);
+  }
+};
+
+let trackingInterval = null;
+let lastCheckTime = Date.now();
+
+const startScreenTimeTracking = () => {
+  if (trackingInterval) clearInterval(trackingInterval);
+  lastCheckTime = Date.now();
+  trackingInterval = setInterval(async () => {
+    try {
+      const now = Date.now();
+      const elapsedMs = now - lastCheckTime;
+      lastCheckTime = now;
+
+      const { idleTimeMs, isLocked } = await checkSystemActivity();
+      // Idle threshold is 5 minutes (300,000 ms)
+      const isIdle = idleTimeMs >= 300000;
+
+      if (!isLocked && !isIdle) {
+        const todayStr = getLocalDateString();
+        const data = await loadScreenTimeData();
+        if (!data.history) {
+          data.history = {};
+        }
+        const addedSeconds = Math.min(elapsedMs, 15000) / 1000;
+        data.history[todayStr] = (data.history[todayStr] || 0) + addedSeconds;
+        await saveScreenTimeData(data);
+      }
+    } catch (error) {
+      console.error('Error in screen time tracking loop:', error);
+    }
+  }, 10000);
+};
+
+app.get('/api/screentime', async (request, response, next) => {
+  try {
+    const data = await loadScreenTimeData();
+    const todayStr = getLocalDateString();
+    
+    const yesterdayStr = (() => {
+      const d = new Date();
+      d.setDate(d.getDate() - 1);
+      return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
+    })();
+
+    const todaySeconds = data.history[todayStr] || 0;
+    const yesterdaySeconds = data.history[yesterdayStr] || 0;
+
+    const last7Days = getLast7DaysData(data.history);
+    const thisWeekSeconds = last7Days.reduce((sum, item) => sum + item.seconds, 0);
+    const weeklyAverageSeconds = thisWeekSeconds / 7;
+
+    const { currentStreak, longestStreak } = calculateStreaks(data.history);
+
+    response.json({
+      todaySeconds,
+      yesterdaySeconds,
+      thisWeekSeconds,
+      weeklyAverageSeconds,
+      currentStreak,
+      longestStreak,
+      dailyGoalMinutes: data.dailyGoalMinutes,
+      last7Days,
+    });
+  } catch (error) {
+    next(error);
+  }
+});
+
+app.post('/api/screentime/goal', async (request, response, next) => {
+  try {
+    const goal = parseInt(request.body?.dailyGoalMinutes, 10);
+    if (isNaN(goal) || goal <= 0) {
+      throw new HttpError(400, 'Invalid daily goal value.');
+    }
+    const data = await loadScreenTimeData();
+    data.dailyGoalMinutes = goal;
+    await saveScreenTimeData(data);
+    response.json({ ok: true, dailyGoalMinutes: goal });
+  } catch (error) {
+    next(error);
+  }
+});
+
 app.use((error, _request, response, _next) => {
   if (error?.message === 'Origin not allowed by CORS.') {
     response.status(403).json({ error: 'CORS blocked this request.' });
@@ -3193,6 +3431,7 @@ const startServer = async () => {
   });
   void connectMongoDB();
   checkStepFunApiKeyOnStartup();
+  startScreenTimeTracking();
 };
 
 await startServer();

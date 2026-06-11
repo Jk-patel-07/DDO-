@@ -8993,6 +8993,282 @@ body[data-search-animation="off"] .center-search-popup {
   display: flex;
   flex-direction: column;
   gap: 14px;
+  max-height: 480px;
+  overflow-y: auto;
+  padding-right: 4px;
+}
+
+/* Style the scrollbar for custom styling */
+.ddo-tab-content.ddo-tab-fitness::-webkit-scrollbar {
+  width: 4px;
+}
+.ddo-tab-content.ddo-tab-fitness::-webkit-scrollbar-track {
+  background: transparent;
+}
+.ddo-tab-content.ddo-tab-fitness::-webkit-scrollbar-thumb {
+  background: rgba(255, 255, 255, 0.15);
+  border-radius: 99px;
+}
+.ddo-tab-content.ddo-tab-fitness::-webkit-scrollbar-thumb:hover {
+  background: rgba(255, 255, 255, 0.3);
+}
+
+/* Screen Time Section Styles */
+.ddo-screentime-section {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  margin-top: 4px;
+}
+
+.ddo-screentime-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+}
+
+.ddo-screentime-today-value {
+  font-size: 18px;
+  font-weight: 700;
+  color: #ffffff;
+  text-shadow: 0 0 10px rgba(255, 255, 255, 0.3);
+}
+
+.ddo-screentime-warning {
+  background: rgba(239, 68, 68, 0.15);
+  border: 1px solid rgba(239, 68, 68, 0.3);
+  border-radius: 8px;
+  padding: 6px 10px;
+  font-size: 11px;
+  color: #fca5a5;
+  text-align: center;
+  font-weight: 600;
+  animation: ddo-pulse-warning 2s infinite alternate;
+}
+
+@keyframes ddo-pulse-warning {
+  0% { box-shadow: 0 0 4px rgba(239, 68, 68, 0.2); }
+  100% { box-shadow: 0 0 10px rgba(239, 68, 68, 0.4); }
+}
+
+.ddo-screentime-progress-container {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.ddo-screentime-progress-row {
+  display: flex;
+  justify-content: space-between;
+  font-size: 10px;
+  font-weight: 600;
+}
+
+.ddo-screentime-progress-percent {
+  color: #10b981;
+}
+
+.ddo-screentime-progress-goal-label {
+  color: #888888;
+}
+
+.ddo-screentime-progress-track {
+  height: 6px;
+  background: rgba(255, 255, 255, 0.05);
+  border-radius: 999px;
+  overflow: hidden;
+  position: relative;
+}
+
+.ddo-screentime-progress-bar {
+  height: 100%;
+  background: linear-gradient(90deg, #10b981 0%, #059669 100%);
+  border-radius: 999px;
+  box-shadow: 0 0 8px rgba(16, 185, 129, 0.6);
+  transition: width 0.6s cubic-bezier(0.16, 1, 0.3, 1);
+}
+
+.ddo-screentime-progress-bar.exceeded {
+  background: linear-gradient(90deg, #ef4444 0%, #dc2626 100%);
+  box-shadow: 0 0 8px rgba(239, 68, 68, 0.6);
+}
+
+.ddo-screentime-grid {
+  display: grid;
+  grid-template-columns: repeat(2, 1fr);
+  gap: 8px;
+}
+
+.ddo-screentime-stat-card {
+  background: rgba(255, 255, 255, 0.03);
+  border: 1px solid rgba(255, 255, 255, 0.06);
+  border-radius: 12px;
+  padding: 8px 10px;
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+
+.ddo-screentime-stat-label {
+  font-size: 8px;
+  font-weight: 700;
+  color: #888888;
+  letter-spacing: 0.05em;
+}
+
+.ddo-screentime-stat-val {
+  font-size: 13px;
+  font-weight: 700;
+  color: #ffffff;
+}
+
+.ddo-screentime-graph-container {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  margin-top: 4px;
+}
+
+.ddo-screentime-graph {
+  height: 80px;
+  display: flex;
+  align-items: flex-end;
+  justify-content: space-between;
+  padding: 8px 12px;
+  background: rgba(255, 255, 255, 0.02);
+  border: 1px solid rgba(255, 255, 255, 0.04);
+  border-radius: 16px;
+  gap: 6px;
+}
+
+.ddo-screentime-graph-col {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 6px;
+  height: 100%;
+}
+
+.ddo-screentime-graph-bar-wrapper {
+  flex: 1;
+  width: 100%;
+  display: flex;
+  align-items: flex-end;
+  justify-content: center;
+}
+
+.ddo-screentime-graph-bar {
+  width: 12px;
+  background: rgba(255, 255, 255, 0.12);
+  border-radius: 6px;
+  transition: height 0.6s cubic-bezier(0.16, 1, 0.3, 1), background-color 0.3s;
+  cursor: pointer;
+  min-height: 4px;
+}
+
+.ddo-screentime-graph-bar:hover {
+  background: rgba(255, 255, 255, 0.3);
+  filter: drop-shadow(0 0 4px rgba(255, 255, 255, 0.3));
+}
+
+.ddo-screentime-graph-bar.goal-reached {
+  background: linear-gradient(180deg, #10b981 0%, #059669 100%);
+  box-shadow: 0 0 6px rgba(16, 185, 129, 0.4);
+}
+
+.ddo-screentime-graph-bar.goal-reached:hover {
+  background: linear-gradient(180deg, #34d399 0%, #10b981 100%);
+  box-shadow: 0 0 10px rgba(16, 185, 129, 0.7);
+}
+
+.ddo-screentime-graph-label {
+  font-size: 8px;
+  font-weight: 600;
+  color: #666666;
+}
+
+.ddo-screentime-goal-form-container {
+  margin-top: 4px;
+  padding: 4px 0;
+}
+
+.ddo-screentime-goal-display-row {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+}
+
+.ddo-screentime-goal-edit-btn {
+  background: rgba(255, 255, 255, 0.05);
+  border: 1px solid rgba(255, 255, 255, 0.1);
+  border-radius: 8px;
+  color: #ffffff;
+  font-size: 10px;
+  font-weight: 600;
+  padding: 4px 10px;
+  cursor: pointer;
+  transition: all 0.2s;
+}
+
+.ddo-screentime-goal-edit-btn:hover {
+  background: rgba(255, 255, 255, 0.1);
+  border-color: rgba(255, 255, 255, 0.2);
+}
+
+.ddo-screentime-goal-form {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.ddo-screentime-goal-input-row {
+  display: flex;
+  gap: 8px;
+  align-items: center;
+}
+
+.ddo-screentime-goal-input {
+  background: rgba(0, 0, 0, 0.4);
+  border: 1px solid rgba(255, 255, 255, 0.15);
+  border-radius: 8px;
+  padding: 4px 8px;
+  color: #ffffff;
+  font-size: 12px;
+  width: 70px;
+  outline: none;
+}
+
+.ddo-screentime-goal-input:focus {
+  border-color: #10b981;
+}
+
+.ddo-screentime-goal-btn {
+  border: none;
+  border-radius: 8px;
+  font-size: 10px;
+  font-weight: 700;
+  padding: 6px 12px;
+  cursor: pointer;
+  transition: all 0.2s;
+}
+
+.ddo-screentime-goal-btn.save {
+  background: #10b981;
+  color: #ffffff;
+}
+
+.ddo-screentime-goal-btn.save:hover {
+  background: #059669;
+}
+
+.ddo-screentime-goal-btn.cancel {
+  background: rgba(255, 255, 255, 0.08);
+  color: #cccccc;
+}
+
+.ddo-screentime-goal-btn.cancel:hover {
+  background: rgba(255, 255, 255, 0.15);
 }
 
 .ddo-fitness-top {
