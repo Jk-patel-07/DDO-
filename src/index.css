@@ -1025,6 +1025,10 @@ button:active::after,
   animation: center-search-popup-fade 0.28s ease;
 }
 
+body[data-search-animation="off"] .center-search-popup {
+  animation: none !important;
+}
+
 .center-search-popup::before,
 .center-search-popup::after {
   content: "";

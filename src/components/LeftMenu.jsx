@@ -19,6 +19,7 @@ import { useDraggablePopup } from '../utils/useDraggablePopup';
 
 const YOUTUBE_SHORTS_URL = 'https://www.youtube.com/shorts';
 const BACKGROUND_ANIMATION_STORAGE_KEY = 'background_animation_mode';
+const SEARCH_BOX_ANIMATION_STORAGE_KEY = 'search_box_animation_mode';
 
 const openExternalUrl = (url) => {
   if (!url) return;
@@ -90,6 +91,14 @@ const LeftMenu = ({ onPopupStateChange = () => {} }) => {
   const [isBackgroundAnimationEnabled, setIsBackgroundAnimationEnabled] = useState(() => {
     try {
       const storedMode = localStorage.getItem(BACKGROUND_ANIMATION_STORAGE_KEY);
+      return storedMode !== 'off';
+    } catch {
+      return true;
+    }
+  });
+  const [isSearchBoxAnimationEnabled, setIsSearchBoxAnimationEnabled] = useState(() => {
+    try {
+      const storedMode = localStorage.getItem(SEARCH_BOX_ANIMATION_STORAGE_KEY);
       return storedMode !== 'off';
     } catch {
       return true;
@@ -215,6 +224,19 @@ const LeftMenu = ({ onPopupStateChange = () => {} }) => {
       // Ignore persistence errors and keep the current animation mode in memory.
     }
   }, [isBackgroundAnimationEnabled]);
+
+  useEffect(() => {
+    document.body.dataset.searchAnimation = isSearchBoxAnimationEnabled ? 'on' : 'off';
+
+    try {
+      localStorage.setItem(
+        SEARCH_BOX_ANIMATION_STORAGE_KEY,
+        isSearchBoxAnimationEnabled ? 'on' : 'off',
+      );
+    } catch {
+      // Ignore persistence errors and keep the current animation mode in memory.
+    }
+  }, [isSearchBoxAnimationEnabled]);
 
   const handleViewOptionClick = (option) => {
     if (option === 'Shorts') {
@@ -617,6 +639,22 @@ const LeftMenu = ({ onPopupStateChange = () => {} }) => {
               className={`animation-toggle-switch ${isBackgroundAnimationEnabled ? 'is-on' : ''}`}
               onClick={() => handleAnimationModeChange(!isBackgroundAnimationEnabled)}
               aria-label="Toggle background animation"
+            >
+              <span className="animation-toggle-thumb" />
+            </button>
+          </div>
+
+          <div className="animation-settings-row">
+            <div className="animation-settings-copy">
+              <strong>Search Box Animation</strong>
+              <span>{isSearchBoxAnimationEnabled ? 'Always ON' : 'OFF'}</span>
+            </div>
+
+            <button
+              type="button"
+              className={`animation-toggle-switch ${isSearchBoxAnimationEnabled ? 'is-on' : ''}`}
+              onClick={() => setIsSearchBoxAnimationEnabled(!isSearchBoxAnimationEnabled)}
+              aria-label="Toggle search box animation"
             >
               <span className="animation-toggle-thumb" />
             </button>
