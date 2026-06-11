@@ -189,8 +189,9 @@ const FloatingNavBar = ({ onPopupStateChange }) => {
           <Home
             size={18}
             className="ddo-dock-icon"
-            fill={activeTab === 'home' ? 'white' : 'none'}
-            stroke={activeTab === 'home' ? 'none' : 'rgba(255, 255, 255, 0.5)'}
+            fill="none"
+            stroke={activeTab === 'home' ? '#ffffff' : 'rgba(255, 255, 255, 0.45)'}
+            strokeWidth={activeTab === 'home' ? 2 : 1.5}
           />
         </button>
         <button
@@ -202,8 +203,9 @@ const FloatingNavBar = ({ onPopupStateChange }) => {
           <CheckCircle2
             size={18}
             className="ddo-dock-icon"
-            fill={activeTab === 'tasks' ? 'white' : 'none'}
-            stroke={activeTab === 'tasks' ? 'none' : 'rgba(255, 255, 255, 0.5)'}
+            fill="none"
+            stroke={activeTab === 'tasks' ? '#ffffff' : 'rgba(255, 255, 255, 0.45)'}
+            strokeWidth={activeTab === 'tasks' ? 2 : 1.5}
           />
         </button>
         <button
@@ -215,8 +217,9 @@ const FloatingNavBar = ({ onPopupStateChange }) => {
           <Calendar
             size={18}
             className="ddo-dock-icon"
-            fill={activeTab === 'calendar' ? 'white' : 'none'}
-            stroke={activeTab === 'calendar' ? 'none' : 'rgba(255, 255, 255, 0.5)'}
+            fill="none"
+            stroke={activeTab === 'calendar' ? '#ffffff' : 'rgba(255, 255, 255, 0.45)'}
+            strokeWidth={activeTab === 'calendar' ? 2 : 1.5}
           />
         </button>
         <button
@@ -228,8 +231,9 @@ const FloatingNavBar = ({ onPopupStateChange }) => {
           <Target
             size={18}
             className="ddo-dock-icon"
-            fill={activeTab === 'goals' ? 'white' : 'none'}
-            stroke={activeTab === 'goals' ? 'none' : 'rgba(255, 255, 255, 0.5)'}
+            fill="none"
+            stroke={activeTab === 'goals' ? '#ffffff' : 'rgba(255, 255, 255, 0.45)'}
+            strokeWidth={activeTab === 'goals' ? 2 : 1.5}
           />
         </button>
       </div>
