@@ -1071,57 +1071,53 @@ const CenterSearch = ({ onPopupStateChange = () => {} }) => {
       </button>
 
       {activePopup === 'search' && (
-        <div ref={searchDrag.popupRef} style={searchDrag.dragStyle} className="center-search-popup">
-          <form
-            className={`center-search-bar ${activePopup === 'search' ? 'is-open' : ''}`}
-            onSubmit={handleSearchSubmit}
-          >
-            <button
-              type="button"
-              ref={providerTriggerRef}
-              className="center-search-plus"
-              aria-label="Choose search provider"
-              onClick={() => setIsProviderMenuOpen((open) => !open)}
+        <>
+          <div className="ddo-search-backdrop" onClick={() => setActivePopup(null)} />
+          <div ref={searchDrag.popupRef} style={searchDrag.dragStyle} className="center-search-popup ddo-centered-search">
+            {/* Background transparent liquid-glass splash wave */}
+            <div className="ddo-search-liquid-splash" />
+            
+            {/* Small floating water droplets */}
+            <div className="ddo-search-droplet ddo-droplet-1" />
+            <div className="ddo-search-droplet ddo-droplet-2" />
+            <div className="ddo-search-droplet ddo-droplet-3" />
+            <div className="ddo-search-droplet ddo-droplet-4" />
+            <div className="ddo-search-droplet ddo-droplet-5" />
+            <div className="ddo-search-droplet ddo-droplet-6" />
+
+            <form
+              className={`center-search-bar ddo-futuristic-search-bar ${activePopup === 'search' ? 'is-open' : ''}`}
+              onSubmit={handleSearchSubmit}
             >
-              <Plus size={22} strokeWidth={1.9} />
-            </button>
+              <div className="center-search-input-wrap">
+                <input
+                  type="text"
+                  placeholder="Searchralism"
+                  value={query}
+                  onChange={(e) => setQuery(e.target.value)}
+                  onFocus={() => setActivePopup('search')}
+                  onKeyDown={(e) => {
+                    if (e.key === 'Enter') {
+                      e.preventDefault();
+                      handleSearchSubmit(e);
+                    }
+                  }}
+                  className="center-search-input ddo-search-input"
+                />
+              </div>
 
-            <div className="center-search-input-wrap">
-              <input
-                type="text"
-                placeholder={activeProvider.placeholder}
-                value={query}
-                onChange={(e) => setQuery(e.target.value)}
-                onFocus={() => setActivePopup('search')}
-                onKeyDown={(e) => {
-                  if (e.key === 'Enter') {
-                    e.preventDefault();
-                    handleSearchSubmit(e);
-                  }
-                }}
-                className="center-search-input"
-              />
-            </div>
+              <div className="ddo-search-divider" />
 
-            <div className="center-search-actions">
               <button
                 type="button"
-                className="center-search-drag-btn popup-drag-btn"
-                {...searchDrag.dragProps}
+                ref={providerTriggerRef}
+                className="ddo-search-icon-btn"
+                onClick={() => setIsProviderMenuOpen((open) => !open)}
+                aria-label="Choose search provider"
               >
-                ⠿
+                <Search size={18} strokeWidth={1.8} />
               </button>
-              <button type="button" className="center-search-mic" aria-label="Voice input">
-                <Mic size={24} strokeWidth={1.9} />
-              </button>
-
-              <button type="submit" className="center-search-voice-orb" aria-label="Submit search">
-                <span />
-                <span />
-                <span />
-              </button>
-            </div>
-          </form>
+            </form>
 
           <div className="center-search-dropdown popup-aurora-surface">
             <div className="center-search-account-row">
@@ -1244,6 +1240,7 @@ const CenterSearch = ({ onPopupStateChange = () => {} }) => {
             )}
           </div>
         </div>
+      </>
       )}
       {accountPopup}
       {providerMenu}
