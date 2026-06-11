@@ -438,16 +438,27 @@ const readStoredSearchProvider = () => {
   }
 };
 
-const AI_PROVIDER_IDS = new Set(['gemini', 'stepfun', 'manus']);
+const AI_PROVIDER_IDS = new Set(['gemini', 'stepfun', 'manus', 'meta']);
 
 const providerOptions = [
   { id: 'google', label: 'Google', icon: Search, placeholder: 'Search Google' },
   { id: 'gemini', label: 'Gemini', icon: Sparkles, placeholder: 'Ask Gemini' },
   { id: 'stepfun', label: 'StepFun AI', icon: Bot, placeholder: 'Ask StepFun AI...' },
   { id: 'manus', label: 'Manus AI', icon: Bot, placeholder: 'Ask Manus AI...' },
+  { id: 'meta', label: 'Meta AI', icon: Sparkles, placeholder: 'Ask Meta AI...' },
 ];
 
 const searchProviderOptions = providerOptions;
+
+const getProviderDisplayName = (provider) => {
+  if (!provider) return 'Gemini';
+  const p = provider.toLowerCase();
+  if (p === 'gemini') return 'Gemini';
+  if (p === 'stepfun') return 'StepFun AI';
+  if (p === 'manus') return 'Manus AI';
+  if (p === 'meta') return 'Meta AI';
+  return provider.charAt(0).toUpperCase() + provider.slice(1);
+};
 
 const parseJwt = (token) => {
   const base64Url = token.split('.')[1];
@@ -464,6 +475,9 @@ const parseJwt = (token) => {
 const TabProviderIcon = ({ provider, size = 12 }) => {
   if (provider === 'gemini') {
     return <Sparkles size={size} style={{ color: '#a78bfa' }} />;
+  }
+  if (provider === 'meta') {
+    return <Sparkles size={size} style={{ color: '#c084fc' }} />;
   }
   if (provider === 'manus') {
     return <span style={{ color: '#f8fafc', fontSize: size, fontWeight: 800, lineHeight: 1 }}>M</span>;
@@ -563,11 +577,55 @@ const CenterSearch = ({ onPopupStateChange = () => {} }) => {
   const [isGeminiOpen, setIsGeminiOpen] = useState(false);
   const [isStepFunOpen, setIsStepFunOpen] = useState(false);
   const [isManusOpen, setIsManusOpen] = useState(false);
+  const [isMetaOpen, setIsMetaOpen] = useState(false);
 
   // Independent pending prompt states
   const [geminiPendingPrompt, setGeminiPendingPrompt] = useState(null);
   const [stepfunPendingPrompt, setStepfunPendingPrompt] = useState(null);
   const [manusPendingPrompt, setManusPendingPrompt] = useState(null);
+  const [metaPendingPrompt, setMetaPendingPrompt] = useState(null);
+
+  // Lifted Combined AI chat history state
+  const [historyChats, setHistoryChats] = useState(() => {
+    try {
+      const saved = localStorage.getItem('ddo_combined_chat_history');
+      return saved ? JSON.parse(saved) : [];
+    } catch {
+      return [];
+    }
+  });
+
+  useEffect(() => {
+    try {
+      localStorage.setItem('ddo_combined_chat_history', JSON.stringify(historyChats));
+    } catch (e) {
+      console.error("Failed to save combined history:", e);
+    }
+  }, [historyChats]);
+
+  // Coordinate reopening tabs across different AI popups
+  const [pendingReopenChat, setPendingReopenChat] = useState(null);
+
+  const handleClearPendingReopenChat = useCallback(() => {
+    setPendingReopenChat(null);
+  }, []);
+
+  const handleReopenChatFromPopup = useCallback((providerId, chatId) => {
+    if (providerId === 'gemini') {
+      setIsGeminiOpen(true);
+      setFrontProvider('gemini');
+    } else if (providerId === 'stepfun') {
+      setIsStepFunOpen(true);
+      setFrontProvider('stepfun');
+    } else if (providerId === 'manus') {
+      setIsManusOpen(true);
+      setFrontProvider('manus');
+    } else if (providerId === 'meta') {
+      setIsMetaOpen(true);
+      setFrontProvider('meta');
+    }
+    setPendingReopenChat({ providerId, chatId });
+  }, []);
 
   // Focus z-index state
   const [frontProvider, setFrontProvider] = useState('gemini');
@@ -854,6 +912,12 @@ const CenterSearch = ({ onPopupStateChange = () => {} }) => {
       setManusPendingPrompt({ text: trimmedQuery, timestamp: Date.now() });
       setQuery('');
       return;
+    } else if (searchProvider === 'meta') {
+      setIsMetaOpen(true);
+      setFrontProvider('meta');
+      setMetaPendingPrompt({ text: trimmedQuery, timestamp: Date.now() });
+      setQuery('');
+      return;
     }
 
     saveSearchToHistory(trimmedQuery);
@@ -896,6 +960,13 @@ const CenterSearch = ({ onPopupStateChange = () => {} }) => {
       setFrontProvider('manus');
       if (query.trim()) {
         setManusPendingPrompt({ text: query, timestamp: Date.now() });
+        setQuery('');
+      }
+    } else if (providerId === 'meta') {
+      setIsMetaOpen(true);
+      setFrontProvider('meta');
+      if (query.trim()) {
+        setMetaPendingPrompt({ text: query, timestamp: Date.now() });
         setQuery('');
       }
     } else {
@@ -1148,6 +1219,11 @@ const CenterSearch = ({ onPopupStateChange = () => {} }) => {
           setIsStepFunOpen(true);
           setFrontProvider('stepfun');
         }}
+        historyChats={historyChats}
+        setHistoryChats={setHistoryChats}
+        pendingReopenChat={pendingReopenChat}
+        onClearPendingReopenChat={handleClearPendingReopenChat}
+        onReopenChat={handleReopenChatFromPopup}
       />
       <AiChatPopup
         provider="stepfun"
@@ -1158,6 +1234,11 @@ const CenterSearch = ({ onPopupStateChange = () => {} }) => {
         onSaveSearchToHistory={saveSearchToHistory}
         pendingPrompt={stepfunPendingPrompt}
         onClearPendingPrompt={() => setStepfunPendingPrompt(null)}
+        historyChats={historyChats}
+        setHistoryChats={setHistoryChats}
+        pendingReopenChat={pendingReopenChat}
+        onClearPendingReopenChat={handleClearPendingReopenChat}
+        onReopenChat={handleReopenChatFromPopup}
       />
       <AiChatPopup
         provider="manus"
@@ -1168,6 +1249,26 @@ const CenterSearch = ({ onPopupStateChange = () => {} }) => {
         onSaveSearchToHistory={saveSearchToHistory}
         pendingPrompt={manusPendingPrompt}
         onClearPendingPrompt={() => setManusPendingPrompt(null)}
+        historyChats={historyChats}
+        setHistoryChats={setHistoryChats}
+        pendingReopenChat={pendingReopenChat}
+        onClearPendingReopenChat={handleClearPendingReopenChat}
+        onReopenChat={handleReopenChatFromPopup}
+      />
+      <AiChatPopup
+        provider="meta"
+        isOpen={isMetaOpen}
+        onClose={() => setIsMetaOpen(false)}
+        frontProvider={frontProvider}
+        onFocus={() => setFrontProvider('meta')}
+        onSaveSearchToHistory={saveSearchToHistory}
+        pendingPrompt={metaPendingPrompt}
+        onClearPendingPrompt={() => setMetaPendingPrompt(null)}
+        historyChats={historyChats}
+        setHistoryChats={setHistoryChats}
+        pendingReopenChat={pendingReopenChat}
+        onClearPendingReopenChat={handleClearPendingReopenChat}
+        onReopenChat={handleReopenChatFromPopup}
       />
     </div>
   );
@@ -1177,7 +1278,7 @@ const CenterSearch = ({ onPopupStateChange = () => {} }) => {
    Independent AI Chat Popup Component
    ========================================================================== */
 const getWelcomeMessage = (prov) => {
-  const label = prov === 'gemini' ? 'Gemini' : prov === 'stepfun' ? 'StepFun AI' : 'Manus AI';
+  const label = getProviderDisplayName(prov);
   return {
     id: 'welcome',
     sender: 'ai',
@@ -2412,6 +2513,11 @@ const AiChatPopup = ({
   pendingPrompt,
   onClearPendingPrompt,
   onSwitchToStepFun,
+  historyChats,
+  setHistoryChats,
+  pendingReopenChat,
+  onClearPendingReopenChat,
+  onReopenChat,
 }) => {
 
   const drag = useDraggablePopup(provider);
@@ -2473,15 +2579,36 @@ const AiChatPopup = ({
   });
   const [cooldownSecondsLeft, setCooldownSecondsLeft] = useState(0);
 
-  // New Chat History States
-  const [historyChats, setHistoryChats] = useState(() => {
-    try {
-      const saved = localStorage.getItem(`ddo_chat_history_${provider}`);
-      return saved ? JSON.parse(saved) : [];
-    } catch {
-      return [];
+  // Coordinate reopening tabs across different AI popups
+  useEffect(() => {
+    if (pendingReopenChat && pendingReopenChat.providerId === provider) {
+      const { chatId } = pendingReopenChat;
+      const chat = historyChats.find(t => t.id === chatId);
+      if (chat) {
+        const isAlreadyTab = chatTabs.some(t => t.id === chatId);
+        if (!isAlreadyTab) {
+          setChatTabs(prev => {
+            const withDraft = prev.map(t => t.id === activeTabId ? { ...t, draft: currentDraftRef.current, pendingAttachment: currentAttachmentRef.current } : t);
+            return [...withDraft, chat];
+          });
+        }
+        setChatTabs(prev => {
+          const updated = prev.map(t => t.id === activeTabId ? { ...t, draft: currentDraftRef.current, pendingAttachment: currentAttachmentRef.current } : t);
+          const nextTab = updated.find(t => t.id === chatId);
+          if (nextTab) {
+            currentDraftRef.current = nextTab.draft || '';
+            currentAttachmentRef.current = nextTab.pendingAttachment || null;
+          }
+          return updated;
+        });
+        setActiveTabId(chatId);
+        if (chat.provider) {
+          setAnswerPanel(prev => ({ ...prev, provider: chat.provider }));
+        }
+      }
+      onClearPendingReopenChat();
     }
-  });
+  }, [pendingReopenChat, provider, historyChats, chatTabs, activeTabId, onClearPendingReopenChat]);
 
   const [isHistoryOpen, setIsHistoryOpen] = useState(false);
   const [historySearchQuery, setHistorySearchQuery] = useState('');
@@ -2633,11 +2760,13 @@ const AiChatPopup = ({
           const freshTab = {
             id: newId,
             provider: prov,
+            providerDisplayName: getProviderDisplayName(prov),
             title: 'New Chat',
             messages: [getWelcomeMessage(prov)],
             draft: '',
             pendingAttachment: null,
             pinned: false,
+            createdAt: Date.now(),
             updatedAt: Date.now()
           };
           setActiveTabId(newId);
@@ -2671,11 +2800,13 @@ const AiChatPopup = ({
     const newTab = {
       id: newId,
       provider: prov,
+      providerDisplayName: getProviderDisplayName(prov),
       title: 'New Chat',
       messages: [getWelcomeMessage(prov)],
       draft: '',
       pendingAttachment: null,
       pinned: false,
+      createdAt: Date.now(),
       updatedAt: Date.now()
     };
     setChatTabs(prev => {
@@ -2741,11 +2872,13 @@ const AiChatPopup = ({
             const freshTab = {
               id: newId,
               provider: prov,
+              providerDisplayName: getProviderDisplayName(prov),
               title: 'New Chat',
               messages: [getWelcomeMessage(prov)],
               draft: '',
               pendingAttachment: null,
               pinned: false,
+              createdAt: Date.now(),
               updatedAt: Date.now()
             };
             setActiveTabId(newId);
@@ -2769,11 +2902,13 @@ const AiChatPopup = ({
     const dupTab = {
       id: newId,
       provider: tabToDup.provider,
+      providerDisplayName: tabToDup.providerDisplayName || getProviderDisplayName(tabToDup.provider),
       title: tabToDup.title === 'New Chat' ? 'New Chat' : tabToDup.title + ' Copy',
       messages: JSON.parse(JSON.stringify(tabToDup.messages || [])),
       draft: tabToDup.id === activeTabId ? currentDraftRef.current : (tabToDup.draft || ''),
       pendingAttachment: tabToDup.id === activeTabId ? currentAttachmentRef.current : (tabToDup.pendingAttachment || null),
       pinned: false,
+      createdAt: tabToDup.createdAt || Date.now(),
       updatedAt: Date.now()
     };
 
@@ -2842,11 +2977,13 @@ const AiChatPopup = ({
     const branchedTab = {
       id: newId,
       provider: activeTab.provider,
+      providerDisplayName: activeTab.providerDisplayName || getProviderDisplayName(activeTab.provider),
       title: activeTab.title === 'New Chat' ? 'New Chat' : activeTab.title + ' Branch',
       messages: JSON.parse(JSON.stringify(prefixMessages)),
       draft: '',
       pendingAttachment: null,
       pinned: false,
+      createdAt: activeTab.createdAt || Date.now(),
       updatedAt: Date.now()
     };
 
@@ -3234,9 +3371,7 @@ const AiChatPopup = ({
     localStorage.setItem(`ddo_chat_sessions_${provider}`, JSON.stringify(chatTabs));
   }, [chatTabs, provider]);
 
-  useEffect(() => {
-    localStorage.setItem(`ddo_chat_history_${provider}`, JSON.stringify(historyChats));
-  }, [historyChats, provider]);
+
 
   useEffect(() => {
     if (activeTabId) {
@@ -3263,11 +3398,13 @@ const AiChatPopup = ({
       const initialTab = {
         id: newId,
         provider: prov,
+        providerDisplayName: getProviderDisplayName(prov),
         title: 'New Chat',
         messages: [getWelcomeMessage(prov)],
         draft: '',
         pendingAttachment: null,
         pinned: false,
+        createdAt: Date.now(),
         updatedAt: Date.now()
       };
       setChatTabs([initialTab]);
@@ -3595,16 +3732,21 @@ const AiChatPopup = ({
                             >
                               <Edit2 size={11} />
                             </button>
+                          </div>
+                          <div className="ai-chat-history-item-right-panel" onClick={(e) => e.stopPropagation()}>
+                            <span className={`ai-chat-history-item-provider prov-${(chat.provider || 'gemini').toLowerCase()}`}>
+                              {chat.providerDisplayName || getProviderDisplayName(chat.provider)}
+                            </span>
                             <button
                               type="button"
-                              className="ai-chat-history-item-action-btn delete"
+                              className="ai-chat-history-item-delete-btn"
                               onClick={(e) => {
                                 e.stopPropagation();
                                 handleDeleteHistoryChat(chat.id);
                               }}
                               title="Delete chat"
                             >
-                              <Trash2 size={11} />
+                              <X size={11} />
                             </button>
                           </div>
                         </>
@@ -3666,16 +3808,21 @@ const AiChatPopup = ({
                             >
                               <Edit2 size={11} />
                             </button>
+                          </div>
+                          <div className="ai-chat-history-item-right-panel" onClick={(e) => e.stopPropagation()}>
+                            <span className={`ai-chat-history-item-provider prov-${(chat.provider || 'gemini').toLowerCase()}`}>
+                              {chat.providerDisplayName || getProviderDisplayName(chat.provider)}
+                            </span>
                             <button
                               type="button"
-                              className="ai-chat-history-item-action-btn delete"
+                              className="ai-chat-history-item-delete-btn"
                               onClick={(e) => {
                                 e.stopPropagation();
                                 handleDeleteHistoryChat(chat.id);
                               }}
                               title="Delete chat"
                             >
-                              <Trash2 size={11} />
+                              <X size={11} />
                             </button>
                           </div>
                         </>

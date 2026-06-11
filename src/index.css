@@ -9144,4 +9144,59 @@ button:active::after,
   background-color: rgba(56, 189, 248, 0.1);
 }
 
+/* AI Chat History Provider Labels & Delete styling */
+.ai-chat-history-item-right-panel {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex-shrink: 0;
+}
+
+.ai-chat-history-item-provider {
+  font-size: 10px;
+  padding: 2px 6px;
+  border-radius: 4px;
+  font-weight: 600;
+  white-space: nowrap;
+  letter-spacing: 0.3px;
+}
+
+.ai-chat-history-item-provider.prov-gemini {
+  background: rgba(138, 180, 248, 0.15);
+  color: #8ab4f8;
+}
+
+.ai-chat-history-item-provider.prov-stepfun {
+  background: rgba(147, 197, 253, 0.15);
+  color: #93c5fd;
+}
+
+.ai-chat-history-item-provider.prov-manus {
+  background: rgba(251, 188, 4, 0.15);
+  color: #fbbc04;
+}
+
+.ai-chat-history-item-provider.prov-meta {
+  background: rgba(167, 139, 250, 0.15);
+  color: #c084fc;
+}
+
+.ai-chat-history-item-delete-btn {
+  background: transparent;
+  border: 0;
+  color: rgba(255, 255, 255, 0.4);
+  cursor: pointer;
+  padding: 4px;
+  border-radius: 4px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  transition: color 0.15s, background 0.15s;
+}
+
+.ai-chat-history-item-delete-btn:hover {
+  color: #ff6b6b;
+  background: rgba(255, 107, 107, 0.15);
+}
+
 
