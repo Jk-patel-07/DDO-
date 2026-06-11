@@ -1,6 +1,7 @@
 import { useState, useEffect, useRef } from 'react';
 import LeftMenu from './LeftMenu';
 import RightTray from './RightTray';
+import FloatingNavBar from './FloatingNavBar';
 
 const StatusBar = () => {
   const [isVisible, setIsVisible] = useState(true);
@@ -25,6 +26,9 @@ const StatusBar = () => {
           if (document.activeElement && document.activeElement.tagName === 'INPUT') {
             return; // Do not hide if user is typing in search
           }
+          if (isBackdropActive) {
+            return; // Do not hide if any popup is active
+          }
           setIsVisible(false);
         }, 1500);
       }
@@ -35,7 +39,7 @@ const StatusBar = () => {
       window.removeEventListener('mousemove', handleMouseMove);
       clearTimeout(timeout);
     };
-  }, []);
+  }, [isBackdropActive]);
 
   useEffect(() => {
     document.body.dataset.theme = 'dark';
@@ -53,6 +57,7 @@ const StatusBar = () => {
           <LeftMenu onPopupStateChange={setIsBackdropActive} />
           <RightTray onPopupStateChange={setIsBackdropActive} />
         </div>
+        <FloatingNavBar onPopupStateChange={setIsBackdropActive} />
       </div>
     </>
   );
