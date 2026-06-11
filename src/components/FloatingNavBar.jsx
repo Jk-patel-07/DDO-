@@ -1,5 +1,7 @@
-import { useState, useEffect, useRef } from 'react';
+import { useState, useEffect, useRef, useCallback } from 'react';
 import { Home, CheckCircle2, Calendar, Target, X, Check, ChevronLeft, ChevronRight, CloudRain, CloudLightning, CloudSun, Flame, Footprints } from 'lucide-react';
+import { createAuthHeaders } from '../utils/appAuth';
+import { buildApiUrl } from '../utils/api';
 
 const FloatingNavBar = ({
   isNavBarVisible,
@@ -35,6 +37,128 @@ const FloatingNavBar = ({
 
   // Ref for click-outside detection
   const containerRef = useRef(null);
+
+  // Weather Live State
+  const [weatherData, setWeatherData] = useState(null);
+  const [weatherLoading, setWeatherLoading] = useState(false);
+  const [weatherError, setWeatherError] = useState(null);
+  const [searchCityQuery, setSearchCityQuery] = useState('');
+  const [showCitySearch, setShowCitySearch] = useState(false);
+
+  const fetchLiveWeather = useCallback(async (lat, lon, city) => {
+    setWeatherLoading(true);
+    setWeatherError(null);
+    try {
+      let url = '/api/weather';
+      if (city) {
+        url += `?city=${encodeURIComponent(city)}`;
+      } else if (lat && lon) {
+        url += `?lat=${lat}&lon=${lon}`;
+      } else {
+        throw new Error('No location coordinates or city specified');
+      }
+
+      // Check internet connection
+      if (!navigator.onLine) {
+        throw new Error('Internet connection is unavailable');
+      }
+
+      const headers = createAuthHeaders ? createAuthHeaders() : {};
+      const res = await fetch(buildApiUrl(url), { headers });
+      if (!res.ok) {
+        const errData = await res.json().catch(() => ({}));
+        throw new Error(errData.error || `Weather request failed: ${res.status}`);
+      }
+
+      const data = await res.json();
+      setWeatherData(data);
+      if (city || data.city) {
+        localStorage.setItem('ddo_last_selected_city', data.city || city);
+        setShowCitySearch(false);
+      }
+    } catch (err) {
+      console.error('Fetch weather failed:', err);
+      setWeatherError(err.message || 'Failed to fetch weather data');
+    } finally {
+      setWeatherLoading(false);
+    }
+  }, []);
+
+  useEffect(() => {
+    if (activeTab !== 'weather') return;
+
+    const lastCity = localStorage.getItem('ddo_last_selected_city');
+    if (lastCity) {
+      fetchLiveWeather(null, null, lastCity);
+      return;
+    }
+
+    if (navigator.geolocation) {
+      navigator.geolocation.getCurrentPosition(
+        (position) => {
+          const { latitude, longitude } = position.coords;
+          fetchLiveWeather(latitude, longitude, null);
+        },
+        (error) => {
+          console.warn('Geolocation error:', error);
+          if (error.code === error.PERMISSION_DENIED) {
+            setWeatherError('Location permission was denied. You can search for a city manually.');
+          } else {
+            setWeatherError('GPS or location service is disabled/unavailable.');
+          }
+          setShowCitySearch(true);
+        },
+        { timeout: 8000 }
+      );
+    } else {
+      setWeatherError('Geolocation is not supported by your browser.');
+      setShowCitySearch(true);
+    }
+  }, [activeTab, fetchLiveWeather]);
+
+  const handleWeatherRefresh = () => {
+    const lastCity = localStorage.getItem('ddo_last_selected_city');
+    if (lastCity) {
+      fetchLiveWeather(null, null, lastCity);
+    } else if (navigator.geolocation) {
+      setWeatherLoading(true);
+      navigator.geolocation.getCurrentPosition(
+        (position) => {
+          fetchLiveWeather(position.coords.latitude, position.coords.longitude, null);
+        },
+        (error) => {
+          setWeatherError('Failed to get location. Try searching for a city manually.');
+          setWeatherLoading(false);
+          setShowCitySearch(true);
+        }
+      );
+    } else {
+      setWeatherError('Location services unavailable. Search manually.');
+      setShowCitySearch(true);
+    }
+  };
+
+  const handleCitySearchSubmit = (e) => {
+    e.preventDefault();
+    if (!searchCityQuery.trim()) return;
+    fetchLiveWeather(null, null, searchCityQuery.trim());
+  };
+
+  const renderWeatherIcon = (iconName, iconSize = 32, className = '') => {
+    switch (iconName) {
+      case 'clear':
+        return <CloudSun className={className} size={iconSize} />;
+      case 'rainy':
+      case 'drizzle':
+        return <CloudRain className={className} size={iconSize} />;
+      case 'thunderstorm':
+        return <CloudLightning className={className} size={iconSize} />;
+      case 'cloudy':
+      case 'foggy':
+      default:
+        return <CloudSun className={className} size={iconSize} />;
+    }
+  };
 
   // Update clock every second
   useEffect(() => {
@@ -464,40 +588,120 @@ const FloatingNavBar = ({
 
           {activeTab === 'weather' && (
             <div className="ddo-tab-content ddo-tab-weather">
-              <div className="ddo-weather-widget-container">
-                {/* Left: Current Weather */}
-                <div className="ddo-weather-current">
-                  <CloudRain className="ddo-weather-current-icon" size={32} />
-                  <span className="ddo-weather-current-temp">23°</span>
+              {weatherLoading ? (
+                <div className="ddo-weather-loading-container">
+                  <div className="ddo-weather-spinner" />
+                  <span>Fetching live weather...</span>
                 </div>
+              ) : weatherError && !weatherData ? (
+                <div className="ddo-weather-error-container">
+                  <p className="ddo-weather-error-message">{weatherError}</p>
+                  <form onSubmit={handleCitySearchSubmit} className="ddo-weather-search-form">
+                    <input
+                      type="text"
+                      className="ddo-weather-search-input"
+                      placeholder="Enter city name..."
+                      value={searchCityQuery}
+                      onChange={(e) => setSearchCityQuery(e.target.value)}
+                    />
+                    <button type="submit" className="ddo-weather-search-button">
+                      Search
+                    </button>
+                  </form>
+                </div>
+              ) : (
+                <div className="ddo-weather-widget-container">
+                  {/* Weather Header: City & Actions */}
+                  <div className="ddo-weather-header-row">
+                    <div className="ddo-weather-location-wrap">
+                      <span className="ddo-weather-city">{weatherData?.city || 'Local Area'}</span>
+                      <span className="ddo-weather-desc">{weatherData?.condition || 'Clear'}</span>
+                    </div>
+                    <div className="ddo-weather-actions">
+                      <button
+                        type="button"
+                        onClick={() => setShowCitySearch((prev) => !prev)}
+                        className="ddo-weather-icon-btn-small"
+                        title="Search City"
+                      >
+                        🔍
+                      </button>
+                      <button
+                        type="button"
+                        onClick={handleWeatherRefresh}
+                        className="ddo-weather-icon-btn-small"
+                        title="Refresh"
+                      >
+                        🔄
+                      </button>
+                    </div>
+                  </div>
 
-                {/* Vertical Divider */}
-                <div className="ddo-weather-divider" />
+                  {showCitySearch && (
+                    <form onSubmit={handleCitySearchSubmit} className="ddo-weather-search-form">
+                      <input
+                        type="text"
+                        className="ddo-weather-search-input"
+                        placeholder="Search city..."
+                        value={searchCityQuery}
+                        onChange={(e) => setSearchCityQuery(e.target.value)}
+                        autoFocus
+                      />
+                      <button type="submit" className="ddo-weather-search-button">
+                        Go
+                      </button>
+                    </form>
+                  )}
 
-                {/* Right: Hourly Forecast */}
-                <div className="ddo-weather-hourly-list">
-                  <div className="ddo-weather-hourly-item">
-                    <span className="ddo-weather-hourly-time">4PM</span>
-                    <CloudRain size={16} className="ddo-weather-hourly-icon" />
-                    <span className="ddo-weather-hourly-temp">23°</span>
+                  {/* Main weather info row */}
+                  <div className="ddo-weather-main-row">
+                    {/* Left: Current Weather */}
+                    <div className="ddo-weather-current">
+                      {renderWeatherIcon(weatherData?.icon, 36, 'ddo-weather-current-icon')}
+                      <span className="ddo-weather-current-temp">{weatherData?.temperature ?? 23}°</span>
+                    </div>
+
+                    {/* Vertical Divider */}
+                    <div className="ddo-weather-divider" />
+
+                    {/* Right: Hourly Forecast */}
+                    <div className="ddo-weather-hourly-list">
+                      {(weatherData?.hourly || []).map((item, index) => (
+                        <div key={index} className="ddo-weather-hourly-item">
+                          <span className="ddo-weather-hourly-time">{item.time}</span>
+                          {renderWeatherIcon(item.icon, 16, 'ddo-weather-hourly-icon')}
+                          <span className="ddo-weather-hourly-temp">{item.temp}</span>
+                        </div>
+                      ))}
+                    </div>
                   </div>
-                  <div className="ddo-weather-hourly-item">
-                    <span className="ddo-weather-hourly-time">5PM</span>
-                    <CloudLightning size={16} className="ddo-weather-hourly-icon" />
-                    <span className="ddo-weather-hourly-temp">22°</span>
-                  </div>
-                  <div className="ddo-weather-hourly-item">
-                    <span className="ddo-weather-hourly-time">6PM</span>
-                    <CloudSun size={16} className="ddo-weather-hourly-icon" />
-                    <span className="ddo-weather-hourly-temp">21°</span>
-                  </div>
-                  <div className="ddo-weather-hourly-item">
-                    <span className="ddo-weather-hourly-time">7PM</span>
-                    <CloudSun size={16} className="ddo-weather-hourly-icon" />
-                    <span className="ddo-weather-hourly-temp">21°</span>
+
+                  {/* Weather stats divider */}
+                  <div className="ddo-weather-divider-horizontal" />
+
+                  {/* Weather Extra Details */}
+                  <div className="ddo-weather-details-grid">
+                    <div className="ddo-weather-detail-item">
+                      <span className="ddo-weather-detail-label">FEELS LIKE</span>
+                      <span className="ddo-weather-detail-value">{weatherData?.feelsLike ?? 22}°</span>
+                    </div>
+                    <div className="ddo-weather-detail-item">
+                      <span className="ddo-weather-detail-label">HUMIDITY</span>
+                      <span className="ddo-weather-detail-value">{weatherData?.humidity ?? 85}%</span>
+                    </div>
+                    <div className="ddo-weather-detail-item">
+                      <span className="ddo-weather-detail-label">WIND</span>
+                      <span className="ddo-weather-detail-value">{weatherData?.windSpeed ?? 14} km/h</span>
+                    </div>
+                    <div className="ddo-weather-detail-item">
+                      <span className="ddo-weather-detail-label">MIN / MAX</span>
+                      <span className="ddo-weather-detail-value">
+                        {weatherData?.tempMin ?? 18}° / {weatherData?.tempMax ?? 25}°
+                      </span>
+                    </div>
                   </div>
                 </div>
-              </div>
+              )}
             </div>
           )}
 

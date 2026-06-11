@@ -1,3 +1,6 @@
+import dns from 'node:dns';
+dns.setDefaultResultOrder('ipv4first');
+
 import dotenv from 'dotenv';
 import { compare, hash as bcryptHash } from 'bcrypt';
 import cors from 'cors';
@@ -1685,6 +1688,125 @@ const buildBluetoothSnapshot = () => {
     mode: 'mock',
   };
 };
+
+const mapWmoCode = (code) => {
+  if (code === 0) return { text: 'Clear', icon: 'clear' };
+  if ([1, 2, 3].includes(code)) return { text: 'Partly Cloudy', icon: 'cloudy' };
+  if ([45, 48].includes(code)) return { text: 'Foggy', icon: 'cloudy' };
+  if ([51, 53, 55, 56, 57].includes(code)) return { text: 'Drizzle', icon: 'rainy' };
+  if ([61, 63, 65, 66, 67, 80, 81, 82].includes(code)) return { text: 'Rainy', icon: 'rainy' };
+  if ([71, 73, 75, 77, 85, 86].includes(code)) return { text: 'Snowy', icon: 'snowy' };
+  if ([95, 96, 99].includes(code)) return { text: 'Thunderstorm', icon: 'thunderstorm' };
+  return { text: 'Cloudy', icon: 'cloudy' };
+};
+
+app.get('/api/weather', async (req, res, next) => {
+  try {
+    const { lat, lon, city } = req.query;
+
+    const apiKey = process.env.WEATHER_API_KEY || 'open_meteo_keyless_placeholder';
+    if (!apiKey) {
+      return res.status(500).json({ error: 'Weather API key not configured' });
+    }
+
+    let targetLat = lat;
+    let targetLon = lon;
+    let cityName = '';
+
+    if (city) {
+      // Manual City Geocoding
+      const geoUrl = `https://geocoding-api.open-meteo.com/v1/search?name=${encodeURIComponent(city)}&count=1&language=en&format=json`;
+      const geoRes = await fetch(geoUrl);
+      if (!geoRes.ok) {
+        throw new Error('Geocoding service unavailable');
+      }
+      const geoData = await geoRes.json();
+      if (!geoData.results || geoData.results.length === 0) {
+        return res.status(404).json({ error: 'City not found' });
+      }
+      const result = geoData.results[0];
+      targetLat = result.latitude;
+      targetLon = result.longitude;
+      cityName = `${result.name}, ${result.country_code?.toUpperCase() || ''}`;
+    } else if (targetLat && targetLon) {
+      // Reverse Geocoding to get City Name
+      try {
+        const revUrl = `https://nominatim.openstreetmap.org/reverse?format=json&lat=${targetLat}&lon=${targetLon}&zoom=10&addressdetails=1`;
+        const revRes = await fetch(revUrl, {
+          headers: {
+            'User-Agent': 'DDO-Desktop-App/1.0'
+          }
+        });
+        if (revRes.ok) {
+          const revData = await revRes.json();
+          const address = revData.address || {};
+          const cityPart = address.city || address.town || address.village || address.suburb || address.county || 'Local Area';
+          const countryPart = address.country_code?.toUpperCase() || '';
+          cityName = countryPart ? `${cityPart}, ${countryPart}` : cityPart;
+        } else {
+          cityName = 'Local Area';
+        }
+      } catch (e) {
+        console.error('Reverse geocoding failed', e);
+        cityName = 'Local Area';
+      }
+    } else {
+      return res.status(400).json({ error: 'Missing latitude/longitude or city query parameter' });
+    }
+
+    // Fetch Weather Data from Open-Meteo
+    const weatherUrl = `https://api.open-meteo.com/v1/forecast?latitude=${targetLat}&longitude=${targetLon}&current=temperature_2m,relative_humidity_2m,apparent_temperature,weather_code,wind_speed_10m&hourly=temperature_2m,weather_code&daily=temperature_2m_max,temperature_2m_min&timezone=auto`;
+    const weatherRes = await fetch(weatherUrl);
+    if (!weatherRes.ok) {
+      throw new Error('Weather service unavailable');
+    }
+    const weatherData = await weatherRes.json();
+
+    const current = weatherData.current || {};
+    const daily = weatherData.daily || {};
+    const hourly = weatherData.hourly || {};
+
+    const conditionInfo = mapWmoCode(current.weather_code);
+
+    // Map 4 hourly forecast items starting from the next hour
+    const currentHourIndex = new Date().getHours();
+    const hourlyForecast = [];
+    for (let i = 1; i <= 4; i++) {
+      const idx = (currentHourIndex + i) % 24;
+      const hourStr = new Date();
+      hourStr.setHours(currentHourIndex + i, 0, 0, 0);
+      const formattedHour = hourStr.toLocaleTimeString('en-US', { hour: 'numeric', hour12: true });
+
+      const tempVal = Math.round(hourly.temperature_2m?.[idx] ?? current.temperature_2m);
+      const codeVal = hourly.weather_code?.[idx] ?? current.weather_code;
+      const mapped = mapWmoCode(codeVal);
+
+      hourlyForecast.push({
+        time: formattedHour,
+        temp: `${tempVal}°`,
+        icon: mapped.icon,
+        condition: mapped.text
+      });
+    }
+
+    res.json({
+      city: cityName,
+      temperature: Math.round(current.temperature_2m),
+      condition: conditionInfo.text,
+      icon: conditionInfo.icon,
+      feelsLike: Math.round(current.apparent_temperature),
+      humidity: Math.round(current.relative_humidity_2m),
+      windSpeed: Math.round(current.wind_speed_10m),
+      tempMin: Math.round(daily.temperature_2m_min?.[0] ?? current.temperature_2m - 2),
+      tempMax: Math.round(daily.temperature_2m_max?.[0] ?? current.temperature_2m + 4),
+      hourly: hourlyForecast
+    });
+
+  } catch (error) {
+    console.error('Weather API error:', error);
+    res.status(500).json({ error: error.message || 'Internal server error fetching weather' });
+  }
+});
 
 app.get('/api/security/status', (_request, response) => {
   response.json({
