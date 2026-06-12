@@ -34,3 +34,4 @@ backend/private/
 *.njsproj
 *.sln
 *.sw?
+dist-electron

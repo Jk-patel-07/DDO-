@@ -9654,3 +9654,28 @@ body.tauri .status-bar-container {
 body.tauri .status-popup-backdrop {
   display: none !important;
 }
+
+/* Electron transparency and sizing overrides */
+body.electron,
+body.electron #root,
+body.electron html {
+  margin: 0;
+  padding: 0;
+  background: transparent !important;
+  overflow: visible;
+}
+
+body.electron .status-bar-container {
+  width: 520px;
+  position: fixed;
+  top: 10px; /* Offset to prevent shadow clipping */
+  left: 50%;
+  transform: translateX(-50%);
+  margin: 0 auto;
+  z-index: 1000;
+  /* Keep actual glass background: do not remove background, border-bottom, box-shadow, backdrop-filter */
+}
+
+body.electron .status-popup-backdrop {
+  display: none !important;
+}

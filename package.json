@@ -2,6 +2,7 @@
   "name": "ddo",
   "private": true,
   "version": "0.0.0",
+  "main": "electron/main.cjs",
   "type": "module",
   "scripts": {
     "dev": "vite --host 127.0.0.1 --port 3000 --strictPort",
@@ -11,7 +12,9 @@
     "build": "vite build",
     "lint": "eslint .",
     "preview": "vite preview",
-    "tauri": "tauri"
+    "tauri": "tauri",
+    "electron:dev": "concurrently \"npm run dev\" \"wait-on http://127.0.0.1:3000 && electron electron/main.cjs\"",
+    "electron:build": "npm run build && electron-builder"
   },
   "dependencies": {
     "@tauri-apps/api": "^2.11.0",
@@ -34,10 +37,29 @@
     "@types/react": "^19.2.14",
     "@types/react-dom": "^19.2.3",
     "@vitejs/plugin-react": "^6.0.1",
+    "concurrently": "^10.0.3",
+    "electron": "^42.4.0",
+    "electron-builder": "^26.15.2",
     "eslint": "^10.3.0",
     "eslint-plugin-react-hooks": "^7.1.1",
     "eslint-plugin-react-refresh": "^0.5.2",
     "globals": "^17.6.0",
-    "vite": "^8.0.12"
+    "vite": "^8.0.12",
+    "wait-on": "^9.0.10"
+  },
+  "build": {
+    "appId": "com.ddo.app",
+    "productName": "ddo",
+    "directories": {
+      "output": "dist-electron"
+    },
+    "files": [
+      "dist/**/*",
+      "electron/**/*"
+    ],
+    "win": {
+      "target": "nsis",
+      "icon": "src-tauri/icons/icon.ico"
+    }
   }
 }

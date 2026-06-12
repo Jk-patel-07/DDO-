@@ -31,26 +31,7 @@ const StatusBar = () => {
   const isBackdropActive = isLeftMenuPopupActive || isRightTrayPopupActive || isNavBarPanelActive;
   const isOtherPopupActive = isLeftMenuPopupActive || isRightTrayPopupActive;
 
-  useEffect(() => {
-    if (typeof window !== 'undefined' && (window.__TAURI__ || window.__TAURI_INTERNALS__)) {
-      const resize = async () => {
-        try {
-          const { getCurrentWindow, LogicalSize } = await import('@tauri-apps/api/window');
-          const appWindow = getCurrentWindow();
-          let targetHeight = 32;
-          if (isBackdropActive) {
-            targetHeight = 600;
-          } else if (isNavBarVisible) {
-            targetHeight = 110;
-          }
-          await appWindow.setSize(new LogicalSize(520, targetHeight));
-        } catch (err) {
-          console.error('Failed to resize Tauri window:', err);
-        }
-      };
-      resize();
-    }
-  }, [isBackdropActive, isNavBarVisible]);
+
 
   const hasPointerLeftTopZoneRef = useRef(false);
 
@@ -102,6 +83,45 @@ const StatusBar = () => {
       }
     }, 350);
   };
+
+  useEffect(() => {
+    if (typeof window !== 'undefined' && (window.__TAURI__ || window.__TAURI_INTERNALS__)) {
+      const resize = async () => {
+        try {
+          const { getCurrentWindow, LogicalSize } = await import('@tauri-apps/api/window');
+          const appWindow = getCurrentWindow();
+          let targetHeight = 32;
+          if (isBackdropActive) {
+            targetHeight = 600;
+          } else if (isNavBarVisible) {
+            targetHeight = 110;
+          }
+          await appWindow.setSize(new LogicalSize(520, targetHeight));
+        } catch (err) {
+          console.error('Failed to resize Tauri window:', err);
+        }
+      };
+      resize();
+    } else if (typeof window !== 'undefined' && window.electronAPI?.resizeWindow) {
+      const resize = () => {
+        let targetHeight = 32;
+        if (isBackdropActive) {
+          targetHeight = 600;
+        } else if (isNavBarVisible) {
+          targetHeight = 110;
+        }
+        const rect = document.querySelector('.status-bar-container')?.getBoundingClientRect();
+        const baseWidth = rect ? Math.ceil(rect.width) : 520;
+        window.electronAPI.resizeWindow({
+          width: baseWidth + 20,
+          height: targetHeight + 20
+        });
+      };
+      // Short timeout to let the DOM update before measuring
+      const timer = setTimeout(resize, 50);
+      return () => clearTimeout(timer);
+    }
+  }, [isBackdropActive, isNavBarVisible]);
 
   // Hide immediately when any other DDO popup opens
   useEffect(() => {

@@ -45,8 +45,13 @@ window.addEventListener('unhandledrejection', (event) => {
   mountEmergencyFallback('The app could not finish loading due to a background error.');
 });
 
-if (typeof window !== 'undefined' && (window.__TAURI__ || window.__TAURI_INTERNALS__)) {
-  document.body.classList.add('tauri');
+if (typeof window !== 'undefined') {
+  if (window.__TAURI__ || window.__TAURI_INTERNALS__) {
+    document.body.classList.add('tauri');
+  }
+  if (window.navigator?.userAgent?.toLowerCase().includes('electron') || window.electronAPI) {
+    document.body.classList.add('electron');
+  }
 }
 
 try {
