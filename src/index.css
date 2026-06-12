@@ -9655,14 +9655,28 @@ body.tauri .status-popup-backdrop {
   display: none !important;
 }
 
-/* Electron transparency and sizing overrides */
+/* Electron and Tauri transparency and sizing overrides */
 body.electron,
 body.electron #root,
-body.electron html {
-  margin: 0;
-  padding: 0;
+body.electron html,
+body.tauri,
+body.tauri #root,
+body.tauri html {
+  margin: 0 !important;
+  padding: 0 !important;
+  width: 100% !important;
+  height: 100% !important;
+  overflow: hidden !important;
   background: transparent !important;
-  overflow: visible;
+}
+
+body.electron::-webkit-scrollbar,
+body.electron #root::-webkit-scrollbar,
+body.electron html::-webkit-scrollbar,
+body.tauri::-webkit-scrollbar,
+body.tauri #root::-webkit-scrollbar,
+body.tauri html::-webkit-scrollbar {
+  display: none !important;
 }
 
 body.electron .status-bar-container {

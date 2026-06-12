@@ -43,6 +43,7 @@ function createWindow() {
 
   if (isDev) {
     mainWindow.loadURL('http://127.0.0.1:3000');
+    mainWindow.webContents.openDevTools({ mode: 'detach' });
   } else {
     mainWindow.loadFile(path.join(__dirname, '../dist/index.html'));
   }
