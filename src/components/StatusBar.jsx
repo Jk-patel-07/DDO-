@@ -5,6 +5,24 @@ import FloatingNavBar from './FloatingNavBar';
 
 const StatusBar = () => {
   const [isVisible, setIsVisible] = useState(true);
+  const [permanentlyVisible, setPermanentlyVisible] = useState(() => {
+    try {
+      const saved = localStorage.getItem('ddo_keep_status_bar_visible');
+      return saved === 'true';
+    } catch {
+      return false;
+    }
+  });
+
+  const handleTogglePermanentlyVisible = (val) => {
+    setPermanentlyVisible(val);
+    try {
+      localStorage.setItem('ddo_keep_status_bar_visible', val ? 'true' : 'false');
+    } catch (e) {
+      console.error(e);
+    }
+  };
+
 
   const [isLeftMenuPopupActive, setIsLeftMenuPopupActive] = useState(false);
   const [isRightTrayPopupActive, setIsRightTrayPopupActive] = useState(false);
@@ -118,6 +136,9 @@ const StatusBar = () => {
 
   // Monitor nav bar visibility to auto-hide status bar when nav bar closes
   useEffect(() => {
+    if (permanentlyVisible) {
+      return;
+    }
     if (!isNavBarVisible && !isBackdropActive) {
       if (document.activeElement && document.activeElement.tagName === 'INPUT') {
         return;
@@ -126,9 +147,12 @@ const StatusBar = () => {
         setIsVisible(false);
       }
     }
-  }, [isNavBarVisible, isBackdropActive]);
+  }, [isNavBarVisible, isBackdropActive, permanentlyVisible]);
 
   useEffect(() => {
+    if (permanentlyVisible) {
+      return;
+    }
     let timeout;
     const handleMouseMove = (e) => {
       // If mouse is within top 60px, show status bar
@@ -159,18 +183,20 @@ const StatusBar = () => {
       window.removeEventListener('mousemove', handleMouseMove);
       clearTimeout(timeout);
     };
-  }, [isBackdropActive, isNavBarVisible]);
+  }, [isBackdropActive, isNavBarVisible, permanentlyVisible]);
 
   useEffect(() => {
     document.body.dataset.theme = 'dark';
     document.documentElement.style.colorScheme = 'dark';
   }, []);
 
+  const actualIsVisible = permanentlyVisible ? true : isVisible;
+
   return (
     <>
       <div className="hover-trigger-area" />
       <div
-        className={`status-bar-container glass-panel flex-between status-bar ${isVisible ? '' : 'hidden'}`}
+        className={`status-bar-container glass-panel flex-between status-bar ${actualIsVisible ? '' : 'hidden'}`}
       >
         <div className={`status-popup-backdrop ${isBackdropActive ? 'active' : ''}`} />
         <div className="status-bar-content flex-between">
@@ -187,6 +213,8 @@ const StatusBar = () => {
           onNavBarMouseEnter={handleNavBarMouseEnter}
           onNavBarMouseLeave={handleNavBarMouseLeave}
           onPopupStateChange={setIsNavBarPanelActive}
+          permanentlyVisible={permanentlyVisible}
+          onTogglePermanentlyVisible={handleTogglePermanentlyVisible}
         />
       </div>
     </>

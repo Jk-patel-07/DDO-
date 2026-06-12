@@ -9615,3 +9615,20 @@ body[data-search-animation="off"] .center-search-popup {
   line-height: 1.4;
   padding: 0 10px;
 }
+
+/* Settings Tab Styles */
+.ddo-settings-panel-style {
+  background: linear-gradient(135deg, rgba(16, 20, 24, 0.94) 0%, rgba(8, 10, 12, 0.98) 100%) !important;
+  border-color: rgba(255, 255, 255, 0.06) !important;
+  box-shadow: 
+    0 0 25px rgba(0, 242, 254, 0.05),
+    0 20px 40px rgba(0, 0, 0, 0.7) !important;
+  width: 260px !important;
+  padding: 14px 16px !important;
+}
+
+.ddo-tab-content.ddo-tab-settings {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}

@@ -1,5 +1,5 @@
 import { useState, useEffect, useRef, useCallback } from 'react';
-import { Home, CheckCircle2, Calendar, Target, X, Check, ChevronLeft, ChevronRight, CloudRain, CloudLightning, CloudSun, Flame, Footprints } from 'lucide-react';
+import { Home, CheckCircle2, Calendar, Target, X, Check, ChevronLeft, ChevronRight, CloudRain, CloudLightning, CloudSun, Flame, Footprints, Settings } from 'lucide-react';
 import { createAuthHeaders } from '../utils/appAuth';
 import { buildApiUrl } from '../utils/api';
 
@@ -8,6 +8,8 @@ const FloatingNavBar = ({
   onNavBarMouseEnter,
   onNavBarMouseLeave,
   onPopupStateChange,
+  permanentlyVisible,
+  onTogglePermanentlyVisible,
 }) => {
   const [activeTab, setActiveTab] = useState(null);
   const [time, setTime] = useState(new Date());
@@ -471,6 +473,20 @@ const FloatingNavBar = ({
             strokeWidth={activeTab === 'fitness' ? 2 : 1.5}
           />
         </button>
+        <button
+          type="button"
+          className={`ddo-dock-item ${activeTab === 'settings' ? 'active' : ''}`}
+          onClick={() => handleTabClick('settings')}
+          aria-label="Settings"
+        >
+          <Settings
+            size={18}
+            className="ddo-dock-icon"
+            fill="none"
+            stroke={activeTab === 'settings' ? '#ffffff' : 'rgba(255, 255, 255, 0.45)'}
+            strokeWidth={activeTab === 'settings' ? 2 : 1.5}
+          />
+        </button>
       </div>
 
       {/* Slide-out/Fade-in Content Panel */}
@@ -481,6 +497,8 @@ const FloatingNavBar = ({
           activeTab === 'weather' ? 'ddo-weather-panel-style' : ''
         } ${
           activeTab === 'fitness' ? 'ddo-fitness-panel-style' : ''
+        } ${
+          activeTab === 'settings' ? 'ddo-settings-panel-style' : ''
         }`}>
           {activeTab === 'home' && (
             <div className="ddo-tab-content ddo-tab-home">
@@ -984,6 +1002,25 @@ const FloatingNavBar = ({
                       </button>
                     </div>
                   )}
+                </div>
+              </div>
+            </div>
+          )}
+
+          {activeTab === 'settings' && (
+            <div className="ddo-tab-content ddo-tab-settings">
+              <div className="ddo-panel-title">Settings</div>
+              <div className="setting-panel">
+                <div className="setting-row">
+                  <span>Hide Status Bar</span>
+                  <label className="switch-toggle">
+                    <input
+                      type="checkbox"
+                      checked={permanentlyVisible}
+                      onChange={(e) => onTogglePermanentlyVisible(e.target.checked)}
+                    />
+                    <span className="slider" />
+                  </label>
                 </div>
               </div>
             </div>
