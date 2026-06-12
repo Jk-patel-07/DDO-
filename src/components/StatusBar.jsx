@@ -32,7 +32,7 @@ const StatusBar = () => {
   const isOtherPopupActive = isLeftMenuPopupActive || isRightTrayPopupActive;
 
   useEffect(() => {
-    if (typeof window !== 'undefined' && window.__TAURI__) {
+    if (typeof window !== 'undefined' && (window.__TAURI__ || window.__TAURI_INTERNALS__)) {
       const resize = async () => {
         try {
           const { getCurrentWindow, LogicalSize } = await import('@tauri-apps/api/window');

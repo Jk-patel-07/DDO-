@@ -45,7 +45,7 @@ window.addEventListener('unhandledrejection', (event) => {
   mountEmergencyFallback('The app could not finish loading due to a background error.');
 });
 
-if (typeof window !== 'undefined' && window.__TAURI__) {
+if (typeof window !== 'undefined' && (window.__TAURI__ || window.__TAURI_INTERNALS__)) {
   document.body.classList.add('tauri');
 }
 

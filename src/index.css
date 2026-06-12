@@ -9637,7 +9637,10 @@ body[data-search-animation="off"] .center-search-popup {
 body.tauri,
 body.tauri #root,
 body.tauri html {
+  margin: 0;
+  padding: 0;
   background: transparent !important;
+  overflow: visible;
 }
 
 body.tauri .status-bar-container {
