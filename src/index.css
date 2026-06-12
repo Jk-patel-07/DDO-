@@ -9679,17 +9679,132 @@ body.tauri html::-webkit-scrollbar {
   display: none !important;
 }
 
-body.electron .status-bar-container {
-  width: 520px;
+.ddo-toolbar-layer {
   position: fixed;
-  top: 10px; /* Offset to prevent shadow clipping */
-  left: 50%;
-  transform: translateX(-50%);
-  margin: 0 auto;
+  inset: 0;
+  background: transparent;
+  pointer-events: none;
   z-index: 1000;
-  /* Keep actual glass background: do not remove background, border-bottom, box-shadow, backdrop-filter */
+}
+
+.ddo-status-bar {
+  position: fixed;
+  top: 0;
+  left: 0;
+  width: 100vw;
+  height: 42px;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  box-sizing: border-box;
+  pointer-events: auto;
+  overflow: visible;
+}
+
+body.electron .status-bar-container {
+  width: 100vw !important;
+  max-width: none !important;
+  height: 42px !important;
+  position: fixed !important;
+  top: 0 !important;
+  left: 0 !important;
+  transform: none !important;
+  margin: 0 !important;
+  z-index: 1000 !important;
+  box-sizing: border-box !important;
+  transition: transform 0.3s cubic-bezier(0.4, 0, 0.2, 1);
+}
+
+body.electron .status-bar-container.hidden {
+  transform: translateY(-42px) !important;
 }
 
 body.electron .status-popup-backdrop {
   display: none !important;
+}
+
+.hover-trigger-area {
+  position: fixed;
+  top: 0;
+  left: 50%;
+  transform: translateX(-50%);
+  width: 520px;
+  height: 10px;
+  z-index: 1001;
+  background: transparent;
+  pointer-events: auto;
+}
+
+/* Three Sections Layout */
+.status-bar-left-section {
+  display: flex;
+  align-items: center;
+  gap: 16px;
+  flex: 1;
+  justify-content: flex-start;
+  height: 100%;
+}
+
+.status-bar-middle-section {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  flex: 1;
+  height: 100%;
+  position: relative;
+}
+
+.status-bar-right-section {
+  display: flex;
+  align-items: center;
+  gap: 16px;
+  flex: 1;
+  justify-content: flex-end;
+  height: 100%;
+}
+
+/* Ensure z-index and pointer-events for interactive controls */
+.menu-item,
+.icon-item,
+.left-window-trigger,
+.left-menu-button,
+.wifi-control-button,
+.bluetooth-control-button,
+.battery-control-button,
+.time-control-button,
+.notifications-control-button,
+.profile-control-button,
+.settings-control-button,
+.view-ai-popup,
+.animation-settings-popup,
+.animation-more-popup,
+.function-popup,
+.window-confirm-popup,
+.sleep-timer-popup,
+.wifi-dropdown-panel,
+.bluetooth-dropdown-panel,
+.bell-dropdown-panel,
+.spotify-now-playing-popup,
+.spotify-detail-popup,
+.whatsapp-popup-dropdown,
+.center-search-answer-popup,
+.center-search-account-popup,
+.center-search-provider-menu {
+  pointer-events: auto !important;
+  z-index: 1005 !important;
+}
+
+/* Standardize relative position on items if not already absolute/fixed */
+.menu-item,
+.icon-item,
+.left-window-trigger,
+.left-menu-button,
+.wifi-control-button,
+.bluetooth-control-button,
+.battery-control-button,
+.time-control-button,
+.notifications-control-button,
+.profile-control-button,
+.settings-control-button {
+  position: relative;
 }

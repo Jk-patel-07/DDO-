@@ -23,15 +23,15 @@ const StatusBar = () => {
     }
   };
 
+  const actualIsVisible = true;
 
   const [isLeftMenuPopupActive, setIsLeftMenuPopupActive] = useState(false);
+  const [isLeftTrayPopupActive, setIsLeftTrayPopupActive] = useState(false);
   const [isRightTrayPopupActive, setIsRightTrayPopupActive] = useState(false);
   const [isNavBarPanelActive, setIsNavBarPanelActive] = useState(false);
 
-  const isBackdropActive = isLeftMenuPopupActive || isRightTrayPopupActive || isNavBarPanelActive;
-  const isOtherPopupActive = isLeftMenuPopupActive || isRightTrayPopupActive;
-
-
+  const isBackdropActive = isLeftMenuPopupActive || isLeftTrayPopupActive || isRightTrayPopupActive || isNavBarPanelActive;
+  const isOtherPopupActive = isLeftMenuPopupActive || isLeftTrayPopupActive || isRightTrayPopupActive;
 
   const hasPointerLeftTopZoneRef = useRef(false);
 
@@ -41,7 +41,6 @@ const StatusBar = () => {
   const navBarHideTimeoutRef = useRef(null);
 
   const handleStatusBarMouseEnter = () => {
-    // If another popup is active, do not allow showing the navigation bar
     if (isOtherPopupActive) return;
 
     isMouseOverStatusBarRef.current = true;
@@ -102,24 +101,6 @@ const StatusBar = () => {
         }
       };
       resize();
-    } else if (typeof window !== 'undefined' && window.electronAPI?.resizeWindow) {
-      const resize = () => {
-        let targetHeight = 32;
-        if (isBackdropActive) {
-          targetHeight = 600;
-        } else if (isNavBarVisible) {
-          targetHeight = 110;
-        }
-        const rect = document.querySelector('.status-bar-container')?.getBoundingClientRect();
-        const baseWidth = rect ? Math.ceil(rect.width) : 520;
-        window.electronAPI.resizeWindow({
-          width: baseWidth + 20,
-          height: targetHeight + 20
-        });
-      };
-      // Short timeout to let the DOM update before measuring
-      const timer = setTimeout(resize, 50);
-      return () => clearTimeout(timer);
     }
   }, [isBackdropActive, isNavBarVisible]);
 
@@ -164,6 +145,7 @@ const StatusBar = () => {
         clearTimeout(navBarHideTimeoutRef.current);
         navBarHideTimeoutRef.current = null;
       }
+      document.dispatchEvent(new MouseEvent('mousedown', { bubbles: true }));
     };
 
     document.addEventListener('mousedown', handleClickOutside, true);
@@ -190,75 +172,112 @@ const StatusBar = () => {
     }
   }, [isNavBarVisible, isBackdropActive, permanentlyVisible]);
 
-  useEffect(() => {
-    if (permanentlyVisible) {
-      return;
-    }
-    let timeout;
-    const handleMouseMove = (e) => {
-      // If mouse is within top 60px, show status bar
-      if (e.clientY < 60) {
-        setIsVisible(true);
-        clearTimeout(timeout);
-      } else {
-        hasPointerLeftTopZoneRef.current = true;
-        // Hide after 1.5 seconds of leaving the top area
-        clearTimeout(timeout);
-        timeout = setTimeout(() => {
-          if (!hasPointerLeftTopZoneRef.current) {
-            return;
-          }
-          if (document.activeElement && document.activeElement.tagName === 'INPUT') {
-            return; // Do not hide if user is typing in search
-          }
-          if (isBackdropActive || isNavBarVisible) {
-            return; // Do not hide if any popup is active or if nav bar is visible
-          }
-          setIsVisible(false);
-        }, 1500);
+  const isPointerInInteractiveRegion = (x, y) => {
+    if (actualIsVisible) {
+      const statusBarEl = document.querySelector('.status-bar-container');
+      if (statusBarEl) {
+        const rect = statusBarEl.getBoundingClientRect();
+        if (x >= rect.left && x <= rect.right && y >= rect.top && y <= rect.bottom) {
+          return true;
+        }
       }
-    };
+    }
 
-    window.addEventListener('mousemove', handleMouseMove);
-    return () => {
-      window.removeEventListener('mousemove', handleMouseMove);
-      clearTimeout(timeout);
-    };
-  }, [isBackdropActive, isNavBarVisible, permanentlyVisible]);
+    const activePopups = document.querySelectorAll(
+      '.left-menu-dropdown, .right-tray-dropdown, .ddo-floating-nav-container, .calculator-container, .translator-container, .wifi-password-card, .wifi-dropdown-card, .bluetooth-dropdown-card, .bell-dropdown-card, .profile-status-dropdown, .center-search-account-popup, .center-search-provider-menu, .center-search-answer-popup, .left-tray-container, .right-tray-container, .view-ai-popup, .animation-settings-popup, .animation-more-popup, .function-popup, .window-confirm-popup, .sleep-timer-popup, .wifi-dropdown-panel, .bluetooth-dropdown-panel, .bell-dropdown-panel, .spotify-now-playing-popup, .spotify-detail-popup, .whatsapp-popup-dropdown'
+    );
+    for (const popup of activePopups) {
+      const rect = popup.getBoundingClientRect();
+      if (x >= rect.left && x <= rect.right && y >= rect.top && y <= rect.bottom) {
+        return true;
+      }
+    }
+
+    return false;
+  };
+
+  useEffect(() => {
+    if (typeof window !== 'undefined' && window.electronAPI?.setIgnoreMouseEvents) {
+      if (isBackdropActive) {
+        const handleGlobalMouseMove = (e) => {
+          const inRegion = isPointerInInteractiveRegion(e.clientX, e.clientY);
+          window.electronAPI.setIgnoreMouseEvents(!inRegion, { forward: true });
+        };
+
+        window.addEventListener('mousemove', handleGlobalMouseMove);
+        return () => {
+          window.removeEventListener('mousemove', handleGlobalMouseMove);
+        };
+      } else {
+        window.electronAPI.setIgnoreMouseEvents(false);
+      }
+    }
+  }, [actualIsVisible, isBackdropActive, isNavBarVisible]);
+
+  useEffect(() => {
+    // Disable auto-hide: keep visible
+    setIsVisible(true);
+  }, []);
+
+  useEffect(() => {
+    if (typeof window !== 'undefined' && window.electronAPI?.resizeWindow) {
+      const resize = () => {
+        let targetHeight = 42; // standard bar height
+        if (isBackdropActive) {
+          targetHeight = 650; // popup open height
+        }
+        window.electronAPI.resizeWindow({
+          width: window.innerWidth,
+          height: targetHeight
+        });
+      };
+      resize();
+    }
+  }, [isBackdropActive]);
 
   useEffect(() => {
     document.body.dataset.theme = 'dark';
     document.documentElement.style.colorScheme = 'dark';
   }, []);
 
-  const actualIsVisible = permanentlyVisible ? true : isVisible;
-
   return (
-    <>
-      <div className="hover-trigger-area" />
+    <div className="ddo-toolbar-layer" style={{ pointerEvents: 'none' }}>
       <div
-        className={`status-bar-container glass-panel flex-between status-bar ${actualIsVisible ? '' : 'hidden'}`}
+        className={`status-bar-container glass-panel ddo-status-bar ${actualIsVisible ? '' : 'hidden'}`}
+        style={{ height: '42px', padding: '0 16px', pointerEvents: 'auto' }}
       >
         <div className={`status-popup-backdrop ${isBackdropActive ? 'active' : ''}`} />
-        <div className="status-bar-content flex-between">
+        
+        {/* Left Section */}
+        <div className="status-bar-left-section" style={{ display: 'flex', alignItems: 'center', gap: '16px', flex: 1, justifyContent: 'flex-start' }}>
           <LeftMenu onPopupStateChange={setIsLeftMenuPopupActive} />
+          <RightTray mode="left" onPopupStateChange={setIsLeftTrayPopupActive} />
+        </div>
+        
+        {/* Middle Section */}
+        <div className="status-bar-middle-section" style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', flex: 1, position: 'relative' }}>
           <div
             className="status-bar-middle-trigger"
             onMouseEnter={handleStatusBarMouseEnter}
             onMouseLeave={handleStatusBarMouseLeave}
+            style={{ width: '100px', height: '42px', cursor: 'pointer', background: 'transparent' }}
           />
-          <RightTray onPopupStateChange={setIsRightTrayPopupActive} />
+          <FloatingNavBar
+            isNavBarVisible={isNavBarVisible}
+            onNavBarMouseEnter={handleNavBarMouseEnter}
+            onNavBarMouseLeave={handleNavBarMouseLeave}
+            onPopupStateChange={setIsNavBarPanelActive}
+            permanentlyVisible={permanentlyVisible}
+            onTogglePermanentlyVisible={handleTogglePermanentlyVisible}
+          />
         </div>
-        <FloatingNavBar
-          isNavBarVisible={isNavBarVisible}
-          onNavBarMouseEnter={handleNavBarMouseEnter}
-          onNavBarMouseLeave={handleNavBarMouseLeave}
-          onPopupStateChange={setIsNavBarPanelActive}
-          permanentlyVisible={permanentlyVisible}
-          onTogglePermanentlyVisible={handleTogglePermanentlyVisible}
-        />
+        
+        {/* Right Section */}
+        <div className="status-bar-right-section" style={{ display: 'flex', alignItems: 'center', gap: '16px', flex: 1, justifyContent: 'flex-end' }}>
+          <RightTray mode="right" onPopupStateChange={setIsRightTrayPopupActive} />
+        </div>
       </div>
-    </>
+    </div>
   );
 };
 

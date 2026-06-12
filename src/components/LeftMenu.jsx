@@ -79,6 +79,8 @@ const LeftMenu = ({ onPopupStateChange = () => {} }) => {
   const [isViewPopupOpen, setIsViewPopupOpen] = useState(false);
   const [isWindowPopupOpen, setIsWindowPopupOpen] = useState(false);
   const [isEditPopupOpen, setIsEditPopupOpen] = useState(false);
+  const [isFilePopupOpen, setIsFilePopupOpen] = useState(false);
+  const [isHelpPopupOpen, setIsHelpPopupOpen] = useState(false);
   const [isAnimationPopupOpen, setIsAnimationPopupOpen] = useState(false);
   const [isMoreAnimationPopupOpen, setIsMoreAnimationPopupOpen] = useState(false);
   const [isFunctionPopupOpen, setIsFunctionPopupOpen] = useState(false);
@@ -173,6 +175,8 @@ const LeftMenu = ({ onPopupStateChange = () => {} }) => {
         setIsViewPopupOpen(false);
         setIsWindowPopupOpen(false);
         setIsEditPopupOpen(false);
+        setIsFilePopupOpen(false);
+        setIsHelpPopupOpen(false);
         setIsAnimationPopupOpen(false);
         setIsMoreAnimationPopupOpen(false);
         setIsFunctionPopupOpen(false);
@@ -194,6 +198,8 @@ const LeftMenu = ({ onPopupStateChange = () => {} }) => {
       isViewPopupOpen
         || isWindowPopupOpen
         || isEditPopupOpen
+        || isFilePopupOpen
+        || isHelpPopupOpen
         || isAnimationPopupOpen
         || isMoreAnimationPopupOpen
         || isFunctionPopupOpen
@@ -204,6 +210,8 @@ const LeftMenu = ({ onPopupStateChange = () => {} }) => {
     confirmAction,
     isAnimationPopupOpen,
     isEditPopupOpen,
+    isFilePopupOpen,
+    isHelpPopupOpen,
     isFunctionPopupOpen,
     isMoreAnimationPopupOpen,
     isSleepPopupOpen,
@@ -496,15 +504,17 @@ const LeftMenu = ({ onPopupStateChange = () => {} }) => {
       {menuItems.map((item) => (
         <div
           key={item}
-          className={`left-menu-item-shell ${item === 'View' || item === 'window-icon' || item === 'Edit' ? 'has-popup' : ''}`}
+          className={`left-menu-item-shell ${item === 'View' || item === 'window-icon' || item === 'Edit' || item === 'File' || item === 'Help' ? 'has-popup' : ''}`}
         >
           <button
             type="button"
-            className={`flex-center ${item === 'window-icon' ? 'left-window-trigger' : 'menu-item left-menu-button'} ${(item === 'View' && isViewPopupOpen) || (item === 'window-icon' && isWindowPopupOpen) || (item === 'Edit' && isEditPopupOpen) ? 'is-open' : ''}`}
+            className={`flex-center ${item === 'window-icon' ? 'left-window-trigger' : 'menu-item left-menu-button'} ${(item === 'View' && isViewPopupOpen) || (item === 'window-icon' && isWindowPopupOpen) || (item === 'Edit' && isEditPopupOpen) || (item === 'File' && isFilePopupOpen) || (item === 'Help' && isHelpPopupOpen) ? 'is-open' : ''}`}
             onClick={
               item === 'View'
                 ? () => {
                     setIsEditPopupOpen(false);
+                    setIsFilePopupOpen(false);
+                    setIsHelpPopupOpen(false);
                     setIsAnimationPopupOpen(false);
                     setIsMoreAnimationPopupOpen(false);
                     setIsFunctionPopupOpen(false);
@@ -517,18 +527,22 @@ const LeftMenu = ({ onPopupStateChange = () => {} }) => {
                 : item === 'window-icon'
                   ? () => {
                       setIsEditPopupOpen(false);
+                      setIsFilePopupOpen(false);
+                      setIsHelpPopupOpen(false);
                       setIsAnimationPopupOpen(false);
                       setIsMoreAnimationPopupOpen(false);
                       setIsFunctionPopupOpen(false);
+                      setIsViewPopupOpen(false);
                       if (sleepCountdownSeconds <= 0) {
                         setIsSleepPopupOpen(false);
                       }
-                      setIsViewPopupOpen(false);
                       setIsWindowPopupOpen((open) => !open);
                     }
                   : item === 'Edit'
                     ? () => {
                       setIsViewPopupOpen(false);
+                      setIsFilePopupOpen(false);
+                      setIsHelpPopupOpen(false);
                       setIsWindowPopupOpen(false);
                       setIsAnimationPopupOpen(false);
                       setIsMoreAnimationPopupOpen(false);
@@ -537,6 +551,34 @@ const LeftMenu = ({ onPopupStateChange = () => {} }) => {
                         setIsSleepPopupOpen(false);
                       }
                       setIsEditPopupOpen((open) => !open);
+                    }
+                  : item === 'File'
+                    ? () => {
+                      setIsViewPopupOpen(false);
+                      setIsEditPopupOpen(false);
+                      setIsHelpPopupOpen(false);
+                      setIsWindowPopupOpen(false);
+                      setIsAnimationPopupOpen(false);
+                      setIsMoreAnimationPopupOpen(false);
+                      setIsFunctionPopupOpen(false);
+                      if (sleepCountdownSeconds <= 0) {
+                        setIsSleepPopupOpen(false);
+                      }
+                      setIsFilePopupOpen((open) => !open);
+                    }
+                  : item === 'Help'
+                    ? () => {
+                      setIsViewPopupOpen(false);
+                      setIsEditPopupOpen(false);
+                      setIsFilePopupOpen(false);
+                      setIsWindowPopupOpen(false);
+                      setIsAnimationPopupOpen(false);
+                      setIsMoreAnimationPopupOpen(false);
+                      setIsFunctionPopupOpen(false);
+                      if (sleepCountdownSeconds <= 0) {
+                        setIsSleepPopupOpen(false);
+                      }
+                      setIsHelpPopupOpen((open) => !open);
                     }
                   : undefined
             }
@@ -612,6 +654,58 @@ const LeftMenu = ({ onPopupStateChange = () => {} }) => {
                   </button>
                   );
                 })}
+              </div>
+            </div>
+          ) : null}
+
+          {item === 'File' && isFilePopupOpen ? (
+            <div className="view-ai-popup popup-aurora-surface">
+              <div className="view-popup-options">
+                {['New Tab', 'Open File', 'Save', 'Exit'].map((option) => (
+                  <button
+                    key={option}
+                    type="button"
+                    className="view-popup-option"
+                    onClick={() => {
+                      setIsFilePopupOpen(false);
+                      if (option === 'Exit') {
+                        if (window.electronAPI?.closeWindow) {
+                          window.electronAPI.closeWindow();
+                        } else {
+                          window.close();
+                        }
+                      } else {
+                        window.alert(`${option} clicked`);
+                      }
+                    }}
+                  >
+                    {option}
+                  </button>
+                ))}
+              </div>
+            </div>
+          ) : null}
+
+          {item === 'Help' && isHelpPopupOpen ? (
+            <div className="view-ai-popup popup-aurora-surface">
+              <div className="view-popup-options">
+                {['Documentation', 'Report Issue', 'About DDO'].map((option) => (
+                  <button
+                    key={option}
+                    type="button"
+                    className="view-popup-option"
+                    onClick={() => {
+                      setIsHelpPopupOpen(false);
+                      if (option === 'Documentation') {
+                        openExternalUrl('https://github.com/Jk-patel-07/DDO-');
+                      } else {
+                        window.alert(`${option} - Version 1.0.0`);
+                      }
+                    }}
+                  >
+                    {option}
+                  </button>
+                ))}
               </div>
             </div>
           ) : null}

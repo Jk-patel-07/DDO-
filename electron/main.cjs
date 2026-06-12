@@ -10,9 +10,9 @@ function createWindow() {
   const primaryDisplay = screen.getPrimaryDisplay();
   const { width: screenWidth } = primaryDisplay.workAreaSize;
   
-  const initialWidth = 800;
+  const initialWidth = screenWidth;
   const initialHeight = 650;
-  const initialX = Math.round((screenWidth - initialWidth) / 2);
+  const initialX = 0;
   const initialY = 0;
 
   mainWindow = new BrowserWindow({
@@ -43,7 +43,13 @@ function createWindow() {
 
   if (isDev) {
     mainWindow.loadURL('http://127.0.0.1:3000');
-    mainWindow.webContents.openDevTools({ mode: 'detach' });
+    // Open DevTools only when manually requested (e.g., F12 key)
+    mainWindow.webContents.on('before-input-event', (event, input) => {
+      if (input.key === 'F12' && input.type === 'keyDown') {
+        mainWindow.webContents.toggleDevTools();
+        event.preventDefault();
+      }
+    });
   } else {
     mainWindow.loadFile(path.join(__dirname, '../dist/index.html'));
   }
@@ -67,6 +73,13 @@ ipcMain.on('resize-window', (event, size) => {
       x: newX,
       y: newY
     });
+  }
+});
+
+ipcMain.on('set-ignore-mouse-events', (event, ignore, options) => {
+  const win = BrowserWindow.fromWebContents(event.sender);
+  if (win) {
+    win.setIgnoreMouseEvents(ignore, options);
   }
 });
 

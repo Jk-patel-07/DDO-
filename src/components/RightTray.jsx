@@ -229,7 +229,6 @@ async function requestBackendJson(
 
     return payload;
   } catch (error) {
-    console.error('Backend request failed:', error);
     const isNetworkFailure = error instanceof TypeError
       || /failed to fetch|networkerror|load failed/i.test(String(error?.message || ''));
 
@@ -237,11 +236,12 @@ async function requestBackendJson(
       throw new Error(`Backend not running at ${API_BASE_URL}. Start \`node server.mjs\` and try again.`, { cause: error });
     }
 
+    console.error('Backend request failed:', error);
     throw error instanceof Error ? error : new Error(fallbackMessage, { cause: error });
   }
 }
 
-const RightTray = ({ onPopupStateChange = () => {} }) => {
+const RightTray = ({ mode, onPopupStateChange = () => {} }) => {
   const [time, setTime] = useState(new Date());
   
   // Time Popup States
@@ -264,6 +264,7 @@ const RightTray = ({ onPopupStateChange = () => {} }) => {
   const [wifiError, setWifiError] = useState('');
   const [wifiInterfaceName, setWifiInterfaceName] = useState('Wi-Fi');
   const [isWifiOnline, setIsWifiOnline] = useState(false);
+  const [isBackendOffline, setIsBackendOffline] = useState(false);
   const [wifiPasswordPrompt, setWifiPasswordPrompt] = useState(null);
   const [wifiPasswordInput, setWifiPasswordInput] = useState('');
   const [wifiPasswordError, setWifiPasswordError] = useState('');
@@ -697,8 +698,17 @@ const RightTray = ({ onPopupStateChange = () => {} }) => {
 
       const payload = await requestWifi('/api/wifi/status');
       applyWifiSnapshot(payload);
+      setIsBackendOffline(false);
     } catch (error) {
-      setWifiError(error.message || 'Unable to read Wi-Fi status.');
+      const isOffline = error.message && error.message.includes('Backend not running');
+      if (isOffline) {
+        setIsBackendOffline(true);
+        setIsWifiOnline(false);
+        setWifiNetworks([]);
+        setWifiError('Backend server is offline.');
+      } else {
+        setWifiError(error.message || 'Unable to read Wi-Fi status.');
+      }
     } finally {
       if (showLoader) {
         setIsWifiLoading(false);
@@ -715,19 +725,23 @@ const RightTray = ({ onPopupStateChange = () => {} }) => {
   }, [loadBluetoothSnapshot]);
 
   useEffect(() => {
-    const kickoffTimer = window.setTimeout(() => {
-      void loadWifiNetworksRef.current(false);
-    }, 0);
+    let timerId = null;
 
-    const refreshTimer = window.setInterval(() => {
-      void loadWifiNetworksRef.current(false);
-    }, 15000);
+    const tick = async () => {
+      await loadWifiNetworksRef.current(false);
+      const delay = isBackendOffline ? 60000 : 15000;
+      timerId = setTimeout(tick, delay);
+    };
+
+    void loadWifiNetworksRef.current(false);
+    timerId = setTimeout(tick, isBackendOffline ? 60000 : 15000);
 
     return () => {
-      window.clearTimeout(kickoffTimer);
-      window.clearInterval(refreshTimer);
+      if (timerId) {
+        clearTimeout(timerId);
+      }
     };
-  }, []);
+  }, [isBackendOffline]);
 
   useEffect(() => {
     let active = true;
@@ -1359,7 +1373,9 @@ const RightTray = ({ onPopupStateChange = () => {} }) => {
       || showSpotifyPopup
       || isUserLoginOpen
       || isCompanyDashboardOpen
-      || isUsStatusPopupOpen,
+      || isUsStatusPopupOpen
+      || isCalcOpen
+      || isTranslatorOpen,
     );
 
     onPopupStateChange(hasAnyPopupOpen);
@@ -1381,6 +1397,8 @@ const RightTray = ({ onPopupStateChange = () => {} }) => {
     isWifiDropdownOpen,
     onPopupStateChange,
     showSpotifyPopup,
+    isCalcOpen,
+    isTranslatorOpen,
   ]);
 
 
@@ -2659,9 +2677,9 @@ const RightTray = ({ onPopupStateChange = () => {} }) => {
     );
   };
 
-  return (
-    <>
-    <div className="flex-center" style={{ gap: '16px' }}>
+  if (mode === 'left') {
+    return (
+      <div className="flex-center left-tray-container" style={{ gap: '16px', pointerEvents: 'auto', position: 'relative', zIndex: 1000 }}>
       {/* Social Icons */}
       <div className="flex-center" style={{ gap: '6px' }}>
         {hasSpotifyBackgroundSession && (
@@ -2855,7 +2873,7 @@ const RightTray = ({ onPopupStateChange = () => {} }) => {
           </div>
 
           {/* WhatsApp Popup Dropdown */}
-          <div ref={waDrag.popupRef} className="popup-aurora-surface" style={{
+          <div ref={waDrag.popupRef} className="popup-aurora-surface whatsapp-popup-dropdown" style={{
             position: 'absolute',
             top: '100%',
             right: -80, // Center relative to icon
@@ -3832,9 +3850,14 @@ const RightTray = ({ onPopupStateChange = () => {} }) => {
 
         </div>
       </div>
+      </div>
+    );
+  }
 
+  return (
+    <>
       {/* System Tray Icons */}
-      <div className="flex-center" style={{ gap: '6px' }}>
+      <div className="flex-center right-tray-container" style={{ gap: '6px', pointerEvents: 'auto', position: 'relative', zIndex: 1000 }}>
         <div ref={wifiPopupRef} style={{ position: 'relative' }}>
           <button
             type="button"
@@ -4855,7 +4878,6 @@ const RightTray = ({ onPopupStateChange = () => {} }) => {
           </div>
         )}
       </div>
-    </div>
     {isCompanyEditVerifyOpen && (
       <div className="user-register-modal" onClick={() => setIsCompanyEditVerifyOpen(false)}>
         <div className="user-register-card popup-aurora-surface company-edit-verify-modal" onClick={(event) => event.stopPropagation()}>
