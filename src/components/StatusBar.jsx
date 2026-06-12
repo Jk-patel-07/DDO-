@@ -31,6 +31,30 @@ const StatusBar = () => {
   const isBackdropActive = isLeftMenuPopupActive || isRightTrayPopupActive || isNavBarPanelActive;
   const isOtherPopupActive = isLeftMenuPopupActive || isRightTrayPopupActive;
 
+  useEffect(() => {
+    if (typeof window !== 'undefined' && window.__TAURI__) {
+      const resize = async () => {
+        try {
+          const { getCurrentWindow, LogicalSize } = await import('@tauri-apps/api/window');
+          const appWindow = getCurrentWindow();
+          let targetHeight = 32;
+          if (isBackdropActive) {
+            targetHeight = 600;
+          } else if (isNavBarVisible) {
+            targetHeight = 110;
+          }
+          const size = await appWindow.innerSize();
+          const scaleFactor = await appWindow.scaleFactor();
+          const logicalWidth = size.width / scaleFactor;
+          await appWindow.setSize(new LogicalSize(logicalWidth, targetHeight));
+        } catch (err) {
+          console.error('Failed to resize Tauri window:', err);
+        }
+      };
+      resize();
+    }
+  }, [isBackdropActive, isNavBarVisible]);
+
   const hasPointerLeftTopZoneRef = useRef(false);
 
   const [isNavBarVisible, setIsNavBarVisible] = useState(false);

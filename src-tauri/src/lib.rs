@@ -1,3 +1,5 @@
+use tauri::Manager;
+
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
   tauri::Builder::default()
@@ -9,6 +11,21 @@ pub fn run() {
             .build(),
         )?;
       }
+
+      if let Some(window) = app.get_webview_window("main") {
+        if let Ok(Some(monitor)) = window.primary_monitor() {
+          let size = monitor.size();
+          let scale_factor = monitor.scale_factor();
+          let physical_height = (32.0 * scale_factor) as u32;
+          
+          let _ = window.set_position(tauri::Position::Physical(tauri::PhysicalPosition { x: 0, y: 0 }));
+          let _ = window.set_size(tauri::Size::Physical(tauri::PhysicalSize {
+            width: size.width,
+            height: physical_height,
+          }));
+        }
+      }
+
       Ok(())
     })
     .run(tauri::generate_context!())
