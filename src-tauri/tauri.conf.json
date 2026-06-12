@@ -14,7 +14,7 @@
       {
         "label": "main",
         "title": "DDO",
-        "width": 800,
+        "width": 520,
         "height": 32,
         "decorations": false,
         "alwaysOnTop": true,

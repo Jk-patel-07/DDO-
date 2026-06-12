@@ -16,11 +16,18 @@ pub fn run() {
         if let Ok(Some(monitor)) = window.primary_monitor() {
           let size = monitor.size();
           let scale_factor = monitor.scale_factor();
-          let physical_height = (32.0 * scale_factor) as u32;
           
-          let _ = window.set_position(tauri::Position::Physical(tauri::PhysicalPosition { x: 0, y: 0 }));
+          let logical_width = 520.0;
+          let logical_height = 32.0;
+          
+          let physical_width = (logical_width * scale_factor) as u32;
+          let physical_height = (logical_height * scale_factor) as u32;
+          
+          let x_pos = ((size.width - physical_width) / 2) as i32;
+          
+          let _ = window.set_position(tauri::Position::Physical(tauri::PhysicalPosition { x: x_pos, y: 0 }));
           let _ = window.set_size(tauri::Size::Physical(tauri::PhysicalSize {
-            width: size.width,
+            width: physical_width,
             height: physical_height,
           }));
         }

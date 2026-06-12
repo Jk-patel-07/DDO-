@@ -9632,3 +9632,22 @@ body[data-search-animation="off"] .center-search-popup {
   flex-direction: column;
   gap: 8px;
 }
+
+/* Tauri transparency overrides */
+body.tauri,
+body.tauri #root,
+body.tauri html {
+  background: transparent !important;
+}
+
+body.tauri .status-bar-container {
+  background: transparent !important;
+  border-bottom: none !important;
+  box-shadow: none !important;
+  backdrop-filter: none !important;
+  -webkit-backdrop-filter: none !important;
+}
+
+body.tauri .status-popup-backdrop {
+  display: none !important;
+}

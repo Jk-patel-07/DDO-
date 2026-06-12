@@ -43,10 +43,7 @@ const StatusBar = () => {
           } else if (isNavBarVisible) {
             targetHeight = 110;
           }
-          const size = await appWindow.innerSize();
-          const scaleFactor = await appWindow.scaleFactor();
-          const logicalWidth = size.width / scaleFactor;
-          await appWindow.setSize(new LogicalSize(logicalWidth, targetHeight));
+          await appWindow.setSize(new LogicalSize(520, targetHeight));
         } catch (err) {
           console.error('Failed to resize Tauri window:', err);
         }
