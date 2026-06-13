@@ -18,7 +18,8 @@ contextBridge.exposeInMainWorld('electronAPI', {
     return () => ipcRenderer.removeListener('show-toolbar', subscription);
   },
   openUpdateWindow: (updateInfo) => ipcRenderer.send('open-update-window', updateInfo),
-  startUpdateDownload: (downloadUrl) => ipcRenderer.send('start-update-download', downloadUrl),
+  startUpdateDownload: (downloadUrl, checksum, signature) => ipcRenderer.send('start-update-download', downloadUrl, checksum, signature),
+  closeUpdateWindow: () => ipcRenderer.send('close-update-window'),
   onUpdateData: (callback) => {
     const subscription = (event, data) => callback(data);
     ipcRenderer.on('update-data', subscription);

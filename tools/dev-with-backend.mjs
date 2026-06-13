@@ -79,8 +79,9 @@ const shutdown = () => {
 process.on('SIGINT', shutdown);
 process.on('SIGTERM', shutdown);
 
-console.log('Starting DDO frontend and backend...');
+console.log('Starting DDO frontend, backend, and DOI Update Server...');
 spawnProcess('backend', process.execPath, ['server.mjs']);
+spawnProcess('doiServer', process.execPath, ['backend/doiServer.mjs']);
 spawnProcess(
   'frontend',
   process.platform === 'win32' ? 'cmd.exe' : 'npm',

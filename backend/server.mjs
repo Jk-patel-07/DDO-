@@ -3437,15 +3437,49 @@ app.get('/api/update/check', async (req, res, next) => {
       return res.json({ latestVersion: null });
     }
     res.json({
+      updateId: latestUpdate.updateId,
       latestVersion: latestUpdate.versionName,
       size: latestUpdate.size,
       type: latestUpdate.type,
       changes: latestUpdate.changes,
       securityChanges: latestUpdate.securityChanges,
       bugFixes: latestUpdate.bugFixes,
+      graphicsInfo: latestUpdate.graphicsInfo || '',
+      changedFiles: latestUpdate.changedFiles || [],
+      newFiles: latestUpdate.newFiles || [],
       downloadUrl: latestUpdate.downloadUrl,
+      checksum: latestUpdate.checksum,
+      signature: latestUpdate.signature,
+      updatePageUrl: `http://localhost:6000/update-page/${latestUpdate.updateId}`,
       publishedAt: latestUpdate.publishedAt
     });
+  } catch (error) {
+    next(error);
+  }
+});
+
+app.post('/api/update/status', async (req, res, next) => {
+  try {
+    const { updateId, status, publisher, details } = req.body;
+    if (!updateId || !status) {
+      throw new HttpError(400, 'updateId and status are required.');
+    }
+
+    const update = await Update.findOne({ updateId });
+    if (!update) {
+      throw new HttpError(404, 'Update not found.');
+    }
+
+    update.status = status;
+    update.auditLog.push({
+      publisher: publisher || 'System',
+      date: new Date(),
+      status,
+      details: details || `Status changed to ${status}`
+    });
+
+    await update.save();
+    res.json({ ok: true, update });
   } catch (error) {
     next(error);
   }
@@ -3460,7 +3494,7 @@ app.post('/api/update/publish', async (req, res, next) => {
       throw new HttpError(403, 'Developer authentication required.');
     }
 
-    const { versionName, size, type, changes, securityChanges, bugFixes, downloadUrl } = req.body;
+    const { versionName, size, type, changes, securityChanges, bugFixes, downloadUrl, graphicsInfo, changedFiles, newFiles, checksum, signature } = req.body;
 
     if (!versionName || !String(versionName).trim()) {
       throw new HttpError(400, 'Version name is required.');
@@ -3482,16 +3516,29 @@ app.post('/api/update/publish', async (req, res, next) => {
     await Update.updateMany({}, { isActive: false });
 
     const newUpdate = new Update({
+      updateId: `update-${Date.now()}-${Math.random().toString(36).substr(2, 9)}`,
       versionName: String(versionName).trim(),
       size: String(size).trim(),
       type: String(type).trim(),
       changes: changes.map(c => String(c).trim()).filter(Boolean),
       securityChanges: Array.isArray(securityChanges) ? securityChanges.map(s => String(s).trim()).filter(Boolean) : [],
       bugFixes: Array.isArray(bugFixes) ? bugFixes.map(b => String(b).trim()).filter(Boolean) : [],
+      graphicsInfo: String(graphicsInfo || '').trim(),
+      changedFiles: Array.isArray(changedFiles) ? changedFiles.map(f => String(f).trim()).filter(Boolean) : [],
+      newFiles: Array.isArray(newFiles) ? newFiles.map(f => String(f).trim()).filter(Boolean) : [],
       downloadUrl: String(downloadUrl).trim(),
+      checksum: String(checksum || 'dummy-checksum-sha256').trim(),
+      signature: String(signature || 'dummy-signature').trim(),
+      status: 'Published',
       publishedBy: session.email || 'admin',
       isActive: true,
-      publishedAt: new Date()
+      publishedAt: new Date(),
+      auditLog: [{
+        publisher: session.email || 'admin',
+        date: new Date(),
+        status: 'Published',
+        details: 'Direct publish'
+      }]
     });
 
     await newUpdate.save();

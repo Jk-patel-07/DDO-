@@ -9,7 +9,7 @@ echo   Starting DDO on http://127.0.0.1:3000
 echo ==========================================
 echo.
 
-for %%P in (5000 3000) do (
+for %%P in (5000 3000 6000) do (
   powershell -NoProfile -ExecutionPolicy Bypass -Command ^
     "$connections = Get-NetTCPConnection -LocalPort %%P -State Listen -ErrorAction SilentlyContinue; if ($connections) { $connections | Select-Object -ExpandProperty OwningProcess -Unique | ForEach-Object { Stop-Process -Id $_ -Force -ErrorAction SilentlyContinue } }"
 )
@@ -27,6 +27,7 @@ if not exist "node_modules" (
 )
 
 start "DDO Backend" cmd /k "cd /d "%~dp0" && node server.mjs"
+start "DDO DOI Update Server" cmd /k "cd /d "%~dp0" && node backend/doiServer.mjs"
 start "DDO Frontend" cmd /k "cd /d "%~dp0" && npm run dev"
 
 echo Waiting for frontend server on http://127.0.0.1:3000 ...

@@ -709,18 +709,14 @@ const LeftMenu = ({ onPopupStateChange = () => {} }) => {
           {item === 'Help' && isHelpPopupOpen ? (
             <div className="view-ai-popup popup-aurora-surface">
               <div className="view-popup-options">
-                {['Documentation', 'Report Issue', 'About DDO'].map((option) => (
+                {['Report Issue', 'About DDO'].map((option) => (
                   <button
                     key={option}
                     type="button"
                     className="view-popup-option"
                     onClick={() => {
                       setIsHelpPopupOpen(false);
-                      if (option === 'Documentation') {
-                        openExternalUrl('https://github.com/Jk-patel-07/DDO-');
-                      } else {
-                        window.alert(`${option} - Version 1.0.0`);
-                      }
+                      window.alert(`${option} - Version 1.0.0`);
                     }}
                   >
                     {option}

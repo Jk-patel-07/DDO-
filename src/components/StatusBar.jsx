@@ -142,6 +142,12 @@ const StatusBar = () => {
 
   const showDOI = isLocalhost && isDevMode && !isElectron;
 
+  const handleDoiClick = () => {
+    const session = readStoredAuthSession();
+    const token = session?.token || '';
+    window.open(`http://localhost:6000/?token=${encodeURIComponent(token)}`, '_blank', 'noopener,noreferrer');
+  };
+
   console.log("VITE_APP_MODE:", import.meta.env.VITE_APP_MODE);
   console.log("hostname:", window.location.hostname);
   console.log("user role:", user?.role);
@@ -554,7 +560,7 @@ const StatusBar = () => {
             {showDOI && (
               <button
                 id="ddo-doi-button"
-                onClick={() => setIsPublishPopupOpen(true)}
+                onClick={handleDoiClick}
                 style={{
                   backgroundColor: '#ea4335',
                   color: 'white',
@@ -675,6 +681,13 @@ const StatusBar = () => {
                     <li key={idx} style={{ marginBottom: '2px' }}>{detail}</li>
                   ))}
                 </ul>
+              </div>
+            )}
+
+            {updateInfo.graphicsInfo && (
+              <div style={{ fontSize: '12px', lineHeight: '1.4' }}>
+                <div style={{ fontWeight: 'bold', marginBottom: '2px', color: '#f0f6fc' }}>Graphics & Animation:</div>
+                <div style={{ color: '#c9d1d9' }}>{updateInfo.graphicsInfo}</div>
               </div>
             )}
 

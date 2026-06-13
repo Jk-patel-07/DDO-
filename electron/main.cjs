@@ -267,10 +267,14 @@ ipcMain.on('open-update-window', (event, updateInfo) => {
     },
   });
 
-  if (isDev) {
-    updateWindow.loadURL('http://127.0.0.1:3000/#ddo-update');
+  if (updateInfo && updateInfo.updatePageUrl) {
+    updateWindow.loadURL(updateInfo.updatePageUrl);
   } else {
-    updateWindow.loadFile(path.join(__dirname, '../dist/index.html'), { hash: 'ddo-update' });
+    if (isDev) {
+      updateWindow.loadURL('http://127.0.0.1:3000/#ddo-update');
+    } else {
+      updateWindow.loadFile(path.join(__dirname, '../dist/index.html'), { hash: 'ddo-update' });
+    }
   }
 
   // Once WebContents finishes loading, send the update info
@@ -281,6 +285,12 @@ ipcMain.on('open-update-window', (event, updateInfo) => {
   updateWindow.on('closed', () => {
     updateWindow = null;
   });
+});
+
+ipcMain.on('close-update-window', () => {
+  if (updateWindow && !updateWindow.isDestroyed()) {
+    updateWindow.close();
+  }
 });
 
 const downloadWithRedirects = (url, filePath, onProgress, onFinish, onError) => {
@@ -324,13 +334,31 @@ const downloadWithRedirects = (url, filePath, onProgress, onFinish, onError) => 
   });
 };
 
-ipcMain.on('start-update-download', (event, downloadUrl) => {
+ipcMain.on('start-update-download', (event, downloadUrl, checksum, signature) => {
   if (!downloadUrl) {
     event.sender.send('update-status', { status: 'error', message: 'No download URL specified.' });
     return;
   }
 
+  const updateStatusOnServer = (status, details) => {
+    const payload = JSON.stringify({ updateId: latestUpdateInfo?.updateId, status, publisher: 'Electron Client', details });
+    const req = http.request({
+      hostname: '127.0.0.1',
+      port: 5000,
+      path: '/api/update/status',
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        'Content-Length': Buffer.byteLength(payload)
+      }
+    }, (res) => {});
+    req.on('error', () => {});
+    req.write(payload);
+    req.end();
+  };
+
   event.sender.send('update-status', { status: 'downloading', percent: 0 });
+  updateStatusOnServer('Downloading', 'Download started internally.');
 
   const tempDir = os.tmpdir();
   const fileName = `ddo-setup-${Date.now()}.exe`;
@@ -343,7 +371,40 @@ ipcMain.on('start-update-download', (event, downloadUrl) => {
       event.sender.send('update-status', { status: 'downloading', percent });
     },
     () => {
+      // Verify download checksum and signature
+      try {
+        const crypto = require('crypto');
+        const fileBuffer = fs.readFileSync(filePath);
+        
+        // 1. Verify Checksum
+        const calculatedChecksum = crypto.createHash('sha256').update(fileBuffer).digest('hex');
+        if (checksum && calculatedChecksum !== checksum) {
+          event.sender.send('update-status', { status: 'error', message: 'Checksum verification failed.' });
+          updateStatusOnServer('error', `Checksum mismatch: expected ${checksum}, got ${calculatedChecksum}`);
+          return;
+        }
+
+        // 2. Verify Digital Signature
+        const publicKeyPath = path.join(process.cwd(), 'backend', 'private', 'keys', 'public.key');
+        if (signature && fs.existsSync(publicKeyPath)) {
+          const publicKey = fs.readFileSync(publicKeyPath, 'utf8');
+          const verify = crypto.createVerify('SHA256');
+          verify.update(calculatedChecksum);
+          const isValid = verify.verify(publicKey, signature, 'base64');
+          if (!isValid) {
+            event.sender.send('update-status', { status: 'error', message: 'Digital signature verification failed.' });
+            updateStatusOnServer('error', 'Signature verification failed.');
+            return;
+          }
+        }
+      } catch (err) {
+        event.sender.send('update-status', { status: 'error', message: 'Verification error: ' + err.message });
+        updateStatusOnServer('error', 'Verification exception: ' + err.message);
+        return;
+      }
+
       event.sender.send('update-status', { status: 'download-complete' });
+      updateStatusOnServer('Downloaded', 'Update package verified successfully.');
 
       // Ask confirmation before installing
       const { dialog } = require('electron');
@@ -357,14 +418,17 @@ ipcMain.on('start-update-download', (event, downloadUrl) => {
 
       if (choice === 1) { // Install
         event.sender.send('update-status', { status: 'installing' });
+        updateStatusOnServer('Installing', 'Installation initiated by user.');
 
         // Run the installer safely using openPath
         shell.openPath(filePath)
           .then((errorMessage) => {
             if (errorMessage) {
               event.sender.send('update-status', { status: 'error', message: errorMessage });
+              updateStatusOnServer('error', `Installer failed: ${errorMessage}`);
             } else {
               event.sender.send('update-status', { status: 'restart-required' });
+              updateStatusOnServer('Installed', 'Update installed successfully. Restarting.');
               setTimeout(() => {
                 app.quit();
               }, 1500);
@@ -372,13 +436,16 @@ ipcMain.on('start-update-download', (event, downloadUrl) => {
           })
           .catch((err) => {
             event.sender.send('update-status', { status: 'error', message: err.message || 'Failed to execute installer.' });
+            updateStatusOnServer('error', `Installer exception: ${err.message}`);
           });
       } else {
         event.sender.send('update-status', { status: 'cancelled' });
+        updateStatusOnServer('Published', 'User cancelled installation.');
       }
     },
     (err) => {
       event.sender.send('update-status', { status: 'error', message: err.message });
+      updateStatusOnServer('error', `Download failed: ${err.message}`);
     }
   );
 });
@@ -472,6 +539,21 @@ if (!gotTheLock) {
             });
           }
         }
+      },
+      {
+        role: 'help',
+        submenu: [
+          {
+            label: 'Learn More',
+            click: async () => {
+              shell.openExternal('https://electronjs.org');
+            }
+          },
+          {
+            label: 'About',
+            role: 'about'
+          }
+        ]
       }
     ];
 
