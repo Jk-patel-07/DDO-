@@ -496,7 +496,7 @@ const StatusBar = () => {
         } else if (isPublishPopupOpen) {
           targetHeight = 550; // publish form visible height
         } else if (showUpdatePopup) {
-          targetHeight = 280; // update popup visible height
+          targetHeight = 420; // update popup visible height
         } else if (isNavBarVisible) {
           targetHeight = 120; // navbar visible height
         }
@@ -532,25 +532,28 @@ const StatusBar = () => {
           
           {/* Left Section */}
           <div className="status-bar-left-section" style={{ display: 'flex', alignItems: 'center', gap: '16px', flex: 1, justifyContent: 'flex-start' }}>
-            {import.meta.env.VITE_APP_MODE === 'development' && (
-              <span
-                id="ddo-dev-badge"
+            {import.meta.env.VITE_APP_MODE === 'development' && isDevUser && (
+              <button
+                id="ddo-doi-button"
+                onClick={() => setIsPublishPopupOpen(true)}
                 style={{
                   backgroundColor: '#ea4335',
                   color: 'white',
-                  padding: '2px 5px',
+                  border: 'none',
+                  padding: '2px 8px',
                   borderRadius: '3px',
                   fontSize: '9px',
                   fontFamily: 'monospace',
                   fontWeight: 'bold',
+                  cursor: 'pointer',
                   letterSpacing: '0.5px',
+                  lineHeight: '1',
                   userSelect: 'none',
-                  border: '1px solid rgba(255, 255, 255, 0.2)',
-                  lineHeight: '1'
+                  border: '1px solid rgba(255, 255, 255, 0.2)'
                 }}
               >
-                DEV
-              </span>
+                DOI
+              </button>
             )}
             <LeftMenu onPopupStateChange={setIsLeftMenuPopupActive} />
             <RightTray mode="left" onPopupStateChange={setIsLeftTrayPopupActive} />
@@ -613,32 +616,48 @@ const StatusBar = () => {
           >
             <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
               <h4 style={{ margin: 0, fontSize: '14px', color: '#58a6ff', fontWeight: 'bold' }}>
-                Update Available: {updateInfo.latestVersion}
+                DDO Update Available
               </h4>
-              <span style={{
-                fontSize: '10px',
-                backgroundColor: '#238636',
-                color: 'white',
-                padding: '2px 6px',
-                borderRadius: '10px',
-                fontWeight: 'bold'
-              }}>
-                {updateInfo.type}
-              </span>
             </div>
 
-            <div style={{ fontSize: '11px', color: '#8b949e' }}>
-              Release Date: {updateInfo.releaseDate}
+            <div style={{ display: 'flex', flexDirection: 'column', gap: '4px', fontSize: '12px', color: '#c9d1d9' }}>
+              <div><strong>Version:</strong> {updateInfo.latestVersion}</div>
+              <div><strong>Size:</strong> {updateInfo.size}</div>
+              <div><strong>Type:</strong> {updateInfo.type}</div>
             </div>
 
-            <div style={{ fontSize: '12px', lineHeight: '1.4' }}>
-              <div style={{ fontWeight: 'bold', marginBottom: '4px', color: '#f0f6fc' }}>Changelog:</div>
-              <ul style={{ margin: 0, paddingLeft: '16px', color: '#c9d1d9' }}>
-                {updateInfo.details.map((detail, idx) => (
-                  <li key={idx} style={{ marginBottom: '2px' }}>{detail}</li>
-                ))}
-              </ul>
-            </div>
+            {updateInfo.changes && updateInfo.changes.length > 0 && (
+              <div style={{ fontSize: '12px', lineHeight: '1.4' }}>
+                <div style={{ fontWeight: 'bold', marginBottom: '2px', color: '#f0f6fc' }}>What changed:</div>
+                <ul style={{ margin: 0, paddingLeft: '16px', color: '#c9d1d9' }}>
+                  {updateInfo.changes.map((detail, idx) => (
+                    <li key={idx} style={{ marginBottom: '2px' }}>{detail}</li>
+                  ))}
+                </ul>
+              </div>
+            )}
+
+            {updateInfo.securityChanges && updateInfo.securityChanges.length > 0 && (
+              <div style={{ fontSize: '12px', lineHeight: '1.4' }}>
+                <div style={{ fontWeight: 'bold', marginBottom: '2px', color: '#f0f6fc' }}>Security:</div>
+                <ul style={{ margin: 0, paddingLeft: '16px', color: '#c9d1d9' }}>
+                  {updateInfo.securityChanges.map((detail, idx) => (
+                    <li key={idx} style={{ marginBottom: '2px' }}>{detail}</li>
+                  ))}
+                </ul>
+              </div>
+            )}
+
+            {updateInfo.bugFixes && updateInfo.bugFixes.length > 0 && (
+              <div style={{ fontSize: '12px', lineHeight: '1.4' }}>
+                <div style={{ fontWeight: 'bold', marginBottom: '2px', color: '#f0f6fc' }}>Bug fixes:</div>
+                <ul style={{ margin: 0, paddingLeft: '16px', color: '#c9d1d9' }}>
+                  {updateInfo.bugFixes.map((detail, idx) => (
+                    <li key={idx} style={{ marginBottom: '2px' }}>{detail}</li>
+                  ))}
+                </ul>
+              </div>
+            )}
 
             <div style={{ display: 'flex', justifyContent: 'flex-end', gap: '8px', marginTop: '4px' }}>
               <button
@@ -674,6 +693,271 @@ const StatusBar = () => {
                 }}
               >
                 Update Now
+              </button>
+            </div>
+          </div>
+        )}
+
+        {isPublishPopupOpen && (
+          <div 
+            className="ddo-publish-popup-card popup-aurora-surface"
+            style={{
+              position: 'absolute',
+              top: '48px',
+              left: '50%',
+              transform: 'translateX(-50%)',
+              width: '400px',
+              maxHeight: '480px',
+              padding: '16px',
+              borderRadius: '8px',
+              border: '1px solid rgba(255, 255, 255, 0.1)',
+              backgroundColor: '#0d1117',
+              boxShadow: '0 4px 20px rgba(0, 0, 0, 0.5)',
+              zIndex: 10000,
+              display: 'flex',
+              flexDirection: 'column',
+              gap: '12px',
+              color: '#c9d1d9',
+              fontFamily: 'system-ui, -apple-system, sans-serif',
+              pointerEvents: 'auto'
+            }}
+          >
+            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', borderBottom: '1px solid #21262d', paddingBottom: '8px' }}>
+              <h4 style={{ margin: 0, fontSize: '14px', color: '#58a6ff', fontWeight: 'bold' }}>
+                Publish DDO Update
+              </h4>
+              <button 
+                onClick={() => setIsPublishPopupOpen(false)}
+                style={{
+                  background: 'none',
+                  border: 'none',
+                  color: '#8b949e',
+                  cursor: 'pointer',
+                  fontSize: '16px',
+                  fontWeight: 'bold'
+                }}
+              >
+                &times;
+              </button>
+            </div>
+
+            <div style={{ display: 'flex', flexDirection: 'column', gap: '10px', overflowY: 'auto', maxHeight: '350px', paddingRight: '4px' }}>
+              <div style={{ display: 'flex', flexDirection: 'column', gap: '4px' }}>
+                <label style={{ fontSize: '11px', fontWeight: 'bold', color: '#8b949e' }}>Version name:</label>
+                <input 
+                  type="text" 
+                  value={pubVersionName} 
+                  onChange={(e) => setPubVersionName(e.target.value)}
+                  placeholder="e.g. DOI-1.1"
+                  style={{
+                    backgroundColor: '#0d1117',
+                    border: '1px solid #30363d',
+                    borderRadius: '6px',
+                    color: '#c9d1d9',
+                    padding: '6px 10px',
+                    fontSize: '12px',
+                    outline: 'none'
+                  }}
+                />
+              </div>
+
+              <div style={{ display: 'flex', flexDirection: 'column', gap: '4px' }}>
+                <label style={{ fontSize: '11px', fontWeight: 'bold', color: '#8b949e' }}>Update size:</label>
+                <input 
+                  type="text" 
+                  value={pubSize} 
+                  onChange={(e) => setPubSize(e.target.value)}
+                  placeholder="e.g. 85 MB"
+                  style={{
+                    backgroundColor: '#0d1117',
+                    border: '1px solid #30363d',
+                    borderRadius: '6px',
+                    color: '#c9d1d9',
+                    padding: '6px 10px',
+                    fontSize: '12px',
+                    outline: 'none'
+                  }}
+                />
+              </div>
+
+              <div style={{ display: 'flex', flexDirection: 'column', gap: '4px' }}>
+                <label style={{ fontSize: '11px', fontWeight: 'bold', color: '#8b949e' }}>Update type:</label>
+                <input 
+                  type="text" 
+                  value={pubType} 
+                  onChange={(e) => setPubType(e.target.value)}
+                  placeholder="e.g. UI + Security Update"
+                  style={{
+                    backgroundColor: '#0d1117',
+                    border: '1px solid #30363d',
+                    borderRadius: '6px',
+                    color: '#c9d1d9',
+                    padding: '6px 10px',
+                    fontSize: '12px',
+                    outline: 'none'
+                  }}
+                />
+              </div>
+
+              <div style={{ display: 'flex', flexDirection: 'column', gap: '4px' }}>
+                <label style={{ fontSize: '11px', fontWeight: 'bold', color: '#8b949e' }}>What changed in DDO:</label>
+                <textarea 
+                  value={pubChanges} 
+                  onChange={(e) => setPubChanges(e.target.value)}
+                  placeholder="Enter changes, one per line"
+                  rows={2}
+                  style={{
+                    backgroundColor: '#0d1117',
+                    border: '1px solid #30363d',
+                    borderRadius: '6px',
+                    color: '#c9d1d9',
+                    padding: '6px 10px',
+                    fontSize: '12px',
+                    outline: 'none',
+                    resize: 'vertical',
+                    fontFamily: 'inherit'
+                  }}
+                />
+              </div>
+
+              <div style={{ display: 'flex', flexDirection: 'column', gap: '4px' }}>
+                <label style={{ fontSize: '11px', fontWeight: 'bold', color: '#8b949e' }}>Security changes:</label>
+                <textarea 
+                  value={pubSecurityChanges} 
+                  onChange={(e) => setPubSecurityChanges(e.target.value)}
+                  placeholder="Enter security changes, one per line"
+                  rows={2}
+                  style={{
+                    backgroundColor: '#0d1117',
+                    border: '1px solid #30363d',
+                    borderRadius: '6px',
+                    color: '#c9d1d9',
+                    padding: '6px 10px',
+                    fontSize: '12px',
+                    outline: 'none',
+                    resize: 'vertical',
+                    fontFamily: 'inherit'
+                  }}
+                />
+              </div>
+
+              <div style={{ display: 'flex', flexDirection: 'column', gap: '4px' }}>
+                <label style={{ fontSize: '11px', fontWeight: 'bold', color: '#8b949e' }}>Bug fixes:</label>
+                <textarea 
+                  value={pubBugFixes} 
+                  onChange={(e) => setPubBugFixes(e.target.value)}
+                  placeholder="Enter bug fixes, one per line"
+                  rows={2}
+                  style={{
+                    backgroundColor: '#0d1117',
+                    border: '1px solid #30363d',
+                    borderRadius: '6px',
+                    color: '#c9d1d9',
+                    padding: '6px 10px',
+                    fontSize: '12px',
+                    outline: 'none',
+                    resize: 'vertical',
+                    fontFamily: 'inherit'
+                  }}
+                />
+              </div>
+
+              <div style={{ display: 'flex', flexDirection: 'column', gap: '4px' }}>
+                <label style={{ fontSize: '11px', fontWeight: 'bold', color: '#8b949e' }}>Download/installer link:</label>
+                <input 
+                  type="text" 
+                  value={pubDownloadUrl} 
+                  onChange={(e) => setPubDownloadUrl(e.target.value)}
+                  placeholder="https://example.com/download"
+                  style={{
+                    backgroundColor: '#0d1117',
+                    border: '1px solid #30363d',
+                    borderRadius: '6px',
+                    color: '#c9d1d9',
+                    padding: '6px 10px',
+                    fontSize: '12px',
+                    outline: 'none'
+                  }}
+                />
+              </div>
+            </div>
+
+            <div style={{ display: 'flex', justifyContent: 'flex-end', borderTop: '1px solid #21262d', paddingTop: '8px', marginTop: '4px' }}>
+              <button
+                onClick={handlePublishClick}
+                style={{
+                  backgroundColor: '#238636',
+                  border: '1px solid rgba(240, 246, 252, 0.1)',
+                  color: 'white',
+                  padding: '6px 16px',
+                  borderRadius: '6px',
+                  cursor: 'pointer',
+                  fontSize: '12px',
+                  fontWeight: 'bold',
+                }}
+              >
+                Change
+              </button>
+            </div>
+          </div>
+        )}
+
+        {isConfirmPopupOpen && (
+          <div 
+            className="window-confirm-popup popup-aurora-surface"
+            style={{
+              position: 'absolute',
+              top: '120px',
+              left: '50%',
+              transform: 'translateX(-50%)',
+              width: '320px',
+              padding: '16px',
+              borderRadius: '8px',
+              border: '1px solid rgba(255, 255, 255, 0.15)',
+              backgroundColor: '#161b22',
+              boxShadow: '0 8px 30px rgba(0, 0, 0, 0.7)',
+              zIndex: 10001,
+              display: 'flex',
+              flexDirection: 'column',
+              gap: '16px',
+              color: '#c9d1d9',
+              fontFamily: 'system-ui, -apple-system, sans-serif',
+              pointerEvents: 'auto'
+            }}
+          >
+            <div style={{ fontSize: '13px', fontWeight: '500', lineHeight: '1.5', textAlign: 'center' }}>
+              Are you sure you want to publish this DDO update to all users?
+            </div>
+            <div style={{ display: 'flex', justifyContent: 'center', gap: '12px' }}>
+              <button
+                onClick={() => setIsConfirmPopupOpen(false)}
+                style={{
+                  backgroundColor: 'transparent',
+                  border: '1px solid #30363d',
+                  color: '#c9d1d9',
+                  padding: '6px 16px',
+                  borderRadius: '6px',
+                  cursor: 'pointer',
+                  fontSize: '12px',
+                  fontWeight: '500',
+                }}
+              >
+                Cancel
+              </button>
+              <button
+                onClick={handleConfirmPublish}
+                style={{
+                  backgroundColor: '#ea4335',
+                  border: '1px solid rgba(240, 246, 252, 0.1)',
+                  color: 'white',
+                  padding: '6px 16px',
+                  borderRadius: '6px',
+                  cursor: 'pointer',
+                  fontSize: '12px',
+                  fontWeight: 'bold',
+                }}
+              >
+                Confirm
               </button>
             </div>
           </div>
