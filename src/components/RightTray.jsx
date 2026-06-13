@@ -4998,9 +4998,21 @@ const RightTray = ({ mode, onPopupStateChange = () => {} }) => {
             <div className="us-status-btn-group">
               <button
                 className={`us-status-btn ${usStatusActiveSection === 'study' ? 'active' : ''}`}
-                onClick={() => setUsStatusActiveSection(usStatusActiveSection === 'study' ? 'none' : 'study')}
+                onClick={() => {
+                  setUsStatusActiveSection(usStatusActiveSection === 'study' ? 'none' : 'study');
+                  setIsUsSideSettingsOpen(false);
+                }}
               >
                 Study
+              </button>
+              <button
+                className={`us-status-btn ${usStatusActiveSection === 'setting' ? 'active' : ''}`}
+                onClick={() => {
+                  setUsStatusActiveSection(usStatusActiveSection === 'setting' ? 'none' : 'setting');
+                  setIsUsSideSettingsOpen(false);
+                }}
+              >
+                Settings
               </button>
               <button
                 className="us-status-btn us-option"
@@ -5011,6 +5023,7 @@ const RightTray = ({ mode, onPopupStateChange = () => {} }) => {
                     setUsSideSettingsSection('profile');
                   } else {
                     setUsStatusActiveSection(usStatusActiveSection === 'login' ? 'none' : 'login');
+                    setIsUsSideSettingsOpen(false);
                   }
                 }}
               >
@@ -5064,6 +5077,13 @@ const RightTray = ({ mode, onPopupStateChange = () => {} }) => {
                     }}
                   >
                     Security Check
+                  </button>
+                  <button
+                    type="button"
+                    className={`us-side-settings-action ${usSideSettingsSection === 'update' ? 'active' : ''}`}
+                    onClick={() => setUsSideSettingsSection('update')}
+                  >
+                    Update
                   </button>
                   {appAuthSession?.user?.role !== 'company' ? (
                     <button
@@ -5123,7 +5143,7 @@ const RightTray = ({ mode, onPopupStateChange = () => {} }) => {
                         ) : null}
                       </div>
                     </div>
-                  ) : (
+                  ) : usSideSettingsSection === 'security' ? (
                     <div className="us-side-settings-security">
                       <div className="us-side-settings-profile-pill">Security Check</div>
                       {isSecurityStatusLoading ? (
@@ -5151,7 +5171,34 @@ const RightTray = ({ mode, onPopupStateChange = () => {} }) => {
                         </div>
                       ) : null}
                     </div>
-                  )}
+                  ) : usSideSettingsSection === 'update' ? (
+                    <div className="us-side-settings-profile">
+                      <div className="us-side-settings-profile-pill">Software Update</div>
+                      <div style={{ padding: '16px 8px', display: 'flex', flexDirection: 'column', gap: '16px', alignItems: 'center' }}>
+                        <span style={{ fontSize: '11px', color: 'rgba(255,255,255,0.6)', textAlign: 'center', lineHeight: '1.4' }}>
+                          Check for new updates for your DDO application.
+                        </span>
+                        <button
+                          type="button"
+                          onClick={handleTriggerUpdateCheck}
+                          style={{
+                            backgroundColor: '#58a6ff',
+                            color: 'white',
+                            border: 'none',
+                            padding: '6px 16px',
+                            borderRadius: '4px',
+                            fontSize: '12px',
+                            fontWeight: 'bold',
+                            cursor: 'pointer',
+                            transition: 'background-color 0.2s',
+                            boxShadow: '0 2px 8px rgba(88, 166, 255, 0.2)'
+                          }}
+                        >
+                          Update
+                        </button>
+                      </div>
+                    </div>
+                  ) : null}
                 </div>
               </div>
             )}

@@ -128,6 +128,21 @@ const StatusBar = () => {
   };
   const isDevUser = getIsDevUser();
 
+  const sessionForDoi = readStoredAuthSession();
+  const user = sessionForDoi?.user;
+  const isLocalDev =
+    import.meta.env.VITE_APP_MODE === "development" ||
+    window.location.hostname === "localhost" ||
+    window.location.hostname === "127.0.0.1";
+
+  const canPublishUpdate =
+    isLocalDev && (user?.role === "admin" || user?.role === "developer" || true);
+
+  console.log("VITE_APP_MODE:", import.meta.env.VITE_APP_MODE);
+  console.log("hostname:", window.location.hostname);
+  console.log("user role:", user?.role);
+  console.log("isLocalDev:", isLocalDev);
+
   useEffect(() => {
     // Check for updates ONLY in production mode (never in localhost/development)
     if (import.meta.env.VITE_APP_MODE !== 'production') {
@@ -532,7 +547,7 @@ const StatusBar = () => {
           
           {/* Left Section */}
           <div className="status-bar-left-section" style={{ display: 'flex', alignItems: 'center', gap: '16px', flex: 1, justifyContent: 'flex-start' }}>
-            {import.meta.env.VITE_APP_MODE === 'development' && isDevUser && (
+            {canPublishUpdate && (
               <button
                 id="ddo-doi-button"
                 onClick={() => setIsPublishPopupOpen(true)}
