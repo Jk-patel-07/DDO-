@@ -385,6 +385,37 @@ const RightTray = ({ mode, onPopupStateChange = () => {} }) => {
   const [prevUsVolume, setPrevUsVolume] = useState(65);
   const [isSearchPopupOpen, setIsSearchPopupOpen] = useState(false);
 
+  const [usPopupPosition, setUsPopupPosition] = useState({ top: 46, left: 0 });
+  const usButtonRef = useRef(null);
+
+  const updateUsPopupPosition = useCallback(() => {
+    if (!usButtonRef.current) return;
+    const rect = usButtonRef.current.getBoundingClientRect();
+    const top = rect.bottom + 4;
+    const popupWidth = 320;
+    let left = rect.left + rect.width / 2 - popupWidth / 2;
+    if (left < 12) {
+      left = 12;
+    }
+    if (left + popupWidth > window.innerWidth - 12) {
+      left = window.innerWidth - popupWidth - 12;
+    }
+    setUsPopupPosition({ top, left });
+  }, []);
+
+  useEffect(() => {
+    if (isUsStatusPopupOpen || isCompanyDashboardOpen) {
+      updateUsPopupPosition();
+      window.addEventListener('resize', updateUsPopupPosition);
+      window.addEventListener('scroll', updateUsPopupPosition);
+    }
+    return () => {
+      window.removeEventListener('resize', updateUsPopupPosition);
+      window.removeEventListener('scroll', updateUsPopupPosition);
+    };
+  }, [isUsStatusPopupOpen, isCompanyDashboardOpen, updateUsPopupPosition]);
+
+
   // Calculator Popup States
   const [isCalcOpen, setIsCalcOpen] = useState(false);
   const calcPopupRef = useRef(null);
@@ -498,8 +529,10 @@ const RightTray = ({ mode, onPopupStateChange = () => {} }) => {
         setIsCompanyLoginOpen(true);
       } else {
         setLoginError(message);
-        setIsUserLoginOpen(true);
+        setUsStatusActiveSection('login');
+        setIsUsStatusPopupOpen(true);
       }
+
     }
   }, [appAuthSession?.user?.role]);
 
@@ -1421,11 +1454,15 @@ const RightTray = ({ mode, onPopupStateChange = () => {} }) => {
       if (usSideSettingsRef.current && usSideSettingsRef.current.contains(event.target)) {
         return;
       }
+      if (event.target.closest('.user-status-button')) {
+        return;
+      }
       if (isUsSideSettingsOpen) {
         setIsUsSideSettingsOpen(false);
         setUsSideSettingsSection('profile');
         return;
       }
+
       if (usStatusPopupRef.current && !usStatusPopupRef.current.contains(event.target)) {
         setIsUsStatusPopupOpen(false);
         setIsUsSideSettingsOpen(false);
@@ -2304,9 +2341,11 @@ const RightTray = ({ mode, onPopupStateChange = () => {} }) => {
         password: '',
         confirmPassword: '',
       });
-      setIsUserLoginOpen(true);
+      setUsStatusActiveSection('login');
+      setIsUsStatusPopupOpen(true);
       setIsRegisterOpen(false);
       setLoginError('');
+
     } catch (error) {
       const isNetworkFailure = error instanceof TypeError
         || /failed to fetch|networkerror|load failed/i.test(String(error?.message || ''));
@@ -2476,9 +2515,11 @@ const RightTray = ({ mode, onPopupStateChange = () => {} }) => {
       setIsUserLoginOpen(false);
       setIsCompanyLoginOpen(true);
     } else {
-      setIsUserLoginOpen(true);
+      setUsStatusActiveSection('login');
+      setIsUsStatusPopupOpen(true);
     }
   };
+
 
   const handleDeleteAccount = async () => {
     if (!deleteAccountPassword.trim()) {
@@ -2512,10 +2553,10 @@ const RightTray = ({ mode, onPopupStateChange = () => {} }) => {
         setIsDeleteAccountOpen(false);
         setIsUsSideSettingsOpen(false);
         setUsSideSettingsSection('profile');
-        setIsUsStatusPopupOpen(false);
-        setUsStatusActiveSection('none');
-        setIsUserLoginOpen(true);
+        setUsStatusActiveSection('login');
+        setIsUsStatusPopupOpen(true);
       }, 500);
+
     } catch (error) {
       setDeleteAccountError(error.message || 'Unable to delete account right now.');
     } finally {
@@ -4450,11 +4491,14 @@ const RightTray = ({ mode, onPopupStateChange = () => {} }) => {
           ) : null}
         </div>
         <button
+          ref={usButtonRef}
           type="button"
           className={`user-status-button ${isUserLoginOpen || isUsStatusPopupOpen || isCompanyDashboardOpen ? 'open' : ''}`}
-          onClick={() => {
+          onClick={(e) => {
+            e.stopPropagation();
             if (isCompanyDashboardOpen) {
               setIsCompanyDashboardOpen(false);
+              setCompanyDashboardSection('none');
             } else if (isUsStatusPopupOpen) {
               setIsUsStatusPopupOpen(false);
               setIsUsSideSettingsOpen(false);
@@ -4472,16 +4516,32 @@ const RightTray = ({ mode, onPopupStateChange = () => {} }) => {
             } else {
               setIsRegisterOpen(false);
               setIsCompanyDashboardOpen(false);
-              setIsUserLoginOpen(true);
+              setIsUserLoginOpen(false);
+              setUsStatusActiveSection('login');
+              setIsUsStatusPopupOpen(true);
             }
           }}
         >
           US
         </button>
 
+
         {/* Small Control Popup after Login */}
         {isUsStatusPopupOpen && (
-          <div ref={usStatusDrag.popupRef} style={usStatusDrag.dragStyle} className="us-status-popup popup-aurora-surface" onClick={(event) => event.stopPropagation()}>
+          <div
+            ref={usStatusDrag.popupRef}
+            style={{
+              position: 'fixed',
+              top: `${usPopupPosition.top}px`,
+              left: `${usPopupPosition.left}px`,
+              margin: 0,
+              transform: 'none',
+              zIndex: 9999,
+            }}
+            className="us-status-popup popup-aurora-surface"
+            onClick={(event) => event.stopPropagation()}
+          >
+
             <button
               type="button"
               className="popup-drag-btn"
@@ -4643,6 +4703,106 @@ const RightTray = ({ mode, onPopupStateChange = () => {} }) => {
                     </div>
                   </div>
                 </div>
+              ) : usStatusActiveSection === 'login' ? (
+                <div className="us-status-panel login-panel">
+                  <h3>User Login</h3>
+                  <form
+                    className="user-login-form"
+                    onSubmit={handleUserLoginSubmit}
+                    style={{ marginTop: '8px', display: 'flex', flexDirection: 'column', gap: '8px' }}
+                  >
+                    <label className="user-login-field" style={{ marginBottom: '4px', gap: '4px' }}>
+                      <span style={{ fontSize: '11px', fontWeight: '500' }}>Email</span>
+                      <input
+                        type="email"
+                        placeholder="Enter your email"
+                        value={loginForm.email}
+                        onChange={(event) => handleLoginFieldChange('email', event.target.value)}
+                        autoComplete="username"
+                        maxLength={120}
+                        required
+                        style={{ fontSize: '12px', paddingBottom: '4px' }}
+                      />
+                    </label>
+
+                    <label className="user-login-field" style={{ marginBottom: '4px', gap: '4px' }}>
+                      <span style={{ fontSize: '11px', fontWeight: '500' }}>Password</span>
+                      <div className="user-password-input-wrap">
+                        <input
+                          type={getPasswordInputType('loginPassword')}
+                          placeholder="********"
+                          value={loginForm.password}
+                          onChange={(event) => handleLoginFieldChange('password', event.target.value)}
+                          autoComplete="current-password"
+                          minLength={8}
+                          maxLength={128}
+                          required
+                          style={{ fontSize: '12px', paddingBottom: '4px', paddingRight: '24px' }}
+                        />
+                        <button
+                          type="button"
+                          className="user-password-toggle"
+                          onClick={() => togglePasswordVisibility('loginPassword')}
+                          aria-label={passwordVisibility.loginPassword ? 'Hide password' : 'Show password'}
+                          style={{ bottom: '2px', width: '20px', height: '20px' }}
+                        >
+                          {passwordVisibility.loginPassword ? <EyeOff size={12} /> : <Eye size={12} />}
+                        </button>
+                      </div>
+                    </label>
+
+                    {loginError ? <div className="spotify-auth-error" style={{ fontSize: '10px', marginTop: '1px', color: '#ff6666' }}>{loginError}</div> : null}
+
+                    <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginTop: '2px' }}>
+                      <label className="user-login-checkbox" style={{ display: 'flex', alignItems: 'center', gap: '4px', cursor: 'pointer' }}>
+                        <input
+                          type="checkbox"
+                          checked={loginForm.rememberMe}
+                          onChange={(event) => handleLoginFieldChange('rememberMe', event.target.checked)}
+                          style={{ width: '12px', height: '12px' }}
+                        />
+                        <span style={{ fontSize: '10px', color: 'rgba(255,255,255,0.6)' }}>Remember me</span>
+                      </label>
+                      <button
+                        type="button"
+                        className="user-login-link"
+                        onClick={() => {
+                          setIsUsStatusPopupOpen(false);
+                          setIsCompanyLoginOpen(true);
+                        }}
+                        style={{ fontSize: '10px', color: '#7ea587', border: 'none', background: 'none', cursor: 'pointer', padding: 0 }}
+                      >
+                        Company login?
+                      </button>
+                    </div>
+
+                    <button
+                      type="submit"
+                      className="us-status-btn us-option"
+                      disabled={isLoginSubmitting}
+                      style={{ marginTop: '4px', width: '100%', minHeight: '28px', borderRadius: '6px' }}
+                    >
+                      {isLoginSubmitting ? 'Logging in...' : 'Log in'}
+                    </button>
+
+                    <div style={{ display: 'flex', justifyContent: 'center', gap: '6px', marginTop: '2px' }}>
+                      <span style={{ fontSize: '10px', color: 'rgba(255,255,255,0.5)' }}>New user?</span>
+                      <button
+                        type="button"
+                        className="user-login-link register"
+                        onClick={() => {
+                          setRegisterStatus('');
+                          setRegisterErrors({});
+                          setIsUsStatusPopupOpen(false);
+                          setIsRegisterOpen(true);
+                        }}
+                        style={{ fontSize: '10px', color: '#7ea587', border: 'none', background: 'none', cursor: 'pointer', padding: 0 }}
+                      >
+                        Register here
+                      </button>
+                    </div>
+                  </form>
+                </div>
               ) : (
                 <div className="us-status-panel welcome-panel">
                   <div className="welcome-brand-row">
@@ -4686,14 +4846,14 @@ const RightTray = ({ mode, onPopupStateChange = () => {} }) => {
                     setIsUsSideSettingsOpen(false);
                     setUsSideSettingsSection('profile');
                   } else {
-                    setIsUsStatusPopupOpen(false);
-                    setIsUserLoginOpen(true);
+                    setUsStatusActiveSection(usStatusActiveSection === 'login' ? 'none' : 'login');
                   }
                 }}
               >
                 {appAuthSession ? 'Profile' : 'Login'}
               </button>
             </div>
+
 
             {isUsSideSettingsOpen && (
               <div
@@ -4837,10 +4997,18 @@ const RightTray = ({ mode, onPopupStateChange = () => {} }) => {
         {isCompanyDashboardOpen && (
           <div
             ref={companyDashboardRef}
-            style={companyDashboardDrag.dragStyle}
+            style={{
+              position: 'fixed',
+              top: `${usPopupPosition.top}px`,
+              left: `${usPopupPosition.left}px`,
+              margin: 0,
+              transform: 'none',
+              zIndex: 9999,
+            }}
             className="company-dashboard-popup us-status-popup popup-aurora-surface"
             onClick={(event) => event.stopPropagation()}
           >
+
             <button
               type="button"
               className="popup-drag-btn"

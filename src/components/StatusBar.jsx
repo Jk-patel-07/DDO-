@@ -1,10 +1,12 @@
-import { useState, useEffect, useRef } from 'react';
+import { useState, useEffect, useRef, useCallback } from 'react';
+
 import LeftMenu from './LeftMenu';
 import RightTray from './RightTray';
 import FloatingNavBar from './FloatingNavBar';
 
 const StatusBar = () => {
-  const [isVisible, setIsVisible] = useState(true);
+  const [isVisible, setIsVisible] = useState(false);
+
   const [permanentlyVisible, setPermanentlyVisible] = useState(() => {
     try {
       const saved = localStorage.getItem('ddo_keep_status_bar_visible');
@@ -23,7 +25,8 @@ const StatusBar = () => {
     }
   };
 
-  const actualIsVisible = true;
+  const actualIsVisible = permanentlyVisible || isVisible;
+
 
   const [isLeftMenuPopupActive, setIsLeftMenuPopupActive] = useState(false);
   const [isLeftTrayPopupActive, setIsLeftTrayPopupActive] = useState(false);
@@ -33,7 +36,6 @@ const StatusBar = () => {
   const isBackdropActive = isLeftMenuPopupActive || isLeftTrayPopupActive || isRightTrayPopupActive || isNavBarPanelActive;
   const isOtherPopupActive = isLeftMenuPopupActive || isLeftTrayPopupActive || isRightTrayPopupActive;
 
-  const hasPointerLeftTopZoneRef = useRef(false);
 
   const [isNavBarVisible, setIsNavBarVisible] = useState(false);
   const isMouseOverStatusBarRef = useRef(false);
@@ -172,7 +174,7 @@ const StatusBar = () => {
     }
   }, [isNavBarVisible, isBackdropActive, permanentlyVisible]);
 
-  const isPointerInInteractiveRegion = (x, y) => {
+  const isPointerInInteractiveRegion = useCallback((x, y) => {
     if (actualIsVisible) {
       const statusBarEl = document.querySelector('.status-bar-container');
       if (statusBarEl) {
@@ -220,14 +222,54 @@ const StatusBar = () => {
     }
 
     return false;
-  };
+  }, [actualIsVisible]);
+
 
   const lastIgnoreRef = useRef(null);
+  const statusBarHideTimeoutRef = useRef(null);
+
+  const isBackdropActiveRef = useRef(isBackdropActive);
+  useEffect(() => {
+    isBackdropActiveRef.current = isBackdropActive;
+  }, [isBackdropActive]);
+
+  const permanentlyVisibleRef = useRef(permanentlyVisible);
+  useEffect(() => {
+    permanentlyVisibleRef.current = permanentlyVisible;
+  }, [permanentlyVisible]);
+
+  const isVisibleRef = useRef(isVisible);
+  useEffect(() => {
+    isVisibleRef.current = isVisible;
+  }, [isVisible]);
 
   useEffect(() => {
-    if (typeof window !== 'undefined' && window.electronAPI?.setIgnoreMouseEvents) {
-      const handleGlobalMouseMove = (e) => {
-        const inRegion = isPointerInInteractiveRegion(e.clientX, e.clientY);
+    const handleGlobalMouseMove = (e) => {
+      const inRegion = isPointerInInteractiveRegion(e.clientX, e.clientY);
+      
+      const triggerWidth = 320;
+      const triggerHeight = 6;
+
+      const leftBound = (window.innerWidth - triggerWidth) / 2;
+      const rightBound = (window.innerWidth + triggerWidth) / 2;
+      const inTriggerZone = e.clientY <= triggerHeight && e.clientX >= leftBound && e.clientX <= rightBound;
+
+      if (inRegion || inTriggerZone || isBackdropActiveRef.current) {
+        if (statusBarHideTimeoutRef.current) {
+          clearTimeout(statusBarHideTimeoutRef.current);
+          statusBarHideTimeoutRef.current = null;
+        }
+        setIsVisible(true);
+      } else {
+        if (!statusBarHideTimeoutRef.current && isVisibleRef.current && !permanentlyVisibleRef.current) {
+          statusBarHideTimeoutRef.current = setTimeout(() => {
+            setIsVisible(false);
+            statusBarHideTimeoutRef.current = null;
+          }, 300);
+        }
+      }
+
+      if (typeof window !== 'undefined' && window.electronAPI?.setIgnoreMouseEvents) {
         const nextIgnore = !inRegion;
         if (lastIgnoreRef.current !== nextIgnore) {
           lastIgnoreRef.current = nextIgnore;
@@ -237,32 +279,47 @@ const StatusBar = () => {
             window.electronAPI.setIgnoreMouseEvents(false);
           }
         }
-      };
+      }
+    };
 
-      const handleGlobalMouseLeave = () => {
+    const handleGlobalMouseLeave = () => {
+      if (typeof window !== 'undefined' && window.electronAPI?.setIgnoreMouseEvents) {
         if (lastIgnoreRef.current !== true) {
           lastIgnoreRef.current = true;
           window.electronAPI.setIgnoreMouseEvents(true, { forward: true });
         }
-      };
+      }
+      if (!isBackdropActiveRef.current && !permanentlyVisibleRef.current) {
+        if (statusBarHideTimeoutRef.current) {
+          clearTimeout(statusBarHideTimeoutRef.current);
+        }
+        statusBarHideTimeoutRef.current = setTimeout(() => {
+          setIsVisible(false);
+          statusBarHideTimeoutRef.current = null;
+        }, 300);
+      }
+    };
 
-      window.addEventListener('mousemove', handleGlobalMouseMove);
-      window.addEventListener('mouseleave', handleGlobalMouseLeave);
+    window.addEventListener('mousemove', handleGlobalMouseMove);
+    window.addEventListener('mouseleave', handleGlobalMouseLeave);
 
-      // Start ignoring mouse events by default to let clicks pass through
+    if (typeof window !== 'undefined' && window.electronAPI?.setIgnoreMouseEvents) {
       lastIgnoreRef.current = true;
       window.electronAPI.setIgnoreMouseEvents(true, { forward: true });
-
-      return () => {
-        window.removeEventListener('mousemove', handleGlobalMouseMove);
-        window.removeEventListener('mouseleave', handleGlobalMouseLeave);
-        // Restore mouse events when unmounting
-        if (window.electronAPI?.setIgnoreMouseEvents) {
-          window.electronAPI.setIgnoreMouseEvents(false);
-        }
-      };
     }
-  }, []);
+
+    return () => {
+      window.removeEventListener('mousemove', handleGlobalMouseMove);
+      window.removeEventListener('mouseleave', handleGlobalMouseLeave);
+      if (statusBarHideTimeoutRef.current) {
+        clearTimeout(statusBarHideTimeoutRef.current);
+      }
+      if (typeof window !== 'undefined' && window.electronAPI?.setIgnoreMouseEvents) {
+        window.electronAPI.setIgnoreMouseEvents(false);
+      }
+    };
+  }, [isPointerInInteractiveRegion]);
+
 
   // Cancel timeouts on unmount to prevent leaks
   useEffect(() => {
@@ -273,10 +330,6 @@ const StatusBar = () => {
     };
   }, []);
 
-  useEffect(() => {
-    // Disable auto-hide: keep visible
-    setIsVisible(true);
-  }, []);
 
   useEffect(() => {
     if (typeof window !== 'undefined' && window.electronAPI?.resizeWindow) {
