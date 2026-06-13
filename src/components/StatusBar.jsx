@@ -6,15 +6,15 @@ import FloatingNavBar from './FloatingNavBar';
 
 const StatusBar = () => {
   const [isVisible, setIsVisible] = useState(false);
+  const [permanentlyVisible, setPermanentlyVisible] = useState(false);
 
-  const [permanentlyVisible, setPermanentlyVisible] = useState(() => {
+  useEffect(() => {
     try {
-      const saved = localStorage.getItem('ddo_keep_status_bar_visible');
-      return saved === 'true';
-    } catch {
-      return false;
+      localStorage.setItem('ddo_keep_status_bar_visible', 'false');
+    } catch (e) {
+      console.error(e);
     }
-  });
+  }, []);
 
   const handleTogglePermanentlyVisible = (val) => {
     setPermanentlyVisible(val);
@@ -26,6 +26,11 @@ const StatusBar = () => {
   };
 
   const actualIsVisible = permanentlyVisible || isVisible;
+
+  useEffect(() => {
+    document.body.classList.toggle("ddo-toolbar-visible", actualIsVisible);
+    document.body.classList.toggle("ddo-toolbar-hidden", !actualIsVisible);
+  }, [actualIsVisible]);
 
 
   const [isLeftMenuPopupActive, setIsLeftMenuPopupActive] = useState(false);
@@ -247,8 +252,8 @@ const StatusBar = () => {
     const handleGlobalMouseMove = (e) => {
       const inRegion = isPointerInInteractiveRegion(e.clientX, e.clientY);
       
-      const triggerWidth = 320;
-      const triggerHeight = 6;
+      const triggerWidth = 360;
+      const triggerHeight = 8;
 
       const leftBound = (window.innerWidth - triggerWidth) / 2;
       const rightBound = (window.innerWidth + triggerWidth) / 2;
@@ -355,43 +360,58 @@ const StatusBar = () => {
   }, []);
 
   return (
-    <div className="ddo-toolbar-layer" style={{ pointerEvents: 'none' }}>
+    <>
       <div
-        className={`status-bar-container glass-panel ddo-status-bar ${actualIsVisible ? '' : 'hidden'}`}
-        style={{ height: '42px', padding: '0 16px', pointerEvents: 'auto' }}
+        className="top-trigger-zone"
+        onMouseEnter={() => {
+          if (statusBarHideTimeoutRef.current) {
+            clearTimeout(statusBarHideTimeoutRef.current);
+            statusBarHideTimeoutRef.current = null;
+          }
+          setIsVisible(true);
+        }}
+      />
+      <div
+        className="toolbar-root status-bar-layer ddo-toolbar-layer"
+        style={{ pointerEvents: 'none' }}
       >
-        <div className={`status-popup-backdrop ${isBackdropActive ? 'active' : ''}`} />
-        
-        {/* Left Section */}
-        <div className="status-bar-left-section" style={{ display: 'flex', alignItems: 'center', gap: '16px', flex: 1, justifyContent: 'flex-start' }}>
-          <LeftMenu onPopupStateChange={setIsLeftMenuPopupActive} />
-          <RightTray mode="left" onPopupStateChange={setIsLeftTrayPopupActive} />
-        </div>
-        
-        {/* Middle Section */}
-        <div className="status-bar-middle-section" style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', flex: 1, position: 'relative' }}>
-          <div
-            className="status-bar-middle-trigger"
-            onMouseEnter={handleStatusBarMouseEnter}
-            onMouseLeave={handleStatusBarMouseLeave}
-            style={{ width: '100px', height: '42px', cursor: 'pointer', background: 'transparent' }}
-          />
-          <FloatingNavBar
-            isNavBarVisible={isNavBarVisible}
-            onNavBarMouseEnter={handleNavBarMouseEnter}
-            onNavBarMouseLeave={handleNavBarMouseLeave}
-            onPopupStateChange={setIsNavBarPanelActive}
-            permanentlyVisible={permanentlyVisible}
-            onTogglePermanentlyVisible={handleTogglePermanentlyVisible}
-          />
-        </div>
-        
-        {/* Right Section */}
-        <div className="status-bar-right-section" style={{ display: 'flex', alignItems: 'center', gap: '16px', flex: 1, justifyContent: 'flex-end' }}>
-          <RightTray mode="right" onPopupStateChange={setIsRightTrayPopupActive} />
+        <div
+          className={`status-bar-container glass-panel ddo-status-bar status-bar ${actualIsVisible ? 'visible' : ''}`}
+          style={{ height: '42px', padding: '0 16px', pointerEvents: 'auto' }}
+        >
+          <div className={`status-popup-backdrop ${isBackdropActive ? 'active' : ''}`} />
+          
+          {/* Left Section */}
+          <div className="status-bar-left-section" style={{ display: 'flex', alignItems: 'center', gap: '16px', flex: 1, justifyContent: 'flex-start' }}>
+            <LeftMenu onPopupStateChange={setIsLeftMenuPopupActive} />
+            <RightTray mode="left" onPopupStateChange={setIsLeftTrayPopupActive} />
+          </div>
+          
+          {/* Middle Section */}
+          <div className="status-bar-middle-section" style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', flex: 1, position: 'relative' }}>
+            <div
+              className="status-bar-middle-trigger"
+              onMouseEnter={handleStatusBarMouseEnter}
+              onMouseLeave={handleStatusBarMouseLeave}
+              style={{ width: '100px', height: '42px', cursor: 'pointer', background: 'transparent' }}
+            />
+            <FloatingNavBar
+              isNavBarVisible={isNavBarVisible}
+              onNavBarMouseEnter={handleNavBarMouseEnter}
+              onNavBarMouseLeave={handleNavBarMouseLeave}
+              onPopupStateChange={setIsNavBarPanelActive}
+              permanentlyVisible={permanentlyVisible}
+              onTogglePermanentlyVisible={handleTogglePermanentlyVisible}
+            />
+          </div>
+          
+          {/* Right Section */}
+          <div className="status-bar-right-section" style={{ display: 'flex', alignItems: 'center', gap: '16px', flex: 1, justifyContent: 'flex-end' }}>
+            <RightTray mode="right" onPopupStateChange={setIsRightTrayPopupActive} />
+          </div>
         </div>
       </div>
-    </div>
+    </>
   );
 };
 

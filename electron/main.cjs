@@ -34,28 +34,84 @@ function createWindow() {
       preload: path.join(__dirname, 'preload.cjs'),
       nodeIntegration: false,
       contextIsolation: true,
-      devTools: isDev, // Disable DevTools in normal/production use
+      devTools: true, // Enable DevTools for debugging support!
       backgroundThrottling: true // Enable background throttling
     },
   });
 
+  mainWindow.webContents.on('console-message', (event, level, message, line, sourceId) => {
+    console.log(`[RENDERER LOG] [level ${level}] ${message} (from ${sourceId}:${line})`);
+  });
+
   // Keep window always on top, above normal windows
+
   mainWindow.setAlwaysOnTop(true, 'screen-saver');
   // Avoid showing in taskbar
   mainWindow.setSkipTaskbar(true);
 
-  if (isDev) {
-    mainWindow.loadURL('http://127.0.0.1:3000');
-    // Open DevTools only when manually requested (e.g., F12 key)
-    mainWindow.webContents.on('before-input-event', (event, input) => {
-      if (input.key === 'F12' && input.type === 'keyDown') {
-        mainWindow.webContents.toggleDevTools();
+  // Keyboard shortcuts (Inspect, Reload, Emergency Exit)
+  mainWindow.webContents.on('before-input-event', (event, input) => {
+    if (input.type === 'keyDown') {
+      const isInspect = (input.key === 'F12') || (input.control && input.shift && input.key.toLowerCase() === 'i');
+      if (isInspect) {
+        if (mainWindow.webContents.isDevToolsOpened()) {
+          mainWindow.webContents.closeDevTools();
+        } else {
+          mainWindow.webContents.openDevTools({ mode: 'detach' });
+        }
         event.preventDefault();
       }
-    });
+
+      if (input.control && input.key.toLowerCase() === 'r') {
+        mainWindow.webContents.reloadIgnoringCache();
+        event.preventDefault();
+      }
+
+      if (input.control && input.shift && input.key.toLowerCase() === 'q') {
+        app.isQuitting = true;
+        app.quit();
+        event.preventDefault();
+      }
+    }
+  });
+
+  // Right-click context menu (Inspect, Reload, Exit)
+  mainWindow.webContents.on('context-menu', (event, params) => {
+    const menu = Menu.buildFromTemplate([
+      {
+        label: 'Inspect',
+        click: () => {
+          if (mainWindow.webContents.isDevToolsOpened()) {
+            mainWindow.webContents.closeDevTools();
+          } else {
+            mainWindow.webContents.openDevTools({ mode: 'detach' });
+          }
+        }
+      },
+      {
+        label: 'Reload Toolbar',
+        click: () => {
+          mainWindow.webContents.reloadIgnoringCache();
+        }
+      },
+      { type: 'separator' },
+      {
+        label: 'Exit DDO',
+        click: () => {
+          app.isQuitting = true;
+          app.quit();
+        }
+      }
+    ]);
+    menu.popup(mainWindow);
+  });
+
+  if (isDev) {
+    mainWindow.loadURL('http://127.0.0.1:3000/toolbar');
   } else {
-    mainWindow.loadFile(path.join(__dirname, '../dist/index.html'));
+    mainWindow.loadFile(path.join(__dirname, '../dist/index.html'), { hash: 'toolbar' });
   }
+
 
   // Handle renderer crash
   mainWindow.webContents.on('render-process-gone', (event, details) => {

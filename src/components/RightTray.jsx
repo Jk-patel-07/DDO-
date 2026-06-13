@@ -1454,7 +1454,7 @@ const RightTray = ({ mode, onPopupStateChange = () => {} }) => {
       if (usSideSettingsRef.current && usSideSettingsRef.current.contains(event.target)) {
         return;
       }
-      if (event.target.closest('.user-status-button')) {
+      if (event.target && typeof event.target.closest === 'function' && event.target.closest('.user-status-button')) {
         return;
       }
       if (isUsSideSettingsOpen) {

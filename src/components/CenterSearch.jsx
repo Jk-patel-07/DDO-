@@ -2082,7 +2082,8 @@ const ChatInputArea = ({
   useEffect(() => {
     if (!showCommandMenu) return;
     const handleOutsideClick = (e) => {
-      if (commandMenuRef.current && !commandMenuRef.current.contains(e.target) && !e.target.closest('.center-search-answer-input')) {
+      const isInput = e.target && typeof e.target.closest === 'function' && e.target.closest('.center-search-answer-input');
+      if (commandMenuRef.current && !commandMenuRef.current.contains(e.target) && !isInput) {
         setIsMenuDismissed(true);
       }
     };
@@ -2094,7 +2095,9 @@ const ChatInputArea = ({
   useEffect(() => {
     if (!isAttachmentMenuOpen) return;
     const handleOutsideClick = (e) => {
-      if (!e.target.closest('.center-search-answer-plus-btn') && !e.target.closest('.attachment-menu-popup')) {
+      const isPlusBtn = e.target && typeof e.target.closest === 'function' && e.target.closest('.center-search-answer-plus-btn');
+      const isPopup = e.target && typeof e.target.closest === 'function' && e.target.closest('.attachment-menu-popup');
+      if (!isPlusBtn && !isPopup) {
         setIsAttachmentMenuOpen(false);
       }
     };
@@ -3493,7 +3496,8 @@ const AiChatPopup = ({
   useEffect(() => {
     if (isMaximized || !isHistoryOpen) return;
     const handleOutsideClick = (e) => {
-      if (historyMenuRef.current && !historyMenuRef.current.contains(e.target) && !e.target.closest('.center-search-answer-history-btn')) {
+      const isHistoryBtn = e.target && typeof e.target.closest === 'function' && e.target.closest('.center-search-answer-history-btn');
+      if (historyMenuRef.current && !historyMenuRef.current.contains(e.target) && !isHistoryBtn) {
         setIsHistoryOpen(false);
       }
     };
