@@ -23,6 +23,7 @@ import User from './models/User.mjs';
 import Company from './models/Company.mjs';
 import CompanyEditRequest from './models/CompanyEditRequest.mjs';
 import ChatTab from './models/ChatTab.mjs';
+import Update from './models/Update.mjs';
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
@@ -54,7 +55,7 @@ const ALLOWED_ORIGINS = new Set([
   'http://127.0.0.1:5173',
   'http://localhost:5173',
 ]);
-const MONGODB_URI = String(process.env.MONGODB_URI || '').trim();
+const MONGODB_URI = String(process.env.MONGO_URI || process.env.MONGODB_URI || '').trim();
 const AUTH_SECRET = process.env.JWT_SECRET || process.env.APP_AUTH_SECRET || 'ddo-local-auth-secret-change-me';
 const COMPANY_SESSION_TTL_SECONDS = 60 * 30;
 const COMPANY_EDIT_ACCESS_TTL_SECONDS = 60 * 10;
@@ -3429,6 +3430,77 @@ app.get('/api/spotify/callback-status', (req, res) => {
   res.json({ pending: false, code: data.code, error: data.error });
 });
 
+app.get('/api/update/check', async (req, res, next) => {
+  try {
+    const latestUpdate = await Update.findOne({ isActive: true }).sort({ publishedAt: -1 });
+    if (!latestUpdate) {
+      return res.json({ latestVersion: null });
+    }
+    res.json({
+      latestVersion: latestUpdate.versionName,
+      size: latestUpdate.size,
+      type: latestUpdate.type,
+      changes: latestUpdate.changes,
+      securityChanges: latestUpdate.securityChanges,
+      bugFixes: latestUpdate.bugFixes,
+      downloadUrl: latestUpdate.downloadUrl,
+      publishedAt: latestUpdate.publishedAt
+    });
+  } catch (error) {
+    next(error);
+  }
+});
+
+app.post('/api/update/publish', async (req, res, next) => {
+  try {
+    const session = requireAuth(req);
+    const adminEmail = String(process.env.DDO_ADMIN_EMAIL || 'admin@ddo.com').trim().toLowerCase();
+    const isDev = session.role === 'admin' || session.role === 'developer' || (session.email && session.email.toLowerCase() === adminEmail);
+    if (!isDev) {
+      throw new HttpError(403, 'Developer authentication required.');
+    }
+
+    const { versionName, size, type, changes, securityChanges, bugFixes, downloadUrl } = req.body;
+
+    if (!versionName || !String(versionName).trim()) {
+      throw new HttpError(400, 'Version name is required.');
+    }
+    if (!size || !String(size).trim()) {
+      throw new HttpError(400, 'Update size is required.');
+    }
+    if (!type || !String(type).trim()) {
+      throw new HttpError(400, 'Update type is required.');
+    }
+    if (!changes || !Array.isArray(changes) || changes.filter(c => String(c).trim()).length === 0) {
+      throw new HttpError(400, 'What changed details are required and cannot be empty.');
+    }
+    if (!downloadUrl || !String(downloadUrl).trim() || !/^https?:\/\//i.test(downloadUrl)) {
+      throw new HttpError(400, 'A valid download URL is required.');
+    }
+
+    // Set all other updates as inactive so only the latest update is active
+    await Update.updateMany({}, { isActive: false });
+
+    const newUpdate = new Update({
+      versionName: String(versionName).trim(),
+      size: String(size).trim(),
+      type: String(type).trim(),
+      changes: changes.map(c => String(c).trim()).filter(Boolean),
+      securityChanges: Array.isArray(securityChanges) ? securityChanges.map(s => String(s).trim()).filter(Boolean) : [],
+      bugFixes: Array.isArray(bugFixes) ? bugFixes.map(b => String(b).trim()).filter(Boolean) : [],
+      downloadUrl: String(downloadUrl).trim(),
+      publishedBy: session.email || 'admin',
+      isActive: true,
+      publishedAt: new Date()
+    });
+
+    await newUpdate.save();
+    res.json({ ok: true, update: newUpdate });
+  } catch (error) {
+    next(error);
+  }
+});
+
 app.use((error, _request, response, _next) => {
   if (error?.message === 'Origin not allowed by CORS.') {
     response.status(403).json({ error: 'CORS blocked this request.' });
@@ -3441,18 +3513,19 @@ app.use((error, _request, response, _next) => {
 });
 
 const connectMongoDB = async () => {
-  if (!MONGODB_URI) {
+  console.log("MONGO_URI loaded:", Boolean(process.env.MONGO_URI));
+  console.log("Connecting to MongoDB...");
+
+  if (!process.env.MONGO_URI) {
     console.warn('MongoDB URI not configured. Using local file storage fallback.');
     return;
   }
 
   try {
-    await mongoose.connect(MONGODB_URI, {
-      serverSelectionTimeoutMS: 5000,
-    });
-    console.log('MongoDB connected successfully');
+    await mongoose.connect(process.env.MONGO_URI);
+    console.log('MongoDB connected');
   } catch (error) {
-    console.error('MongoDB connection failed:', error instanceof Error ? error.message : String(error));
+    console.error("MongoDB connection failed:", error.message);
     console.warn('Backend will continue in degraded mode without MongoDB.');
   }
 };

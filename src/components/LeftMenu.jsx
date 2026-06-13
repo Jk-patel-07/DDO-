@@ -16,6 +16,7 @@ import {
 import { createAuthHeaders } from '../utils/appAuth';
 import { buildApiUrl } from '../utils/api';
 import { useDraggablePopup } from '../utils/useDraggablePopup';
+import packageJson from '../../package.json';
 
 const YOUTUBE_SHORTS_URL = 'https://www.youtube.com/shorts';
 const BACKGROUND_ANIMATION_STORAGE_KEY = 'background_animation_mode';
@@ -76,6 +77,9 @@ const LeftMenu = ({ onPopupStateChange = () => {} }) => {
   const confirmPopupRef = confirmDrag.popupRef;
   const sleepDrag = useDraggablePopup('left-sleep');
   const sleepPopupRef = sleepDrag.popupRef;
+  const settingsDrag = useDraggablePopup('left-settings');
+  const settingsPopupRef = settingsDrag.popupRef;
+  
   const [isViewPopupOpen, setIsViewPopupOpen] = useState(false);
   const [isWindowPopupOpen, setIsWindowPopupOpen] = useState(false);
   const [isEditPopupOpen, setIsEditPopupOpen] = useState(false);
@@ -83,6 +87,7 @@ const LeftMenu = ({ onPopupStateChange = () => {} }) => {
   const [isHelpPopupOpen, setIsHelpPopupOpen] = useState(false);
   const [isAnimationPopupOpen, setIsAnimationPopupOpen] = useState(false);
   const [isMoreAnimationPopupOpen, setIsMoreAnimationPopupOpen] = useState(false);
+  const [isDdoSettingsOpen, setIsDdoSettingsOpen] = useState(false);
   const [isFunctionPopupOpen, setIsFunctionPopupOpen] = useState(false);
   const [confirmAction, setConfirmAction] = useState(null);
   const [isSleepPopupOpen, setIsSleepPopupOpen] = useState(false);
@@ -171,6 +176,10 @@ const LeftMenu = ({ onPopupStateChange = () => {} }) => {
         return;
       }
 
+      if (settingsPopupRef.current && settingsPopupRef.current.contains(event.target)) {
+        return;
+      }
+
       if (wrapperRef.current && !wrapperRef.current.contains(event.target)) {
         setIsViewPopupOpen(false);
         setIsWindowPopupOpen(false);
@@ -180,6 +189,7 @@ const LeftMenu = ({ onPopupStateChange = () => {} }) => {
         setIsAnimationPopupOpen(false);
         setIsMoreAnimationPopupOpen(false);
         setIsFunctionPopupOpen(false);
+        setIsDdoSettingsOpen(false);
         setConfirmAction(null);
         if (sleepCountdownSeconds <= 0) {
           setIsSleepPopupOpen(false);
@@ -204,7 +214,8 @@ const LeftMenu = ({ onPopupStateChange = () => {} }) => {
         || isMoreAnimationPopupOpen
         || isFunctionPopupOpen
         || Boolean(confirmAction)
-        || isSleepPopupOpen,
+        || isSleepPopupOpen
+        || isDdoSettingsOpen,
     );
   }, [
     confirmAction,
@@ -217,6 +228,7 @@ const LeftMenu = ({ onPopupStateChange = () => {} }) => {
     isSleepPopupOpen,
     isViewPopupOpen,
     isWindowPopupOpen,
+    isDdoSettingsOpen,
     onPopupStateChange,
   ]);
 
@@ -254,6 +266,12 @@ const LeftMenu = ({ onPopupStateChange = () => {} }) => {
   };
 
   const handleWindowOptionClick = async (option) => {
+    if (option.label === 'Settings') {
+      setIsWindowPopupOpen(false);
+      setIsDdoSettingsOpen(true);
+      return;
+    }
+
     if (option.label === 'Sleep') {
       setIsWindowPopupOpen(false);
       setConfirmAction(null);
@@ -605,6 +623,8 @@ const LeftMenu = ({ onPopupStateChange = () => {} }) => {
             </div>
           ) : null}
 
+
+
           {item === 'Edit' && isEditPopupOpen ? (
             <div className="view-ai-popup edit-menu-popup popup-aurora-surface">
               <div className="view-popup-options">
@@ -916,6 +936,54 @@ const LeftMenu = ({ onPopupStateChange = () => {} }) => {
               onClick={handleCancelSleepTimer}
             >
               Cancel
+            </button>
+          </div>
+        </div>
+      ) : null}
+
+      {isDdoSettingsOpen ? (
+        <div
+          ref={settingsPopupRef}
+          style={{ ...settingsDrag.dragStyle, width: '300px', padding: '16px' }}
+          className="sleep-timer-popup popup-aurora-surface"
+        >
+          <div className="popup-drag-header" style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '12px' }}>
+            <div className="window-confirm-title" style={{ margin: 0 }}>DDO Settings</div>
+            <button type="button" className="popup-drag-btn" {...settingsDrag.dragProps}>⠿</button>
+          </div>
+
+          <div style={{ display: 'flex', flexDirection: 'column', gap: '12px', color: '#c9d1d9', fontSize: '12px' }}>
+            <div style={{ display: 'flex', justifyContent: 'space-between', borderBottom: '1px solid #30363d', paddingBottom: '8px' }}>
+              <span>Installed Version</span>
+              <strong style={{ color: '#58a6ff' }}>{packageJson.ddoVersion}</strong>
+            </div>
+
+            <div style={{ marginTop: '8px' }}>
+              <strong style={{ color: '#8b949e', textTransform: 'uppercase', fontSize: '10px', letterSpacing: '0.5px' }}>Update History / Changelog</strong>
+              <div style={{ display: 'flex', flexDirection: 'column', gap: '8px', marginTop: '6px', maxHeight: '150px', overflowY: 'auto', paddingRight: '4px' }}>
+                <div style={{ borderLeft: '2px solid #58a6ff', paddingLeft: '8px' }}>
+                  <div style={{ fontWeight: 'bold' }}>DOI-1.2</div>
+                  <div style={{ fontSize: '11px', color: '#8b949e' }}>Security patch & bug fixes</div>
+                </div>
+                <div style={{ borderLeft: '2px solid #30363d', paddingLeft: '8px' }}>
+                  <div style={{ fontWeight: 'bold' }}>DOI-1.1</div>
+                  <div style={{ fontSize: '11px', color: '#8b949e' }}>Improved status bar UI and floating menu adjustments</div>
+                </div>
+                <div style={{ borderLeft: '2px solid #30363d', paddingLeft: '8px' }}>
+                  <div style={{ fontWeight: 'bold' }}>DOI-1</div>
+                  <div style={{ fontSize: '11px', color: '#8b949e' }}>Initial deployment of the DDO Toolbar</div>
+                </div>
+              </div>
+            </div>
+          </div>
+
+          <div className="window-confirm-actions" style={{ marginTop: '16px', display: 'flex', justifyContent: 'flex-end' }}>
+            <button
+              type="button"
+              className="window-confirm-button window-confirm-cancel"
+              onClick={() => setIsDdoSettingsOpen(false)}
+            >
+              Close
             </button>
           </div>
         </div>

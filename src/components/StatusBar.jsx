@@ -4,10 +4,165 @@ import { EyeOff } from 'lucide-react';
 import LeftMenu from './LeftMenu';
 import RightTray from './RightTray';
 import FloatingNavBar from './FloatingNavBar';
+import { buildApiUrl } from '../utils/api';
+import packageJson from '../../package.json';
+import { readStoredAuthSession, createAuthHeaders } from '../utils/appAuth';
+
+const isNewerVersion = (current, latest) => {
+  if (!current || !latest) return false;
+  const parse = (v) => v.replace(/^DOI-/, '').split('.').map(Number);
+  const cParts = parse(current);
+  const lParts = parse(latest);
+  const len = Math.max(cParts.length, lParts.length);
+  for (let i = 0; i < len; i++) {
+    const c = cParts[i] || 0;
+    const l = lParts[i] || 0;
+    if (l > c) return true;
+    if (l < c) return false;
+  }
+  return false;
+};
 
 const StatusBar = () => {
   const [isVisible, setIsVisible] = useState(true);
   const [permanentlyVisible, setPermanentlyVisible] = useState(false);
+  const [updateInfo, setUpdateInfo] = useState(null);
+  const [showUpdatePopup, setShowUpdatePopup] = useState(false);
+
+  const [isPublishPopupOpen, setIsPublishPopupOpen] = useState(false);
+  const [isConfirmPopupOpen, setIsConfirmPopupOpen] = useState(false);
+  
+  const [pubVersionName, setPubVersionName] = useState('');
+  const [pubSize, setPubSize] = useState('');
+  const [pubType, setPubType] = useState('');
+  const [pubChanges, setPubChanges] = useState('');
+  const [pubSecurityChanges, setPubSecurityChanges] = useState('');
+  const [pubBugFixes, setPubBugFixes] = useState('');
+  const [pubDownloadUrl, setPubDownloadUrl] = useState('');
+
+  // Event listener to open update popup manually triggered from Settings
+  useEffect(() => {
+    const handleTriggerPopup = (e) => {
+      setUpdateInfo(e.detail);
+      setShowUpdatePopup(true);
+    };
+
+    window.addEventListener('ddo-trigger-update-popup', handleTriggerPopup);
+    return () => {
+      window.removeEventListener('ddo-trigger-update-popup', handleTriggerPopup);
+    };
+  }, []);
+
+  const handlePublishClick = () => {
+    if (!pubVersionName.trim()) {
+      window.alert('Version name is required.');
+      return;
+    }
+    if (!pubSize.trim()) {
+      window.alert('Update size is required.');
+      return;
+    }
+    if (!pubType.trim()) {
+      window.alert('Update type is required.');
+      return;
+    }
+    if (!pubChanges.trim()) {
+      window.alert('What changed details are required.');
+      return;
+    }
+    if (!pubDownloadUrl.trim() || !/^https?:\/\//i.test(pubDownloadUrl)) {
+      window.alert('A valid download URL is required (must start with http:// or https://).');
+      return;
+    }
+
+    setIsConfirmPopupOpen(true);
+  };
+
+  const handleConfirmPublish = async () => {
+    setIsConfirmPopupOpen(false);
+    try {
+      const response = await fetch(buildApiUrl('/api/update/publish'), {
+        method: 'POST',
+        headers: {
+          ...createAuthHeaders({
+            'Content-Type': 'application/json',
+          }),
+        },
+        body: JSON.stringify({
+          versionName: pubVersionName.trim(),
+          size: pubSize.trim(),
+          type: pubType.trim(),
+          changes: pubChanges.split('\n').map(l => l.trim()).filter(Boolean),
+          securityChanges: pubSecurityChanges.split('\n').map(l => l.trim()).filter(Boolean),
+          bugFixes: pubBugFixes.split('\n').map(l => l.trim()).filter(Boolean),
+          downloadUrl: pubDownloadUrl.trim()
+        })
+      });
+
+      if (!response.ok) {
+        const errData = await response.json();
+        throw new Error(errData.error || 'Failed to publish update.');
+      }
+
+      window.alert('Update published successfully!');
+      setIsPublishPopupOpen(false);
+      
+      // Clear fields
+      setPubVersionName('');
+      setPubSize('');
+      setPubType('');
+      setPubChanges('');
+      setPubSecurityChanges('');
+      setPubBugFixes('');
+      setPubDownloadUrl('');
+    } catch (err) {
+      window.alert(err.message || 'Error publishing update.');
+    }
+  };
+
+  const getIsDevUser = () => {
+    const session = readStoredAuthSession();
+    const user = session?.user;
+    const adminEmail = 'admin@ddo.com';
+    return !!(user && (user.role === 'admin' || user.role === 'developer' || (user.email && user.email.toLowerCase() === adminEmail)));
+  };
+  const isDevUser = getIsDevUser();
+
+  useEffect(() => {
+    // Check for updates ONLY in production mode (never in localhost/development)
+    if (import.meta.env.VITE_APP_MODE !== 'production') {
+      return;
+    }
+
+    const checkUpdates = async () => {
+      try {
+        const response = await fetch(buildApiUrl('/api/update/check'));
+        if (response.ok) {
+          const data = await response.json();
+          const currentVersion = packageJson.ddoVersion;
+          if (isNewerVersion(currentVersion, data.latestVersion)) {
+            setUpdateInfo(data);
+            setShowUpdatePopup(true);
+          }
+        }
+      } catch (err) {
+        console.error("Failed to check for updates:", err);
+      }
+    };
+
+    checkUpdates();
+  }, []);
+
+  const handleUpdateNow = () => {
+    setShowUpdatePopup(false);
+    if (updateInfo?.downloadUrl) {
+      if (typeof window !== 'undefined' && window.electronAPI?.openExternal) {
+        window.electronAPI.openExternal(updateInfo.downloadUrl);
+      } else {
+        window.open(updateInfo.downloadUrl, '_blank', 'noopener,noreferrer');
+      }
+    }
+  };
 
   useEffect(() => {
     try {
@@ -212,7 +367,7 @@ const StatusBar = () => {
       '.spotify-now-playing-popup, .spotify-detail-popup, .whatsapp-popup-dropdown, ' +
       '.contact-popup-container, .popup-aurora-surface, .company-dashboard-popup, ' +
       '.company-dashboard-nested, .us-status-popup, .user-login-screen, .user-login-shell, ' +
-      '.ddo-capture-overlay'
+      '.ddo-capture-overlay, .ddo-update-popup-card, .ddo-publish-popup-card'
     );
     for (const popup of activePopups) {
       const rect = popup.getBoundingClientRect();
@@ -338,6 +493,10 @@ const StatusBar = () => {
         let targetHeight = 42; // standard bar height
         if (isBackdropActive) {
           targetHeight = 650; // popup open height
+        } else if (isPublishPopupOpen) {
+          targetHeight = 550; // publish form visible height
+        } else if (showUpdatePopup) {
+          targetHeight = 280; // update popup visible height
         } else if (isNavBarVisible) {
           targetHeight = 120; // navbar visible height
         }
@@ -348,7 +507,7 @@ const StatusBar = () => {
       };
       resize();
     }
-  }, [isBackdropActive, isNavBarVisible]);
+  }, [isBackdropActive, isNavBarVisible, showUpdatePopup, isPublishPopupOpen]);
 
   useEffect(() => {
     document.body.dataset.theme = 'dark';
@@ -373,6 +532,26 @@ const StatusBar = () => {
           
           {/* Left Section */}
           <div className="status-bar-left-section" style={{ display: 'flex', alignItems: 'center', gap: '16px', flex: 1, justifyContent: 'flex-start' }}>
+            {import.meta.env.VITE_APP_MODE === 'development' && (
+              <span
+                id="ddo-dev-badge"
+                style={{
+                  backgroundColor: '#ea4335',
+                  color: 'white',
+                  padding: '2px 5px',
+                  borderRadius: '3px',
+                  fontSize: '9px',
+                  fontFamily: 'monospace',
+                  fontWeight: 'bold',
+                  letterSpacing: '0.5px',
+                  userSelect: 'none',
+                  border: '1px solid rgba(255, 255, 255, 0.2)',
+                  lineHeight: '1'
+                }}
+              >
+                DEV
+              </span>
+            )}
             <LeftMenu onPopupStateChange={setIsLeftMenuPopupActive} />
             <RightTray mode="left" onPopupStateChange={setIsLeftTrayPopupActive} />
           </div>
@@ -408,6 +587,97 @@ const StatusBar = () => {
             </div>
           </div>
         </div>
+
+        {showUpdatePopup && updateInfo && (
+          <div 
+            className="ddo-update-popup-card popup-aurora-surface"
+            style={{
+              position: 'absolute',
+              top: '48px',
+              left: '50%',
+              transform: 'translateX(-50%)',
+              width: '360px',
+              padding: '16px',
+              borderRadius: '8px',
+              border: '1px solid rgba(255, 255, 255, 0.1)',
+              backgroundColor: '#0d1117',
+              boxShadow: '0 4px 20px rgba(0, 0, 0, 0.5)',
+              zIndex: 10000,
+              display: 'flex',
+              flexDirection: 'column',
+              gap: '12px',
+              color: '#c9d1d9',
+              fontFamily: 'system-ui, -apple-system, sans-serif',
+              pointerEvents: 'auto'
+            }}
+          >
+            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+              <h4 style={{ margin: 0, fontSize: '14px', color: '#58a6ff', fontWeight: 'bold' }}>
+                Update Available: {updateInfo.latestVersion}
+              </h4>
+              <span style={{
+                fontSize: '10px',
+                backgroundColor: '#238636',
+                color: 'white',
+                padding: '2px 6px',
+                borderRadius: '10px',
+                fontWeight: 'bold'
+              }}>
+                {updateInfo.type}
+              </span>
+            </div>
+
+            <div style={{ fontSize: '11px', color: '#8b949e' }}>
+              Release Date: {updateInfo.releaseDate}
+            </div>
+
+            <div style={{ fontSize: '12px', lineHeight: '1.4' }}>
+              <div style={{ fontWeight: 'bold', marginBottom: '4px', color: '#f0f6fc' }}>Changelog:</div>
+              <ul style={{ margin: 0, paddingLeft: '16px', color: '#c9d1d9' }}>
+                {updateInfo.details.map((detail, idx) => (
+                  <li key={idx} style={{ marginBottom: '2px' }}>{detail}</li>
+                ))}
+              </ul>
+            </div>
+
+            <div style={{ display: 'flex', justifyContent: 'flex-end', gap: '8px', marginTop: '4px' }}>
+              <button
+                onClick={() => setShowUpdatePopup(false)}
+                style={{
+                  backgroundColor: 'transparent',
+                  border: '1px solid #30363d',
+                  color: '#c9d1d9',
+                  padding: '6px 12px',
+                  borderRadius: '6px',
+                  cursor: 'pointer',
+                  fontSize: '12px',
+                  fontWeight: '500',
+                  transition: 'background-color 0.2s',
+                  lineHeight: '1.2'
+                }}
+              >
+                Later
+              </button>
+              <button
+                onClick={handleUpdateNow}
+                style={{
+                  backgroundColor: '#238636',
+                  border: '1px solid rgba(240, 246, 252, 0.1)',
+                  color: 'white',
+                  padding: '6px 12px',
+                  borderRadius: '6px',
+                  cursor: 'pointer',
+                  fontSize: '12px',
+                  fontWeight: 'bold',
+                  transition: 'background-color 0.2s',
+                  lineHeight: '1.2'
+                }}
+              >
+                Update Now
+              </button>
+            </div>
+          </div>
+        )}
       </div>
     </>
   );

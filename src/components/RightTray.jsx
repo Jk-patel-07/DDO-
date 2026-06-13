@@ -14,6 +14,7 @@ import {
   readStoredAuthSession,
 } from '../utils/appAuth';
 import { API_BASE_URL, buildApiUrl } from '../utils/api';
+import packageJson from '../../package.json';
 
 const SPOTIFY_AUTHORIZE_URL = 'https://accounts.spotify.com/authorize';
 const SPOTIFY_TOKEN_URL = 'https://accounts.spotify.com/api/token';
@@ -243,6 +244,44 @@ async function requestBackendJson(
 
 const RightTray = ({ mode, onPopupStateChange = () => {} }) => {
   const [time, setTime] = useState(new Date());
+
+  const handleTriggerUpdateCheck = async () => {
+    try {
+      const response = await fetch(buildApiUrl('/api/update/check'));
+      if (response.ok) {
+        const data = await response.json();
+        const currentVersion = packageJson.ddoVersion;
+        
+        const isNewer = (current, latest) => {
+          if (!current || !latest) return false;
+          const parse = (v) => v.replace(/^DOI-/, '').split('.').map(Number);
+          const cParts = parse(current);
+          const lParts = parse(latest);
+          const len = Math.max(cParts.length, lParts.length);
+          for (let i = 0; i < len; i++) {
+            const c = cParts[i] || 0;
+            const l = lParts[i] || 0;
+            if (l > c) return true;
+            if (l < c) return false;
+          }
+          return false;
+        };
+
+        if (data.latestVersion && isNewer(currentVersion, data.latestVersion)) {
+          const event = new CustomEvent('ddo-trigger-update-popup', { detail: data });
+          window.dispatchEvent(event);
+          setIsUsStatusPopupOpen(false);
+        } else {
+          window.alert('No update in DDO');
+        }
+      } else {
+        window.alert('No update in DDO');
+      }
+    } catch (err) {
+      console.error("Manual update check failed:", err);
+      window.alert('No update in DDO');
+    }
+  };
   
   // Time Popup States
   const [isTimePopupOpen, setIsTimePopupOpen] = useState(false);
@@ -4799,6 +4838,26 @@ const RightTray = ({ mode, onPopupStateChange = () => {} }) => {
                         +
                       </button>
                     </div>
+                  </div>
+                  
+                  <div className="setting-row" style={{ marginTop: '12px', paddingTop: '12px', borderTop: '1px solid rgba(255,255,255,0.1)' }}>
+                    <span>Software Update</span>
+                    <button
+                      type="button"
+                      onClick={handleTriggerUpdateCheck}
+                      style={{
+                        backgroundColor: '#58a6ff',
+                        color: 'white',
+                        border: 'none',
+                        padding: '4px 10px',
+                        borderRadius: '4px',
+                        fontSize: '11px',
+                        fontWeight: 'bold',
+                        cursor: 'pointer'
+                      }}
+                    >
+                      Update
+                    </button>
                   </div>
                 </div>
               ) : usStatusActiveSection === 'login' ? (

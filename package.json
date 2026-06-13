@@ -2,6 +2,7 @@
   "name": "ddo",
   "private": true,
   "version": "0.0.0",
+  "ddoVersion": "DOI-1",
   "main": "electron/main.cjs",
   "type": "module",
   "scripts": {
@@ -55,7 +56,8 @@
     },
     "files": [
       "dist/**/*",
-      "electron/**/*"
+      "electron/**/*",
+      "src-tauri/icons/icon.ico"
     ],
     "win": {
       "target": "nsis",
