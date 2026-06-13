@@ -9666,8 +9666,37 @@ body.tauri html {
   padding: 0 !important;
   width: 100% !important;
   height: 100% !important;
+  min-height: 0 !important;
   overflow: hidden !important;
   background: transparent !important;
+}
+
+body.electron .user-login-screen,
+body.tauri .user-login-screen {
+  height: 100% !important;
+  width: 100% !important;
+  min-height: 0 !important;
+  max-height: none !important;
+}
+
+body.electron .user-login-shell,
+body.tauri .user-login-shell {
+  height: calc(100% - 24px) !important;
+  min-height: 0 !important;
+  max-height: none !important;
+}
+
+body.electron .app-runtime-fallback,
+body.tauri .app-runtime-fallback {
+  min-height: 0 !important;
+  height: 100% !important;
+  width: 100% !important;
+}
+
+body.electron .company-dashboard,
+body.tauri .company-dashboard {
+  min-height: 0 !important;
+  max-height: calc(100% - 48px) !important;
 }
 
 body.electron::-webkit-scrollbar,
@@ -9681,7 +9710,10 @@ body.tauri html::-webkit-scrollbar {
 
 .ddo-toolbar-layer {
   position: fixed;
-  inset: 0;
+  top: 0;
+  left: 0;
+  right: 0;
+  height: 100%;
   background: transparent;
   pointer-events: none;
   z-index: 1000;

@@ -184,7 +184,18 @@ const StatusBar = () => {
     }
 
     const activePopups = document.querySelectorAll(
-      '.left-menu-dropdown, .right-tray-dropdown, .ddo-floating-nav-container, .calculator-container, .translator-container, .wifi-password-card, .wifi-dropdown-card, .bluetooth-dropdown-card, .bell-dropdown-card, .profile-status-dropdown, .center-search-account-popup, .center-search-provider-menu, .center-search-answer-popup, .left-tray-container, .right-tray-container, .view-ai-popup, .animation-settings-popup, .animation-more-popup, .function-popup, .window-confirm-popup, .sleep-timer-popup, .wifi-dropdown-panel, .bluetooth-dropdown-panel, .bell-dropdown-panel, .spotify-now-playing-popup, .spotify-detail-popup, .whatsapp-popup-dropdown'
+      '.left-menu-dropdown, .right-tray-dropdown, .ddo-floating-nav-container, ' +
+      '.calculator-container, .translator-container, .wifi-password-card, .wifi-dropdown-card, ' +
+      '.bluetooth-dropdown-card, .bell-dropdown-card, .profile-status-dropdown, ' +
+      '.center-search-account-popup, .center-search-provider-menu, .center-search-answer-popup, ' +
+      '.center-search-popup, .center-search-dropdown, .center-search-shell, ' +
+      '.left-tray-container, .right-tray-container, .view-ai-popup, .animation-settings-popup, ' +
+      '.animation-more-popup, .function-popup, .window-confirm-popup, .sleep-timer-popup, ' +
+      '.wifi-dropdown-panel, .bluetooth-dropdown-panel, .bell-dropdown-panel, ' +
+      '.spotify-now-playing-popup, .spotify-detail-popup, .whatsapp-popup-dropdown, ' +
+      '.contact-popup-container, .popup-aurora-surface, .company-dashboard-popup, ' +
+      '.company-dashboard-nested, .us-status-popup, .user-login-screen, .user-login-shell, ' +
+      '.ddo-capture-overlay'
     );
     for (const popup of activePopups) {
       const rect = popup.getBoundingClientRect();
@@ -193,26 +204,74 @@ const StatusBar = () => {
       }
     }
 
+    // Dynamic elementFromPoint fallback for any other interactive elements inside #root
+    try {
+      const el = document.elementFromPoint(x, y);
+      if (el && el !== document.documentElement && el !== document.body) {
+        const style = window.getComputedStyle(el);
+        if (style.pointerEvents !== 'none' && !el.classList.contains('status-popup-backdrop')) {
+          if (el.closest('#root')) {
+            return true;
+          }
+        }
+      }
+    } catch {
+      // ignore
+    }
+
     return false;
   };
 
+  const lastIgnoreRef = useRef(null);
+
   useEffect(() => {
     if (typeof window !== 'undefined' && window.electronAPI?.setIgnoreMouseEvents) {
-      if (isBackdropActive) {
-        const handleGlobalMouseMove = (e) => {
-          const inRegion = isPointerInInteractiveRegion(e.clientX, e.clientY);
-          window.electronAPI.setIgnoreMouseEvents(!inRegion, { forward: true });
-        };
+      const handleGlobalMouseMove = (e) => {
+        const inRegion = isPointerInInteractiveRegion(e.clientX, e.clientY);
+        const nextIgnore = !inRegion;
+        if (lastIgnoreRef.current !== nextIgnore) {
+          lastIgnoreRef.current = nextIgnore;
+          if (nextIgnore) {
+            window.electronAPI.setIgnoreMouseEvents(true, { forward: true });
+          } else {
+            window.electronAPI.setIgnoreMouseEvents(false);
+          }
+        }
+      };
 
-        window.addEventListener('mousemove', handleGlobalMouseMove);
-        return () => {
-          window.removeEventListener('mousemove', handleGlobalMouseMove);
-        };
-      } else {
-        window.electronAPI.setIgnoreMouseEvents(false);
-      }
+      const handleGlobalMouseLeave = () => {
+        if (lastIgnoreRef.current !== true) {
+          lastIgnoreRef.current = true;
+          window.electronAPI.setIgnoreMouseEvents(true, { forward: true });
+        }
+      };
+
+      window.addEventListener('mousemove', handleGlobalMouseMove);
+      window.addEventListener('mouseleave', handleGlobalMouseLeave);
+
+      // Start ignoring mouse events by default to let clicks pass through
+      lastIgnoreRef.current = true;
+      window.electronAPI.setIgnoreMouseEvents(true, { forward: true });
+
+      return () => {
+        window.removeEventListener('mousemove', handleGlobalMouseMove);
+        window.removeEventListener('mouseleave', handleGlobalMouseLeave);
+        // Restore mouse events when unmounting
+        if (window.electronAPI?.setIgnoreMouseEvents) {
+          window.electronAPI.setIgnoreMouseEvents(false);
+        }
+      };
     }
-  }, [actualIsVisible, isBackdropActive, isNavBarVisible]);
+  }, []);
+
+  // Cancel timeouts on unmount to prevent leaks
+  useEffect(() => {
+    return () => {
+      if (navBarHideTimeoutRef.current) {
+        clearTimeout(navBarHideTimeoutRef.current);
+      }
+    };
+  }, []);
 
   useEffect(() => {
     // Disable auto-hide: keep visible
@@ -225,6 +284,8 @@ const StatusBar = () => {
         let targetHeight = 42; // standard bar height
         if (isBackdropActive) {
           targetHeight = 650; // popup open height
+        } else if (isNavBarVisible) {
+          targetHeight = 120; // navbar visible height
         }
         window.electronAPI.resizeWindow({
           width: window.innerWidth,
@@ -233,7 +294,7 @@ const StatusBar = () => {
       };
       resize();
     }
-  }, [isBackdropActive]);
+  }, [isBackdropActive, isNavBarVisible]);
 
   useEffect(() => {
     document.body.dataset.theme = 'dark';

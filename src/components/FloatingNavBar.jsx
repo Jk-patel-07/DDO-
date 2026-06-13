@@ -157,7 +157,10 @@ const FloatingNavBar = ({
         }
       }
     } catch (err) {
-      console.error('Failed to fetch screen time:', err);
+      const isNetworkOffline = err instanceof TypeError || /failed to fetch|networkerror|load failed/i.test(String(err?.message || ''));
+      if (!isNetworkOffline) {
+        console.error('Failed to fetch screen time:', err);
+      }
     }
   }, [goalEditing]);
 
@@ -236,23 +239,30 @@ const FloatingNavBar = ({
 
   // Fetch real battery status if available
   useEffect(() => {
+    let battery = null;
+    let onLevelChange = null;
+    let onChargingChange = null;
+
     if (typeof navigator !== 'undefined' && navigator.getBattery) {
       navigator.getBattery().then((bat) => {
+        battery = bat;
         setBatteryLevel(Math.round(bat.level * 100));
         setIsCharging(bat.charging);
 
-        const onLevelChange = () => setBatteryLevel(Math.round(bat.level * 100));
-        const onChargingChange = () => setIsCharging(bat.charging);
+        onLevelChange = () => setBatteryLevel(Math.round(bat.level * 100));
+        onChargingChange = () => setIsCharging(bat.charging);
 
         bat.addEventListener('levelchange', onLevelChange);
         bat.addEventListener('chargingchange', onChargingChange);
-
-        return () => {
-          bat.removeEventListener('levelchange', onLevelChange);
-          bat.removeEventListener('chargingchange', onChargingChange);
-        };
       }).catch(() => {});
     }
+
+    return () => {
+      if (battery) {
+        if (onLevelChange) battery.removeEventListener('levelchange', onLevelChange);
+        if (onChargingChange) battery.removeEventListener('chargingchange', onChargingChange);
+      }
+    };
   }, []);
 
   // Save checklist to localStorage

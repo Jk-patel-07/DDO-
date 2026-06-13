@@ -549,8 +549,15 @@ const RightTray = ({ mode, onPopupStateChange = () => {} }) => {
       const endpoint = mode === 'scan' ? '/api/bluetooth/devices' : '/api/bluetooth/status';
       const payload = await requestBluetooth(endpoint, { method: 'GET' });
       applyBluetoothSnapshot(payload);
+      setIsBackendOffline(false);
     } catch (error) {
-      setBluetoothError(error.message || 'Bluetooth service unavailable');
+      const isOffline = error.message && error.message.includes('Backend not running');
+      if (isOffline) {
+        setIsBackendOffline(true);
+        setBluetoothError('Backend server is offline.');
+      } else {
+        setBluetoothError(error.message || 'Bluetooth service unavailable');
+      }
     } finally {
       if (showLoader) {
         setIsBluetoothLoading(false);
@@ -574,9 +581,16 @@ const RightTray = ({ mode, onPopupStateChange = () => {} }) => {
         loginProtection: Boolean(payload.loginProtection),
         apiKeyProtection: Boolean(payload.apiKeyProtection),
       });
-    } catch {
+      setIsBackendOffline(false);
+    } catch (error) {
       setSecurityStatus(null);
-      setSecurityStatusError('Security status unavailable.');
+      const isOffline = error.message && error.message.includes('Backend not running');
+      if (isOffline) {
+        setIsBackendOffline(true);
+        setSecurityStatusError('Backend server is offline.');
+      } else {
+        setSecurityStatusError('Security status unavailable.');
+      }
     } finally {
       setIsSecurityStatusLoading(false);
     }
@@ -588,9 +602,16 @@ const RightTray = ({ mode, onPopupStateChange = () => {} }) => {
       setNotificationsError('');
       const payload = await requestNotifications('/api/notifications', { method: 'GET' });
       setNotifications(Array.isArray(payload.notifications) ? payload.notifications : []);
+      setIsBackendOffline(false);
     } catch (error) {
+      const isOffline = error.message && error.message.includes('Backend not running');
+      if (isOffline) {
+        setIsBackendOffline(true);
+        setNotificationsError('Backend server is offline.');
+      } else {
+        setNotificationsError(error.message || 'Notifications unavailable');
+      }
       setNotifications([]);
-      setNotificationsError(error.message || 'Notifications unavailable');
     } finally {
       setIsNotificationsLoading(false);
     }
@@ -724,24 +745,88 @@ const RightTray = ({ mode, onPopupStateChange = () => {} }) => {
     loadBluetoothSnapshotRef.current = loadBluetoothSnapshot;
   }, [loadBluetoothSnapshot]);
 
+  const loadNotificationsRef = useRef(null);
   useEffect(() => {
+    loadNotificationsRef.current = loadNotifications;
+  });
+
+  // Load once on mount
+  useEffect(() => {
+    void loadWifiNetworks(false);
+  }, []);
+
+  // Poll Wi-Fi only when dropdown is open
+  useEffect(() => {
+    if (!isWifiDropdownOpen) {
+      return;
+    }
+
     let timerId = null;
 
     const tick = async () => {
       await loadWifiNetworksRef.current(false);
-      const delay = isBackendOffline ? 60000 : 15000;
+      const delay = isBackendOffline ? 30000 : 10000;
       timerId = setTimeout(tick, delay);
     };
 
-    void loadWifiNetworksRef.current(false);
-    timerId = setTimeout(tick, isBackendOffline ? 60000 : 15000);
+    timerId = setTimeout(tick, isBackendOffline ? 30000 : 10000);
 
     return () => {
       if (timerId) {
         clearTimeout(timerId);
       }
     };
-  }, [isBackendOffline]);
+  }, [isWifiDropdownOpen, isBackendOffline]);
+
+  // Poll Bluetooth only when popup is open
+  useEffect(() => {
+    if (!isBluetoothPopupOpen) {
+      return;
+    }
+
+    let timerId = null;
+
+    const tick = async () => {
+      if (loadBluetoothSnapshotRef.current) {
+        await loadBluetoothSnapshotRef.current('status', false);
+      }
+      const delay = isBackendOffline ? 30000 : 10000;
+      timerId = setTimeout(tick, delay);
+    };
+
+    timerId = setTimeout(tick, isBackendOffline ? 30000 : 10000);
+
+    return () => {
+      if (timerId) {
+        clearTimeout(timerId);
+      }
+    };
+  }, [isBluetoothPopupOpen, isBackendOffline]);
+
+  // Poll notifications only when popup is open
+  useEffect(() => {
+    if (!isNotificationsOpen) {
+      return;
+    }
+
+    let timerId = null;
+
+    const tick = async () => {
+      if (loadNotificationsRef.current) {
+        await loadNotificationsRef.current();
+      }
+      const delay = isBackendOffline ? 30000 : 10000;
+      timerId = setTimeout(tick, delay);
+    };
+
+    timerId = setTimeout(tick, isBackendOffline ? 30000 : 10000);
+
+    return () => {
+      if (timerId) {
+        clearTimeout(timerId);
+      }
+    };
+  }, [isNotificationsOpen, isBackendOffline]);
 
   useEffect(() => {
     let active = true;
@@ -941,8 +1026,9 @@ const RightTray = ({ mode, onPopupStateChange = () => {} }) => {
   }, [spotifyUser]);
 
   useEffect(() => {
-    let batteryManager;
     let mounted = true;
+    let batteryManager = null;
+    let handleBatteryChange = null;
 
     const syncBattery = (battery) => {
       const level = typeof battery.level === 'number' ? battery.level : 0.85;
@@ -977,34 +1063,33 @@ const RightTray = ({ mode, onPopupStateChange = () => {} }) => {
         return;
       }
 
-      batteryManager = await navigator.getBattery();
-      syncBattery(batteryManager);
+      try {
+        const bat = await navigator.getBattery();
+        if (!mounted) return;
+        batteryManager = bat;
+        syncBattery(bat);
 
-      const handleBatteryChange = () => syncBattery(batteryManager);
-      batteryManager.addEventListener('levelchange', handleBatteryChange);
-      batteryManager.addEventListener('chargingchange', handleBatteryChange);
-      batteryManager.addEventListener('chargingtimechange', handleBatteryChange);
-      batteryManager.addEventListener('dischargingtimechange', handleBatteryChange);
+        handleBatteryChange = () => {
+          if (mounted) syncBattery(bat);
+        };
+        bat.addEventListener('levelchange', handleBatteryChange);
+        bat.addEventListener('chargingchange', handleBatteryChange);
+        bat.addEventListener('chargingtimechange', handleBatteryChange);
+        bat.addEventListener('dischargingtimechange', handleBatteryChange);
+      } catch (err) {
+        console.error('Failed to attach battery listener:', err);
+      }
+    };
 
-      return () => {
+    void attachBattery();
+
+    return () => {
+      mounted = false;
+      if (batteryManager && handleBatteryChange) {
         batteryManager.removeEventListener('levelchange', handleBatteryChange);
         batteryManager.removeEventListener('chargingchange', handleBatteryChange);
         batteryManager.removeEventListener('chargingtimechange', handleBatteryChange);
         batteryManager.removeEventListener('dischargingtimechange', handleBatteryChange);
-      };
-    };
-
-    let detach;
-    attachBattery().then((cleanup) => {
-      detach = cleanup;
-    }).catch(() => {
-      // Keep the animated fallback battery values if the API is unavailable.
-    });
-
-    return () => {
-      mounted = false;
-      if (detach) {
-        detach();
       }
     };
   }, []);
@@ -1291,6 +1376,35 @@ const RightTray = ({ mode, onPopupStateChange = () => {} }) => {
       document.removeEventListener('mousedown', handleWaClickOutside);
     };
   }, []);
+
+  // Nested Contact Popups Click Outside
+  useEffect(() => {
+    const handleNestedClickOutside = (event) => {
+      if (isAddContactOpen) {
+        const popup = document.querySelector('.contact-add-popup');
+        if (popup && !popup.contains(event.target)) {
+          setIsAddContactOpen(false);
+        }
+      }
+      if (activeMenuContact) {
+        const popup = document.querySelector('.contact-options-popup');
+        if (popup && !popup.contains(event.target)) {
+          setActiveMenuContact(null);
+        }
+      }
+      if (detailsContact) {
+        const popup = document.querySelector('.contact-details-popup');
+        if (popup && !popup.contains(event.target)) {
+          setDetailsContact(null);
+        }
+      }
+    };
+
+    document.addEventListener('mousedown', handleNestedClickOutside);
+    return () => {
+      document.removeEventListener('mousedown', handleNestedClickOutside);
+    };
+  }, [isAddContactOpen, activeMenuContact, detailsContact]);
 
   // US Status Popup Click Outside
   useEffect(() => {
@@ -3193,25 +3307,30 @@ const RightTray = ({ mode, onPopupStateChange = () => {} }) => {
             )}
           </div>
 
-          {/* Contact Options Nested Popup Overlay */}
+          {/* Contact Options Nested Popup */}
           {activeMenuContact && (
             <div 
-              className="popup-aurora-overlay"
+              className="popup-aurora-surface contact-options-popup"
+              onClick={(e) => e.stopPropagation()}
               style={{
                 position: 'fixed',
-                top: 0,
-                left: 0,
-                width: '100vw',
-                height: '100vh',
-                background: 'rgba(0, 0, 0, 0.4)',
-                backdropFilter: 'blur(8px)',
-                WebkitBackdropFilter: 'blur(8px)',
+                top: '50%',
+                left: '50%',
+                transform: 'translate(-50%, -50%)',
+                background: 'rgba(26, 26, 28, 0.95)',
+                backdropFilter: 'blur(30px)',
+                WebkitBackdropFilter: 'blur(30px)',
+                borderRadius: '16px',
+                border: '1px solid var(--menu-border)',
+                padding: '20px',
+                boxShadow: '0 25px 70px rgba(0,0,0,0.8)',
                 display: 'flex',
-                justifyContent: 'center',
-                alignItems: 'center',
+                flexDirection: 'column',
+                gap: '16px',
+                color: 'white',
+                width: '260px',
                 zIndex: 9999
               }}
-              onClick={() => setActiveMenuContact(null)}
             >
               <style>{`
                 @keyframes slideInRightMenu {
@@ -3219,147 +3338,107 @@ const RightTray = ({ mode, onPopupStateChange = () => {} }) => {
                   to { transform: translateX(0); opacity: 1; }
                 }
               `}</style>
-              <div 
-                className="popup-aurora-surface"
-                onClick={(e) => e.stopPropagation()}
-                style={{
-                  background: 'rgba(26, 26, 28, 0.95)',
-                  backdropFilter: 'blur(30px)',
-                  WebkitBackdropFilter: 'blur(30px)',
-                  borderRadius: '16px',
-                  border: '1px solid var(--menu-border)',
-                  padding: '20px',
-                  boxShadow: '0 25px 70px rgba(0,0,0,0.8)',
-                  display: 'flex',
-                  flexDirection: 'column',
-                  gap: '16px',
-                  color: 'white',
-                  width: '260px',
-                  animation: 'slideInRightMenu 0.3s cubic-bezier(0.16, 1, 0.3, 1)',
-                }}
-              >
-                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-                  <div style={{ fontSize: '15px', fontWeight: 'bold' }}>Contact Options</div>
-                  <div 
-                    onClick={() => setActiveMenuContact(null)}
-                    style={{ cursor: 'pointer', background: 'rgba(255,255,255,0.1)', borderRadius: '50%', padding: '4px' }}
-                  >
-                    <X size={14} />
-                  </div>
+              <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                <div style={{ fontSize: '15px', fontWeight: 'bold' }}>Contact Options</div>
+                <div 
+                  onClick={() => setActiveMenuContact(null)}
+                  style={{ cursor: 'pointer', background: 'rgba(255,255,255,0.1)', borderRadius: '50%', padding: '4px' }}
+                >
+                  <X size={14} />
                 </div>
+              </div>
 
-                <div style={{ background: 'rgba(255,255,255,0.05)', padding: '12px', borderRadius: '12px' }}>
-                  <div style={{ fontSize: '14px', fontWeight: '500', color: 'white' }}>{activeMenuContact.name || 'Unknown'}</div>
-                  <div style={{ fontSize: '12px', color: '#999', marginTop: '2px' }}>{activeMenuContact.phone}</div>
+              <div style={{ background: 'rgba(255,255,255,0.05)', padding: '12px', borderRadius: '12px' }}>
+                <div style={{ fontSize: '14px', fontWeight: '500', color: 'white' }}>{activeMenuContact.name || 'Unknown'}</div>
+                <div style={{ fontSize: '12px', color: '#999', marginTop: '2px' }}>{activeMenuContact.phone}</div>
+              </div>
+
+              <div style={{ display: 'flex', flexDirection: 'column', gap: '6px' }}>
+                <div 
+                  onClick={(e) => {
+                    e.stopPropagation();
+                    openContactEditor(activeMenuContact);
+                  }}
+                  style={{ padding: '12px', fontSize: '14px', color: 'white', display: 'flex', alignItems: 'center', gap: '10px', cursor: 'pointer', borderRadius: '8px', transition: 'background 0.2s', background: 'rgba(255,255,255,0.03)' }}
+                  onMouseOver={(e) => e.currentTarget.style.background = 'rgba(255,255,255,0.1)'}
+                  onMouseOut={(e) => e.currentTarget.style.background = 'rgba(255,255,255,0.03)'}
+                >
+                  <span>✏️</span> Edit Contact
                 </div>
-
-                <div style={{ display: 'flex', flexDirection: 'column', gap: '6px' }}>
-                  <div 
-                    onClick={(e) => {
-                      e.stopPropagation();
-                      openContactEditor(activeMenuContact);
-                    }}
-                    style={{ padding: '12px', fontSize: '14px', color: 'white', display: 'flex', alignItems: 'center', gap: '10px', cursor: 'pointer', borderRadius: '8px', transition: 'background 0.2s', background: 'rgba(255,255,255,0.03)' }}
-                    onMouseOver={(e) => e.currentTarget.style.background = 'rgba(255,255,255,0.1)'}
-                    onMouseOut={(e) => e.currentTarget.style.background = 'rgba(255,255,255,0.03)'}
-                  >
-                    <span>✏️</span> Edit Contact
-                  </div>
-                  <div 
-                    onClick={(e) => {
-                      e.stopPropagation();
-                      removeContact(activeMenuContact);
-                    }}
-                    style={{ padding: '12px', fontSize: '14px', color: '#ff6b6b', display: 'flex', alignItems: 'center', gap: '10px', cursor: 'pointer', borderRadius: '8px', transition: 'background 0.2s', background: 'rgba(255,255,255,0.03)' }}
-                    onMouseOver={(e) => e.currentTarget.style.background = 'rgba(255,255,255,0.1)'}
-                    onMouseOut={(e) => e.currentTarget.style.background = 'rgba(255,255,255,0.03)'}
-                  >
-                    <span>🗑️</span> Delete Contact
-                  </div>
-                  <div 
-                    onClick={(e) => {
-                      e.stopPropagation();
-                      setDetailsContact(activeMenuContact);
-                      setActiveMenuContact(null);
-                    }}
-                    style={{ padding: '12px', fontSize: '14px', color: 'white', display: 'flex', alignItems: 'center', gap: '10px', cursor: 'pointer', borderRadius: '8px', transition: 'background 0.2s', background: 'rgba(255,255,255,0.03)' }}
-                    onMouseOver={(e) => e.currentTarget.style.background = 'rgba(255,255,255,0.1)'}
-                    onMouseOut={(e) => e.currentTarget.style.background = 'rgba(255,255,255,0.03)'}
-                  >
-                    <span>ℹ️</span> More Details
-                  </div>
+                <div 
+                  onClick={(e) => {
+                    e.stopPropagation();
+                    removeContact(activeMenuContact);
+                  }}
+                  style={{ padding: '12px', fontSize: '14px', color: '#ff6b6b', display: 'flex', alignItems: 'center', gap: '10px', cursor: 'pointer', borderRadius: '8px', transition: 'background 0.2s', background: 'rgba(255,255,255,0.03)' }}
+                  onMouseOver={(e) => e.currentTarget.style.background = 'rgba(255,255,255,0.1)'}
+                  onMouseOut={(e) => e.currentTarget.style.background = 'rgba(255,255,255,0.03)'}
+                >
+                  <span>🗑️</span> Delete Contact
+                </div>
+                <div 
+                  onClick={(e) => {
+                    e.stopPropagation();
+                    setDetailsContact(activeMenuContact);
+                    setActiveMenuContact(null);
+                  }}
+                  style={{ padding: '12px', fontSize: '14px', color: 'white', display: 'flex', alignItems: 'center', gap: '10px', cursor: 'pointer', borderRadius: '8px', transition: 'background 0.2s', background: 'rgba(255,255,255,0.03)' }}
+                  onMouseOver={(e) => e.currentTarget.style.background = 'rgba(255,255,255,0.1)'}
+                  onMouseOut={(e) => e.currentTarget.style.background = 'rgba(255,255,255,0.03)'}
+                >
+                  <span>ℹ️</span> More Details
                 </div>
               </div>
             </div>
           )}
 
-          {/* Add Contact Nested Popup Overlay */}
+          {/* Add Contact Nested Popup */}
           {isAddContactOpen && (
             <div 
-              className="popup-aurora-overlay"
+              ref={contactPopupDrag.popupRef}
+              className="contact-popup-container popup-aurora-surface contact-add-popup"
+              onClick={(e) => e.stopPropagation()}
               style={{
                 position: 'fixed',
-                top: 0,
-                left: 0,
-                width: '100vw',
-                height: '100vh',
-                padding: '60px 16px 16px',
-                background: 'rgba(0, 0, 0, 0.18)',
-                backdropFilter: 'blur(6px)',
-                WebkitBackdropFilter: 'blur(6px)',
+                top: '60px',
+                left: '50%',
+                transform: 'translateX(-50%)',
+                width: 'min(360px, 92vw)',
+                maxHeight: 'calc(100% - 90px)',
+                overflowY: 'auto',
+                background: 'linear-gradient(180deg, rgba(10, 13, 16, 0.96), rgba(16, 20, 24, 0.92))',
+                borderRadius: '28px',
+                border: '1px solid var(--menu-border)',
+                padding: '24px 20px',
+                boxShadow: '0 25px 70px rgba(0,0,0,0.8)',
                 display: 'flex',
-                justifyContent: 'center',
-                alignItems: 'flex-start',
+                flexDirection: 'column',
+                gap: '20px',
+                color: 'white',
+                fontFamily: 'sans-serif',
+                animation: 'slideDownFade 0.3s cubic-bezier(0.16, 1, 0.3, 1)',
+                overflowX: 'hidden',
                 zIndex: 9999,
-                animation: 'fadeOverlayIn 0.22s ease'
-              }}
-              onClick={() => {
-                setIsAddContactOpen(false);
-                setEditingContactPhone(null);
-                setContactForm({ name: '', phone: '' });
+                ...contactPopupDrag.dragStyle
               }}
             >
-              <div 
-                ref={contactPopupDrag.popupRef}
-                className="contact-popup-container popup-aurora-surface"
-                onClick={(e) => e.stopPropagation()}
-                style={{
-                  width: 'min(360px, 92vw)',
-                  maxHeight: 'calc(100vh - 90px)',
-                  overflowY: 'auto',
-                  background: 'linear-gradient(180deg, rgba(10, 13, 16, 0.96), rgba(16, 20, 24, 0.92))',
-                  borderRadius: '28px',
-                  border: '1px solid var(--menu-border)',
-                  padding: '24px 20px',
-                  boxShadow: '0 25px 70px rgba(0,0,0,0.8)',
-                  display: 'flex',
-                  flexDirection: 'column',
-                  gap: '20px',
-                  color: 'white',
-                  fontFamily: 'sans-serif',
-                  position: 'relative',
-                  animation: 'slideDownFade 0.3s cubic-bezier(0.16, 1, 0.3, 1)',
-                  overflowX: 'hidden',
-                  ...contactPopupDrag.dragStyle
-                }}
-              >
-                <style>{`
-                  @keyframes fadeOverlayIn {
-                    from { opacity: 0; }
-                    to { opacity: 1; }
-                  }
-                  @keyframes slideDownFade {
-                    from { transform: translateY(-20px) scale(0.95); opacity: 0; }
-                    to { transform: translateY(0) scale(1); opacity: 1; }
-                  }
-                  .contact-popup-container::-webkit-scrollbar {
-                    display: none;
-                  }
-                  .contact-popup-container {
-                    -ms-overflow-style: none;
-                    scrollbar-width: none;
-                  }
-                `}</style>
+              <style>{`
+                @keyframes fadeOverlayIn {
+                  from { opacity: 0; }
+                  to { opacity: 1; }
+                }
+                @keyframes slideDownFade {
+                  from { transform: translateX(-50%) translateY(-20px) scale(0.95); opacity: 0; }
+                  to { transform: translateX(-50%) translateY(0) scale(1); opacity: 1; }
+                }
+                .contact-popup-container::-webkit-scrollbar {
+                  display: none;
+                }
+                .contact-popup-container {
+                  -ms-overflow-style: none;
+                  scrollbar-width: none;
+                }
+              `}</style>
               {/* Header */}
               <div className="flex-between" style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', width: '100%', opacity: 0.9 }}>
                 <div style={{ display: 'inline-flex', alignItems: 'center', gap: '6px', padding: '6px 8px', borderRadius: '8px', marginLeft: '-8px' }}>
@@ -3445,129 +3524,112 @@ const RightTray = ({ mode, onPopupStateChange = () => {} }) => {
                 </button>
               </div>
             </div>
-          </div>
           )}
 
-          {/* Details Contact Nested Popup Overlay */}
+          {/* Details Contact Nested Popup */}
           {detailsContact && (
             <div 
-              className="popup-aurora-overlay"
+              ref={contactPopupDrag.popupRef}
+              className="contact-popup-container popup-aurora-surface contact-details-popup"
+              onClick={(e) => e.stopPropagation()}
               style={{
                 position: 'fixed',
-                top: 0,
-                left: 0,
-                width: '100vw',
-                height: '100vh',
-                paddingTop: '60px',
-                background: 'rgba(0, 0, 0, 0.4)',
-                backdropFilter: 'blur(8px)',
-                WebkitBackdropFilter: 'blur(8px)',
+                top: '60px',
+                left: '50%',
+                transform: 'translateX(-50%)',
+                width: 'min(360px, 92vw)',
+                background: '#000000',
+                borderRadius: '28px',
+                border: '1px solid var(--menu-border)',
+                padding: '24px 20px',
+                boxShadow: '0 25px 70px rgba(0,0,0,0.8)',
                 display: 'flex',
-                justifyContent: 'center',
-                alignItems: 'flex-start',
-                zIndex: 9999
+                flexDirection: 'column',
+                gap: '20px',
+                color: 'white',
+                fontFamily: 'sans-serif',
+                zIndex: 9999,
+                animation: 'slideDownFade 0.3s cubic-bezier(0.16, 1, 0.3, 1)',
+                ...contactPopupDrag.dragStyle
               }}
-              onClick={() => setDetailsContact(null)}
             >
-              <div 
-                ref={contactPopupDrag.popupRef}
-                className="contact-popup-container popup-aurora-surface"
-                onClick={(e) => e.stopPropagation()}
-                style={{
-                  width: 'min(360px, 92vw)',
-                  background: '#000000',
-                  borderRadius: '28px',
-                  border: '1px solid var(--menu-border)',
-                  padding: '24px 20px',
-                  boxShadow: '0 25px 70px rgba(0,0,0,0.8)',
-                  display: 'flex',
-                  flexDirection: 'column',
-                  gap: '20px',
-                  color: 'white',
-                  fontFamily: 'sans-serif',
-                  position: 'relative',
-                  animation: 'slideDownFade 0.3s cubic-bezier(0.16, 1, 0.3, 1)',
-                  ...contactPopupDrag.dragStyle
-                }}
-              >
-                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-                  <div style={{ display: 'inline-flex', alignItems: 'center', gap: '6px', opacity: 0.9 }}>
-                    <User size={16} />
-                    <span style={{ fontSize: '14px', fontWeight: '500' }}>Contact Details</span>
-                  </div>
-                  <div style={{ display: 'flex', gap: '6px', alignItems: 'center' }}>
-                    <button type="button" className="popup-drag-btn" style={{ padding: '6px', cursor: 'grab', background: 'transparent', border: 'none', color: '#ccc' }} {...contactPopupDrag.dragProps}>⠿</button>
-                    <div 
-                      onClick={() => setDetailsContact(null)}
-                      style={{ padding: '6px', cursor: 'pointer', background: 'rgba(255,255,255,0.1)', borderRadius: '50%', display: 'flex', alignItems: 'center', justifyContent: 'center' }}
-                    >
-                      <X size={14} />
-                    </div>
+              <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                <div style={{ display: 'inline-flex', alignItems: 'center', gap: '6px', opacity: 0.9 }}>
+                  <User size={16} />
+                  <span style={{ fontSize: '14px', fontWeight: '500' }}>Contact Details</span>
+                </div>
+                <div style={{ display: 'flex', gap: '6px', alignItems: 'center' }}>
+                  <button type="button" className="popup-drag-btn" style={{ padding: '6px', cursor: 'grab', background: 'transparent', border: 'none', color: '#ccc' }} {...contactPopupDrag.dragProps}>⠿</button>
+                  <div 
+                    onClick={() => setDetailsContact(null)}
+                    style={{ padding: '6px', cursor: 'pointer', background: 'rgba(255,255,255,0.1)', borderRadius: '50%', display: 'flex', alignItems: 'center', justifyContent: 'center' }}
+                  >
+                    <X size={14} />
                   </div>
                 </div>
-
-                <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', gap: '12px' }}>
-                  <div className="flex-center" style={{ width: '80px', height: '80px', background: '#1C1C1C', borderRadius: '50%' }}>
-                    <User size={36} color="#666" />
-                  </div>
-                  <div style={{ textAlign: 'center' }}>
-                    <div style={{ fontSize: '20px', fontWeight: 'bold' }}>{detailsContact.name || 'Unknown'}</div>
-                    <div style={{ fontSize: '13px', color: '#999', marginTop: '4px' }}>{detailsContact.phone}</div>
-                  </div>
-                </div>
-
-                <div style={{ display: 'flex', flexDirection: 'column', gap: '12px', marginTop: '8px' }}>
-                  <div style={{ display: 'flex', alignItems: 'center', background: '#1C1C1C', borderRadius: '16px', padding: '12px 16px', gap: '12px' }}>
-                    <Mail size={18} color="#999" />
-                    <div>
-                      <div style={{ fontSize: '11px', color: '#666', marginBottom: '2px' }}>Email</div>
-                      <div style={{ fontSize: '14px' }}>{detailsContact.email || 'Not provided'}</div>
-                    </div>
-                  </div>
-                  <div style={{ display: 'flex', alignItems: 'center', background: '#1C1C1C', borderRadius: '16px', padding: '12px 16px', gap: '12px' }}>
-                    <Briefcase size={18} color="#999" />
-                    <div>
-                      <div style={{ fontSize: '11px', color: '#666', marginBottom: '2px' }}>Work Info</div>
-                      <div style={{ fontSize: '14px' }}>{detailsContact.work || 'Not provided'}</div>
-                    </div>
-                  </div>
-                  <div style={{ display: 'flex', alignItems: 'center', background: '#1C1C1C', borderRadius: '16px', padding: '12px 16px', gap: '12px' }}>
-                    <Users size={18} color="#999" />
-                    <div>
-                      <div style={{ fontSize: '11px', color: '#666', marginBottom: '2px' }}>Groups</div>
-                      <div style={{ fontSize: '14px' }}>{detailsContact.groups || 'None'}</div>
-                    </div>
-                  </div>
-                </div>
-
-                <button 
-                  onClick={() => {
-                    setDetailsContact(null);
-                    setWaPhone(detailsContact.phone.replace(/[^0-9+]/g, ''));
-                  }}
-                  style={{
-                    background: '#25D366',
-                    color: 'white',
-                    border: 'none',
-                    borderRadius: '12px',
-                    padding: '12px',
-                    fontSize: '14px',
-                    fontWeight: 'bold',
-                    cursor: 'pointer',
-                    marginTop: '8px',
-                    transition: 'background 0.2s',
-                    width: '100%',
-                    display: 'flex',
-                    alignItems: 'center',
-                    justifyContent: 'center',
-                    gap: '8px'
-                  }}
-                  onMouseOver={(e) => e.target.style.background = '#20b858'}
-                  onMouseOut={(e) => e.target.style.background = '#25D366'}
-                >
-                  <FaWhatsapp size={16} /> Message
-                </button>
               </div>
+
+              <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', gap: '12px' }}>
+                <div className="flex-center" style={{ width: '80px', height: '80px', background: '#1C1C1C', borderRadius: '50%' }}>
+                  <User size={36} color="#666" />
+                </div>
+                <div style={{ textAlign: 'center' }}>
+                  <div style={{ fontSize: '20px', fontWeight: 'bold' }}>{detailsContact.name || 'Unknown'}</div>
+                  <div style={{ fontSize: '13px', color: '#999', marginTop: '4px' }}>{detailsContact.phone}</div>
+                </div>
+              </div>
+
+              <div style={{ display: 'flex', flexDirection: 'column', gap: '12px', marginTop: '8px' }}>
+                <div style={{ display: 'flex', alignItems: 'center', background: '#1C1C1C', borderRadius: '16px', padding: '12px 16px', gap: '12px' }}>
+                  <Mail size={18} color="#999" />
+                  <div>
+                    <div style={{ fontSize: '11px', color: '#666', marginBottom: '2px' }}>Email</div>
+                    <div style={{ fontSize: '14px' }}>{detailsContact.email || 'Not provided'}</div>
+                  </div>
+                </div>
+                <div style={{ display: 'flex', alignItems: 'center', background: '#1C1C1C', borderRadius: '16px', padding: '12px 16px', gap: '12px' }}>
+                  <Briefcase size={18} color="#999" />
+                  <div>
+                    <div style={{ fontSize: '11px', color: '#666', marginBottom: '2px' }}>Work Info</div>
+                    <div style={{ fontSize: '14px' }}>{detailsContact.work || 'Not provided'}</div>
+                  </div>
+                </div>
+                <div style={{ display: 'flex', alignItems: 'center', background: '#1C1C1C', borderRadius: '16px', padding: '12px 16px', gap: '12px' }}>
+                  <Users size={18} color="#999" />
+                  <div>
+                    <div style={{ fontSize: '11px', color: '#666', marginBottom: '2px' }}>Groups</div>
+                    <div style={{ fontSize: '14px' }}>{detailsContact.groups || 'None'}</div>
+                  </div>
+                </div>
+              </div>
+
+              <button 
+                onClick={() => {
+                  setDetailsContact(null);
+                  setWaPhone(detailsContact.phone.replace(/[^0-9+]/g, ''));
+                }}
+                style={{
+                  background: '#25D366',
+                  color: 'white',
+                  border: 'none',
+                  borderRadius: '12px',
+                  padding: '12px',
+                  fontSize: '14px',
+                  fontWeight: 'bold',
+                  cursor: 'pointer',
+                  marginTop: '8px',
+                  transition: 'background 0.2s',
+                  width: '100%',
+                  display: 'flex',
+                  alignItems: 'center',
+                  justifyContent: 'center',
+                  gap: '8px'
+                }}
+                onMouseOver={(e) => e.target.style.background = '#20b858'}
+                onMouseOut={(e) => e.target.style.background = '#25D366'}
+              >
+                <FaWhatsapp size={16} /> Message
+              </button>
             </div>
           )}
 

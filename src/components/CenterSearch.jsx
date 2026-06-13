@@ -562,6 +562,14 @@ const CenterSearch = ({ onPopupStateChange = () => {} }) => {
   const searchDrag = useDraggablePopup('search');
   const googleTokenClientRef = useRef(null);
   const isSearchSubmittingRef = useRef(false);
+  const uploadIntervalsRef = useRef([]);
+
+  useEffect(() => {
+    return () => {
+      uploadIntervalsRef.current.forEach(id => clearInterval(id));
+      uploadIntervalsRef.current = [];
+    };
+  }, []);
   const [activePopup, setActivePopup] = useState(null);
   const [query, setQuery] = useState('');
   const [googleAccount, setGoogleAccount] = useState(() => readStoredGoogleAccount());
@@ -2178,14 +2186,17 @@ const ChatInputArea = ({
         if (prev && prev.uploadId === uploadId) {
           if (currentProgress >= 100) {
             clearInterval(interval);
+            uploadIntervalsRef.current = uploadIntervalsRef.current.filter(id => id !== interval);
             return { ...prev, progress: null };
           }
           return { ...prev, progress: currentProgress };
         }
         clearInterval(interval);
+        uploadIntervalsRef.current = uploadIntervalsRef.current.filter(id => id !== interval);
         return prev;
       });
     }, 120);
+    uploadIntervalsRef.current.push(interval);
   };
 
   const handleTriggerUpload = (type) => {

@@ -155,6 +155,18 @@ function CompanyDetailsEditPage() {
   }, []);
 
   useEffect(() => {
+    if (typeof window !== 'undefined' && window.electronAPI?.resizeWindow) {
+      window.electronAPI.resizeWindow({
+        width: window.innerWidth,
+        height: 650
+      });
+    }
+    if (typeof window !== 'undefined' && window.electronAPI?.setIgnoreMouseEvents) {
+      window.electronAPI.setIgnoreMouseEvents(false);
+    }
+  }, []);
+
+  useEffect(() => {
     if (!hasCompanySession) {
       setError('Company login is required before opening the DDO One edit page.');
       setIsLoading(false);
