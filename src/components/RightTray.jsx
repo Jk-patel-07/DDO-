@@ -268,8 +268,12 @@ const RightTray = ({ mode, onPopupStateChange = () => {} }) => {
         };
 
         if (data.latestVersion && isNewer(currentVersion, data.latestVersion)) {
-          const event = new CustomEvent('ddo-trigger-update-popup', { detail: data });
-          window.dispatchEvent(event);
+          if (typeof window !== 'undefined' && window.electronAPI?.openUpdateWindow) {
+            window.electronAPI.openUpdateWindow(data);
+          } else {
+            const event = new CustomEvent('ddo-trigger-update-popup', { detail: data });
+            window.dispatchEvent(event);
+          }
           setIsUsStatusPopupOpen(false);
         } else {
           window.alert('No update in DDO');

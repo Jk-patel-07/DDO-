@@ -1,5 +1,9 @@
 const { app, BrowserWindow, screen, ipcMain, Tray, Menu, globalShortcut, shell } = require('electron');
 const path = require('path');
+const https = require('https');
+const http = require('http');
+const fs = require('fs');
+const os = require('os');
 
 let mainWindow = null;
 let loginWindow = null;
@@ -235,6 +239,150 @@ ipcMain.on('company-login-success', (event, payload) => {
   }
 });
 
+let updateWindow = null;
+let latestUpdateInfo = null;
+
+ipcMain.on('open-update-window', (event, updateInfo) => {
+  latestUpdateInfo = updateInfo;
+  if (updateWindow && !updateWindow.isDestroyed()) {
+    updateWindow.focus();
+    updateWindow.webContents.send('update-data', updateInfo);
+    return;
+  }
+
+  const isDev = !app.isPackaged;
+
+  updateWindow = new BrowserWindow({
+    width: 600,
+    height: 520,
+    frame: true,
+    transparent: false,
+    resizable: true,
+    backgroundColor: '#0d1117',
+    webPreferences: {
+      preload: path.join(__dirname, 'preload.cjs'),
+      nodeIntegration: false,
+      contextIsolation: true,
+      devTools: true,
+    },
+  });
+
+  if (isDev) {
+    updateWindow.loadURL('http://127.0.0.1:3000/#ddo-update');
+  } else {
+    updateWindow.loadFile(path.join(__dirname, '../dist/index.html'), { hash: 'ddo-update' });
+  }
+
+  // Once WebContents finishes loading, send the update info
+  updateWindow.webContents.on('did-finish-load', () => {
+    updateWindow.webContents.send('update-data', latestUpdateInfo);
+  });
+
+  updateWindow.on('closed', () => {
+    updateWindow = null;
+  });
+});
+
+const downloadWithRedirects = (url, filePath, onProgress, onFinish, onError) => {
+  const client = url.startsWith('https') ? https : http;
+  
+  client.get(url, (response) => {
+    if (response.statusCode >= 300 && response.statusCode < 400 && response.headers.location) {
+      downloadWithRedirects(response.headers.location, filePath, onProgress, onFinish, onError);
+      return;
+    }
+    
+    if (response.statusCode !== 200) {
+      onError(new Error(`Server returned status code ${response.statusCode}`));
+      return;
+    }
+    
+    const totalBytes = parseInt(response.headers['content-length'], 10) || 0;
+    let downloadedBytes = 0;
+    
+    const file = fs.createWriteStream(filePath);
+    response.pipe(file);
+    
+    response.on('data', (chunk) => {
+      downloadedBytes += chunk.length;
+      const percent = totalBytes ? Math.round((downloadedBytes / totalBytes) * 100) : 0;
+      onProgress(percent);
+    });
+    
+    file.on('finish', () => {
+      file.close(() => {
+        onFinish();
+      });
+    });
+    
+    file.on('error', (err) => {
+      fs.unlink(filePath, () => {});
+      onError(err);
+    });
+  }).on('error', (err) => {
+    onError(err);
+  });
+};
+
+ipcMain.on('start-update-download', (event, downloadUrl) => {
+  if (!downloadUrl) {
+    event.sender.send('update-status', { status: 'error', message: 'No download URL specified.' });
+    return;
+  }
+
+  event.sender.send('update-status', { status: 'downloading', percent: 0 });
+
+  const tempDir = os.tmpdir();
+  const fileName = `ddo-setup-${Date.now()}.exe`;
+  const filePath = path.join(tempDir, fileName);
+
+  downloadWithRedirects(
+    downloadUrl,
+    filePath,
+    (percent) => {
+      event.sender.send('update-status', { status: 'downloading', percent });
+    },
+    () => {
+      event.sender.send('update-status', { status: 'download-complete' });
+
+      // Ask confirmation before installing
+      const { dialog } = require('electron');
+      const choice = dialog.showMessageBoxSync(updateWindow || mainWindow, {
+        type: 'question',
+        buttons: ['Cancel', 'Install'],
+        defaultId: 1,
+        title: 'Confirm Update',
+        message: 'Install this DDO update now?'
+      });
+
+      if (choice === 1) { // Install
+        event.sender.send('update-status', { status: 'installing' });
+
+        // Run the installer safely using openPath
+        shell.openPath(filePath)
+          .then((errorMessage) => {
+            if (errorMessage) {
+              event.sender.send('update-status', { status: 'error', message: errorMessage });
+            } else {
+              event.sender.send('update-status', { status: 'restart-required' });
+              setTimeout(() => {
+                app.quit();
+              }, 1500);
+            }
+          })
+          .catch((err) => {
+            event.sender.send('update-status', { status: 'error', message: err.message || 'Failed to execute installer.' });
+          });
+      } else {
+        event.sender.send('update-status', { status: 'cancelled' });
+      }
+    },
+    (err) => {
+      event.sender.send('update-status', { status: 'error', message: err.message });
+    }
+  );
+});
+
 let isToolbarVisible = true;
 let visibilityPollInterval = null;
 
@@ -304,6 +452,31 @@ if (!gotTheLock) {
 
     createWindow();
     createTray();
+
+    const template = [
+      { role: 'fileMenu' },
+      { role: 'editMenu' },
+      { role: 'viewMenu' },
+      { role: 'windowMenu' },
+      {
+        label: "Inspect",
+        accelerator: "Ctrl+Shift+I",
+        click: () => {
+          if (!mainWindow || mainWindow.isDestroyed()) return;
+
+          if (mainWindow.webContents.isDevToolsOpened()) {
+            mainWindow.webContents.closeDevTools();
+          } else {
+            mainWindow.webContents.openDevTools({
+              mode: "detach"
+            });
+          }
+        }
+      }
+    ];
+
+    const menu = Menu.buildFromTemplate(template);
+    Menu.setApplicationMenu(menu);
 
     // Register safe-exit keyboard shortcut Ctrl+Shift+Q
     globalShortcut.register('CommandOrControl+Shift+Q', () => {

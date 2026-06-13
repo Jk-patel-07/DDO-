@@ -130,18 +130,22 @@ const StatusBar = () => {
 
   const sessionForDoi = readStoredAuthSession();
   const user = sessionForDoi?.user;
-  const isLocalDev =
-    import.meta.env.VITE_APP_MODE === "development" ||
+  const isLocalhost =
     window.location.hostname === "localhost" ||
     window.location.hostname === "127.0.0.1";
 
-  const canPublishUpdate =
-    isLocalDev && (user?.role === "admin" || user?.role === "developer" || true);
+  const isDevMode =
+    import.meta.env.VITE_APP_MODE === "development";
+
+  const isElectron =
+    !!window.electronAPI;
+
+  const showDOI = isLocalhost && isDevMode && !isElectron;
 
   console.log("VITE_APP_MODE:", import.meta.env.VITE_APP_MODE);
   console.log("hostname:", window.location.hostname);
   console.log("user role:", user?.role);
-  console.log("isLocalDev:", isLocalDev);
+  console.log("showDOI:", showDOI);
 
   useEffect(() => {
     // Check for updates ONLY in production mode (never in localhost/development)
@@ -170,10 +174,10 @@ const StatusBar = () => {
 
   const handleUpdateNow = () => {
     setShowUpdatePopup(false);
-    if (updateInfo?.downloadUrl) {
-      if (typeof window !== 'undefined' && window.electronAPI?.openExternal) {
-        window.electronAPI.openExternal(updateInfo.downloadUrl);
-      } else {
+    if (typeof window !== 'undefined' && window.electronAPI?.openUpdateWindow) {
+      window.electronAPI.openUpdateWindow(updateInfo);
+    } else {
+      if (updateInfo?.downloadUrl) {
         window.open(updateInfo.downloadUrl, '_blank', 'noopener,noreferrer');
       }
     }
@@ -547,7 +551,7 @@ const StatusBar = () => {
           
           {/* Left Section */}
           <div className="status-bar-left-section" style={{ display: 'flex', alignItems: 'center', gap: '16px', flex: 1, justifyContent: 'flex-start' }}>
-            {canPublishUpdate && (
+            {showDOI && (
               <button
                 id="ddo-doi-button"
                 onClick={() => setIsPublishPopupOpen(true)}
