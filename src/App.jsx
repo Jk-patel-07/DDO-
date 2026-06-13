@@ -3,10 +3,18 @@ import StatusBar from './components/StatusBar';
 import AppErrorBoundary from './components/AppErrorBoundary';
 import ToolbarErrorBoundary from './components/ToolbarErrorBoundary';
 import CompanyDetailsEditPage from './pages/CompanyDetailsEditPage';
+import SpotifyCallbackPage from './pages/SpotifyCallbackPage';
+import CompanyLoginPage from './pages/CompanyLoginPage';
 
 function App() {
   const isCompanyEditRoute = typeof window !== 'undefined'
     && window.location.pathname === '/cfm/company-details-edit';
+
+  const isCallbackRoute = typeof window !== 'undefined'
+    && window.location.pathname === '/callback';
+
+  const isCompanyLoginRoute = typeof window !== 'undefined'
+    && (window.location.pathname === '/company-login' || window.location.hash === '#/company-login' || window.location.hash === '#company-login');
 
   const isToolbarRoute = typeof window !== 'undefined'
     && (window.location.pathname === '/toolbar' || window.location.hash === '#/toolbar' || window.location.hash === '#toolbar');
@@ -20,6 +28,22 @@ function App() {
       document.body.classList.remove('ddo-toolbar-route');
     }
   }, [isToolbarRoute]);
+
+  if (isCallbackRoute) {
+    return (
+      <AppErrorBoundary>
+        <SpotifyCallbackPage />
+      </AppErrorBoundary>
+    );
+  }
+
+  if (isCompanyLoginRoute) {
+    return (
+      <AppErrorBoundary>
+        <CompanyLoginPage />
+      </AppErrorBoundary>
+    );
+  }
 
   if (isToolbarRoute) {
     return (

@@ -1010,17 +1010,18 @@ button:active::after,
 }
 
 .center-search-popup {
-  position: absolute;
-  top: calc(100% + 12px);
-  right: 0;
-  width: min(410px, calc(100vw - 24px));
-  z-index: 130;
   isolation: isolate;
   animation: center-search-popup-fade 0.28s ease;
 }
 
 body[data-search-animation="off"] .center-search-popup {
   animation: none !important;
+}
+
+.search-popup {
+  position: fixed;
+  z-index: 9999;
+  width: min(380px, calc(100vw - 24px));
 }
 
 .center-search-popup::before,
@@ -9863,7 +9864,16 @@ body.electron .status-popup-backdrop {
 
 /* ddo-toolbar-route overrides */
 html.ddo-toolbar-route,
-body.ddo-toolbar-route,
+body.ddo-toolbar-route {
+  background: transparent !important;
+  background-image: none !important;
+  margin: 0 !important;
+  padding: 0 !important;
+  overflow: hidden !important;
+  min-height: 0 !important;
+  height: 100% !important;
+}
+
 body.ddo-toolbar-route #root {
   background: transparent !important;
   background-image: none !important;
@@ -9892,4 +9902,19 @@ body.ddo-toolbar-hidden .status-bar-layer::after {
   display: none !important;
   content: none !important;
 }
+
+/* ddo-hidden and ddo-visible pointer events overrides */
+body.ddo-hidden,
+body.ddo-hidden #root,
+body.ddo-hidden .toolbar-root,
+body.ddo-hidden .status-bar-layer {
+  background: transparent !important;
+  pointer-events: none !important;
+}
+
+body.ddo-visible .status-bar,
+body.ddo-visible .ddo-popup {
+  pointer-events: auto;
+}
+
 

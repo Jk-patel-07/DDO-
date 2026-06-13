@@ -3385,6 +3385,50 @@ app.post('/api/screentime/goal', async (request, response, next) => {
   }
 });
 
+// Spotify OAuth Callback Sync in-memory store
+const spotifyCallbacks = new Map();
+
+app.post('/api/spotify/callback', (req, res) => {
+  const { code, state, error } = req.body;
+  if (!state) {
+    return res.status(400).json({ error: 'Missing state parameter' });
+  }
+
+  spotifyCallbacks.set(state, {
+    code,
+    error,
+    timestamp: Date.now()
+  });
+
+  // Limit map size to prevent memory leak
+  if (spotifyCallbacks.size > 200) {
+    const now = Date.now();
+    for (const [key, val] of spotifyCallbacks.entries()) {
+      if (now - val.timestamp > 300000) { // older than 5 mins
+        spotifyCallbacks.delete(key);
+      }
+    }
+  }
+
+  res.json({ ok: true });
+});
+
+app.get('/api/spotify/callback-status', (req, res) => {
+  const { state } = req.query;
+  if (!state) {
+    return res.status(400).json({ error: 'Missing state parameter' });
+  }
+
+  const data = spotifyCallbacks.get(state);
+  if (!data) {
+    return res.json({ pending: true });
+  }
+
+  // Delete once fetched to prevent re-fetching
+  spotifyCallbacks.delete(state);
+  res.json({ pending: false, code: data.code, error: data.error });
+});
+
 app.use((error, _request, response, _next) => {
   if (error?.message === 'Origin not allowed by CORS.') {
     response.status(403).json({ error: 'CORS blocked this request.' });

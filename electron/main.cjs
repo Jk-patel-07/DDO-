@@ -1,7 +1,8 @@
-const { app, BrowserWindow, screen, ipcMain, Tray, Menu, globalShortcut } = require('electron');
+const { app, BrowserWindow, screen, ipcMain, Tray, Menu, globalShortcut, shell } = require('electron');
 const path = require('path');
 
 let mainWindow = null;
+let loginWindow = null;
 let tray = null;
 
 function createWindow() {
@@ -184,6 +185,104 @@ ipcMain.on('set-ignore-mouse-events', (event, ignore, options) => {
   }
 });
 
+ipcMain.on('open-external', (event, url) => {
+  shell.openExternal(url);
+});
+
+ipcMain.on('open-company-login', () => {
+  if (loginWindow && !loginWindow.isDestroyed()) {
+    loginWindow.focus();
+    return;
+  }
+
+  const isDev = !app.isPackaged;
+
+  loginWindow = new BrowserWindow({
+    width: 900,
+    height: 650,
+    frame: true,
+    transparent: false,
+    resizable: true,
+    backgroundColor: '#050c09',
+    webPreferences: {
+      preload: path.join(__dirname, 'preload.cjs'),
+      nodeIntegration: false,
+      contextIsolation: true,
+      devTools: true,
+    },
+  });
+
+  if (isDev) {
+    loginWindow.loadURL('http://127.0.0.1:3000/#company-login');
+  } else {
+    loginWindow.loadFile(path.join(__dirname, '../dist/index.html'), { hash: 'company-login' });
+  }
+
+  loginWindow.on('closed', () => {
+    loginWindow = null;
+  });
+});
+
+ipcMain.on('company-login-success', (event, payload) => {
+  if (mainWindow && !mainWindow.isDestroyed()) {
+    mainWindow.webContents.send('company-login-success', payload);
+    mainWindow.show();
+    mainWindow.focus();
+  }
+
+  if (loginWindow && !loginWindow.isDestroyed()) {
+    loginWindow.close();
+  }
+});
+
+let isToolbarVisible = true;
+let visibilityPollInterval = null;
+
+function startVisibilityPolling() {
+  if (visibilityPollInterval) return;
+
+  visibilityPollInterval = setInterval(() => {
+    if (isToolbarVisible) return;
+
+    const cursor = screen.getCursorScreenPoint();
+    const primaryDisplay = screen.getPrimaryDisplay();
+    const { width: screenWidth } = primaryDisplay.bounds;
+
+    const triggerWidth = 360;
+    const leftBound = (screenWidth - triggerWidth) / 2;
+    const rightBound = (screenWidth + triggerWidth) / 2;
+
+    if (cursor.y <= 2 && cursor.x >= leftBound && cursor.x <= rightBound) {
+      isToolbarVisible = true;
+      if (mainWindow && !mainWindow.isDestroyed()) {
+        mainWindow.webContents.send('show-toolbar');
+        mainWindow.setIgnoreMouseEvents(false);
+      }
+      stopVisibilityPolling();
+    }
+  }, 200);
+}
+
+function stopVisibilityPolling() {
+  if (visibilityPollInterval) {
+    clearInterval(visibilityPollInterval);
+    visibilityPollInterval = null;
+  }
+}
+
+ipcMain.on('update-visibility', (event, visible) => {
+  isToolbarVisible = visible;
+  if (mainWindow && !mainWindow.isDestroyed()) {
+    if (visible) {
+      mainWindow.setIgnoreMouseEvents(false);
+      stopVisibilityPolling();
+    } else {
+      mainWindow.setIgnoreMouseEvents(true, { forward: true });
+      startVisibilityPolling();
+    }
+  }
+});
+
 // Single instance lock
 const gotTheLock = app.requestSingleInstanceLock();
 if (!gotTheLock) {
@@ -221,6 +320,7 @@ if (!gotTheLock) {
 }
 
 app.on('will-quit', () => {
+  stopVisibilityPolling();
   globalShortcut.unregisterAll();
 });
 

@@ -287,6 +287,7 @@ const RightTray = ({ mode, onPopupStateChange = () => {} }) => {
   const [spotifyUser, setSpotifyUser] = useState(() => readStoredSpotifyUser());
   const [spotifyAuthStatus, setSpotifyAuthStatus] = useState(() => (readStoredSpotifyUser() ? 'connected' : 'idle'));
   const [spotifyAuthError, setSpotifyAuthError] = useState('');
+  const [pendingAuthState, setPendingAuthState] = useState(null);
   const [spotifyTopTracks, setSpotifyTopTracks] = useState([]);
   const [isSpotifyTracksLoading, setIsSpotifyTracksLoading] = useState(false);
   const [spotifyPlaylistStatus, setSpotifyPlaylistStatus] = useState('');
@@ -526,7 +527,11 @@ const RightTray = ({ mode, onPopupStateChange = () => {} }) => {
       if (isCompanySession) {
         setCompanyDashboardError('');
         setCompanyLoginError(message);
-        setIsCompanyLoginOpen(true);
+        if (window.electronAPI?.openCompanyLogin) {
+          window.electronAPI.openCompanyLogin();
+        } else {
+          setIsCompanyLoginOpen(true);
+        }
       } else {
         setLoginError(message);
         setUsStatusActiveSection('login');
@@ -743,6 +748,22 @@ const RightTray = ({ mode, onPopupStateChange = () => {} }) => {
     };
   }, [handleProtectedRequestFailure, openCompanyDashboard]);
 
+  useEffect(() => {
+    if (typeof window !== 'undefined' && window.electronAPI?.onCompanyLoginSuccess) {
+      const unsubscribe = window.electronAPI.onCompanyLoginSuccess((payload) => {
+        console.log('[RightTray] Received company login success event via IPC:', payload);
+        persistAuthSession(payload, true);
+        setAppAuthSession({
+          token: payload.token,
+          user: payload.user,
+          rememberMe: true,
+        });
+        openCompanyDashboard();
+      });
+      return () => unsubscribe();
+    }
+  }, [openCompanyDashboard]);
+
   const loadWifiNetworks = async (showLoader = true) => {
     try {
       if (showLoader) {
@@ -861,89 +882,90 @@ const RightTray = ({ mode, onPopupStateChange = () => {} }) => {
     };
   }, [isNotificationsOpen, isBackendOffline]);
 
+  const fetchSpotifyProfile = async (accessToken) => {
+    const response = await fetch(SPOTIFY_PROFILE_URL, {
+      headers: {
+        Authorization: `Bearer ${accessToken}`,
+      },
+    });
+
+    if (!response.ok) {
+      throw new Error('Unable to load Spotify profile right now.');
+    }
+
+    return response.json();
+  };
+
+  const persistSpotifyToken = (payload) => {
+    sessionStorage.setItem(SPOTIFY_STORAGE_KEYS.accessToken, payload.access_token);
+    if (payload.refresh_token) {
+      sessionStorage.setItem(SPOTIFY_STORAGE_KEYS.refreshToken, payload.refresh_token);
+    }
+    sessionStorage.setItem(
+      SPOTIFY_STORAGE_KEYS.expiresAt,
+      String(Date.now() + (payload.expires_in ?? 3600) * 1000),
+    );
+  };
+
+  const exchangeSpotifyCode = async (code, verifier) => {
+    const response = await fetch(SPOTIFY_TOKEN_URL, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/x-www-form-urlencoded',
+      },
+      body: new URLSearchParams({
+        client_id: import.meta.env.VITE_SPOTIFY_CLIENT_ID,
+        grant_type: 'authorization_code',
+        code,
+        redirect_uri: getSpotifyRedirectUri(),
+        code_verifier: verifier,
+      }),
+    });
+
+    if (!response.ok) {
+      throw new Error('Spotify sign-in could not be completed.');
+    }
+
+    return response.json();
+  };
+
+  const refreshSpotifyToken = async (refreshToken) => {
+    const response = await fetch(SPOTIFY_TOKEN_URL, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/x-www-form-urlencoded',
+      },
+      body: new URLSearchParams({
+        client_id: import.meta.env.VITE_SPOTIFY_CLIENT_ID,
+        grant_type: 'refresh_token',
+        refresh_token: refreshToken,
+      }),
+    });
+
+    if (!response.ok) {
+      throw new Error('Spotify session refresh failed.');
+    }
+
+    return response.json();
+  };
+
+  const finishSpotifySignIn = async (accessToken, isMounted = { current: true }) => {
+    const profile = await fetchSpotifyProfile(accessToken);
+
+    if (!isMounted.current) {
+      return;
+    }
+
+    sessionStorage.setItem(SPOTIFY_STORAGE_KEYS.user, JSON.stringify(profile));
+    setSpotifyUser(profile);
+    setSpotifyAuthStatus('connected');
+    setSpotifyAuthError('');
+    setShowSpotifyPopup(true);
+  };
+
   useEffect(() => {
     let active = true;
-
-    const fetchSpotifyProfile = async (accessToken) => {
-      const response = await fetch(SPOTIFY_PROFILE_URL, {
-        headers: {
-          Authorization: `Bearer ${accessToken}`,
-        },
-      });
-
-      if (!response.ok) {
-        throw new Error('Unable to load Spotify profile right now.');
-      }
-
-      return response.json();
-    };
-
-    const persistSpotifyToken = (payload) => {
-      sessionStorage.setItem(SPOTIFY_STORAGE_KEYS.accessToken, payload.access_token);
-      if (payload.refresh_token) {
-        sessionStorage.setItem(SPOTIFY_STORAGE_KEYS.refreshToken, payload.refresh_token);
-      }
-      sessionStorage.setItem(
-        SPOTIFY_STORAGE_KEYS.expiresAt,
-        String(Date.now() + (payload.expires_in ?? 3600) * 1000),
-      );
-    };
-
-    const exchangeSpotifyCode = async (code, verifier) => {
-      const response = await fetch(SPOTIFY_TOKEN_URL, {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/x-www-form-urlencoded',
-        },
-        body: new URLSearchParams({
-          client_id: import.meta.env.VITE_SPOTIFY_CLIENT_ID,
-          grant_type: 'authorization_code',
-          code,
-          redirect_uri: getSpotifyRedirectUri(),
-          code_verifier: verifier,
-        }),
-      });
-
-      if (!response.ok) {
-        throw new Error('Spotify sign-in could not be completed.');
-      }
-
-      return response.json();
-    };
-
-    const refreshSpotifyToken = async (refreshToken) => {
-      const response = await fetch(SPOTIFY_TOKEN_URL, {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/x-www-form-urlencoded',
-        },
-        body: new URLSearchParams({
-          client_id: import.meta.env.VITE_SPOTIFY_CLIENT_ID,
-          grant_type: 'refresh_token',
-          refresh_token: refreshToken,
-        }),
-      });
-
-      if (!response.ok) {
-        throw new Error('Spotify session refresh failed.');
-      }
-
-      return response.json();
-    };
-
-    const finishSpotifySignIn = async (accessToken) => {
-      const profile = await fetchSpotifyProfile(accessToken);
-
-      if (!active) {
-        return;
-      }
-
-      sessionStorage.setItem(SPOTIFY_STORAGE_KEYS.user, JSON.stringify(profile));
-      setSpotifyUser(profile);
-      setSpotifyAuthStatus('connected');
-      setSpotifyAuthError('');
-      setShowSpotifyPopup(true);
-    };
+    const isMounted = { current: true };
 
     const syncSpotifyAuth = async () => {
       const params = new URLSearchParams(window.location.search);
@@ -994,15 +1016,15 @@ const RightTray = ({ mode, onPopupStateChange = () => {} }) => {
           setSpotifyAuthStatus('loading');
           const tokenPayload = await exchangeSpotifyCode(returnedCode, verifier);
           persistSpotifyToken(tokenPayload);
-        sessionStorage.removeItem(SPOTIFY_STORAGE_KEYS.codeVerifier);
-        sessionStorage.removeItem(SPOTIFY_STORAGE_KEYS.state);
-        await finishSpotifySignIn(tokenPayload.access_token);
-        window.history.replaceState({}, document.title, getSpotifyHomeUri());
-      } catch (error) {
-        clearSpotifySession();
-        if (!active) {
-          return;
-        }
+          sessionStorage.removeItem(SPOTIFY_STORAGE_KEYS.codeVerifier);
+          sessionStorage.removeItem(SPOTIFY_STORAGE_KEYS.state);
+          await finishSpotifySignIn(tokenPayload.access_token, isMounted);
+          window.history.replaceState({}, document.title, getSpotifyHomeUri());
+        } catch (error) {
+          clearSpotifySession();
+          if (!active) {
+            return;
+          }
           setSpotifyUser(null);
           setSpotifyAuthStatus('error');
           setSpotifyAuthError(error.message || 'Spotify sign-in failed.');
@@ -1039,7 +1061,7 @@ const RightTray = ({ mode, onPopupStateChange = () => {} }) => {
           return;
         }
 
-        await finishSpotifySignIn(activeToken);
+        await finishSpotifySignIn(activeToken, isMounted);
       } catch (error) {
         clearSpotifySession();
         if (!active) {
@@ -1055,8 +1077,72 @@ const RightTray = ({ mode, onPopupStateChange = () => {} }) => {
 
     return () => {
       active = false;
+      isMounted.current = false;
     };
   }, [spotifyUser]);
+
+  useEffect(() => {
+    if (!pendingAuthState) {
+      return;
+    }
+
+    let active = true;
+    let pollInterval = null;
+    const isMounted = { current: true };
+
+    const poll = async () => {
+      try {
+        const response = await fetch(buildApiUrl(`/api/spotify/callback-status?state=${encodeURIComponent(pendingAuthState)}`));
+        if (!response.ok) {
+          throw new Error('Failed to check Spotify callback status');
+        }
+        const data = await response.json();
+        if (!active) {
+          return;
+        }
+
+        if (!data.pending) {
+          clearInterval(pollInterval);
+          setPendingAuthState(null);
+
+          if (data.error) {
+            clearSpotifySession();
+            setSpotifyAuthStatus('error');
+            setSpotifyAuthError(data.error === 'access_denied' ? 'Spotify sign-in was cancelled or denied.' : data.error);
+            setShowSpotifyPopup(true);
+          } else if (data.code) {
+            const verifier = sessionStorage.getItem(SPOTIFY_STORAGE_KEYS.codeVerifier);
+            try {
+              setSpotifyAuthStatus('loading');
+              const tokenPayload = await exchangeSpotifyCode(data.code, verifier);
+              persistSpotifyToken(tokenPayload);
+              sessionStorage.removeItem(SPOTIFY_STORAGE_KEYS.codeVerifier);
+              sessionStorage.removeItem(SPOTIFY_STORAGE_KEYS.state);
+              await finishSpotifySignIn(tokenPayload.access_token, isMounted);
+            } catch (error) {
+              clearSpotifySession();
+              setSpotifyUser(null);
+              setSpotifyAuthStatus('error');
+              setSpotifyAuthError(error.message || 'Spotify sign-in failed.');
+              setShowSpotifyPopup(true);
+            }
+          }
+        }
+      } catch (err) {
+        console.error('Spotify callback status poll error:', err);
+      }
+    };
+
+    pollInterval = setInterval(poll, 1500);
+
+    return () => {
+      active = false;
+      isMounted.current = false;
+      if (pollInterval) {
+        clearInterval(pollInterval);
+      }
+    };
+  }, [pendingAuthState]);
 
   useEffect(() => {
     let mounted = true;
@@ -1980,7 +2066,13 @@ const RightTray = ({ mode, onPopupStateChange = () => {} }) => {
         code_challenge: challenge,
       }).toString();
 
-      window.location.assign(authUrl.toString());
+      if (window.electronAPI?.openExternal) {
+        window.electronAPI.openExternal(authUrl.toString());
+        setSpotifyAuthStatus('loading');
+        setPendingAuthState(state);
+      } else {
+        window.location.assign(authUrl.toString());
+      }
     } catch {
       setSpotifyAuthStatus('error');
       setSpotifyAuthError('Spotify sign-in could not be started.');
@@ -2926,7 +3018,6 @@ const RightTray = ({ mode, onPopupStateChange = () => {} }) => {
           </div>
         )}
 
-        <CenterSearch onPopupStateChange={setIsSearchPopupOpen} />
         
         {/* Calculator Icon with Popup */}
         <div style={{ position: 'relative' }} ref={calcPopupRef}>
@@ -3710,9 +3801,15 @@ const RightTray = ({ mode, onPopupStateChange = () => {} }) => {
               <div className="spotify-start-copy">
                 <h3>Spotify</h3>
                 <p>
-                  {spotifyUser
-                    ? 'Use Spotify dashboard actions to view your top tracks or create a playlist.'
-                    : 'Log in with Spotify to load your profile, top tracks, and playlist tools.'}
+                  {spotifyAuthStatus === 'loading' ? (
+                    <span style={{ color: '#3b82f6', fontWeight: 'bold' }}>Connecting Spotify...</span>
+                  ) : spotifyUser ? (
+                    <span style={{ color: '#10b981', fontWeight: 'bold' }}>Spotify connected</span>
+                  ) : spotifyAuthStatus === 'error' ? (
+                    <span style={{ color: '#ef4444', fontWeight: 'bold' }}>Spotify login failed</span>
+                  ) : (
+                    'Log in with Spotify to load your profile, top tracks, and playlist tools.'
+                  )}
                 </p>
               </div>
 
@@ -3751,7 +3848,7 @@ const RightTray = ({ mode, onPopupStateChange = () => {} }) => {
                   ? 'Connecting...'
                   : spotifyUser
                     ? 'Logout'
-                    : 'Login with Spotify'}
+                    : 'Connect with Spotify'}
               </button>
 
               {spotifyUser ? (
@@ -3961,6 +4058,7 @@ const RightTray = ({ mode, onPopupStateChange = () => {} }) => {
     <>
       {/* System Tray Icons */}
       <div className="flex-center right-tray-container" style={{ gap: '6px', pointerEvents: 'auto', position: 'relative', zIndex: 1000 }}>
+        <CenterSearch onPopupStateChange={setIsSearchPopupOpen} />
         <div ref={wifiPopupRef} style={{ position: 'relative' }}>
           <button
             type="button"
@@ -4767,8 +4865,15 @@ const RightTray = ({ mode, onPopupStateChange = () => {} }) => {
                         type="button"
                         className="user-login-link"
                         onClick={() => {
-                          setIsUsStatusPopupOpen(false);
-                          setIsCompanyLoginOpen(true);
+                          if (window.electronAPI?.openCompanyLogin) {
+                            setIsUsStatusPopupOpen(false);
+                            window.electronAPI.openCompanyLogin();
+                          } else {
+                            setIsUsStatusPopupOpen(false);
+                            setCompanyLoginError('');
+                            setCompanyLoginStatus('');
+                            setIsCompanyLoginOpen(true);
+                          }
                         }}
                         style={{ fontSize: '10px', color: '#7ea587', border: 'none', background: 'none', cursor: 'pointer', padding: 0 }}
                       >
@@ -5194,9 +5299,14 @@ const RightTray = ({ mode, onPopupStateChange = () => {} }) => {
                 type="button"
                 className="user-login-company-entry"
                 onClick={() => {
-                  setCompanyLoginError('');
-                  setCompanyLoginStatus('');
-                  setIsCompanyLoginOpen(true);
+                  if (window.electronAPI?.openCompanyLogin) {
+                    setIsUserLoginOpen(false);
+                    window.electronAPI.openCompanyLogin();
+                  } else {
+                    setCompanyLoginError('');
+                    setCompanyLoginStatus('');
+                    setIsCompanyLoginOpen(true);
+                  }
                 }}
               >
                 <Briefcase size={14} />

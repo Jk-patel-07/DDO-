@@ -556,6 +556,7 @@ const MessageAttachmentRenderer = ({ attachment }) => {
 };
 const CenterSearch = ({ onPopupStateChange = () => {} }) => {
   const wrapperRef = useRef(null);
+  const triggerRef = useRef(null);
   const providerTriggerRef = useRef(null);
   const accountTriggerRef = useRef(null);
   const accountPopupRef = useRef(null);
@@ -564,13 +565,8 @@ const CenterSearch = ({ onPopupStateChange = () => {} }) => {
   const isSearchSubmittingRef = useRef(false);
   const uploadIntervalsRef = useRef([]);
 
-  useEffect(() => {
-    return () => {
-      uploadIntervalsRef.current.forEach(id => clearInterval(id));
-      uploadIntervalsRef.current = [];
-    };
-  }, []);
   const [activePopup, setActivePopup] = useState(null);
+  const [popupStyle, setPopupStyle] = useState({ display: 'none' });
   const [query, setQuery] = useState('');
   const [googleAccount, setGoogleAccount] = useState(() => readStoredGoogleAccount());
   const [googleAuthError, setGoogleAuthError] = useState('');
@@ -580,6 +576,47 @@ const CenterSearch = ({ onPopupStateChange = () => {} }) => {
   const [isProviderMenuOpen, setIsProviderMenuOpen] = useState(false);
   const [providerMenuPosition, setProviderMenuPosition] = useState({ top: 0, left: 0 });
   const [searchProvider, setSearchProvider] = useState(() => readStoredSearchProvider());
+
+  useEffect(() => {
+    return () => {
+      uploadIntervalsRef.current.forEach(id => clearInterval(id));
+      uploadIntervalsRef.current = [];
+    };
+  }, []);
+
+  const updatePopupPosition = useCallback(() => {
+    const triggerEl = triggerRef.current;
+    if (!triggerEl) return;
+    const rect = triggerEl.getBoundingClientRect();
+    const popupWidth = Math.min(380, window.innerWidth - 24);
+    let left = rect.right - popupWidth;
+    if (left < 12) {
+      left = 12;
+    }
+    if (left + popupWidth > window.innerWidth - 12) {
+      left = window.innerWidth - 12 - popupWidth;
+    }
+    const top = rect.bottom + 8;
+    setPopupStyle({
+      position: 'fixed',
+      top: `${top}px`,
+      left: `${left}px`,
+      width: `${popupWidth}px`,
+      zIndex: 9999,
+    });
+  }, []);
+
+  useLayoutEffect(() => {
+    if (activePopup === 'search') {
+      updatePopupPosition();
+      window.addEventListener('resize', updatePopupPosition);
+      window.addEventListener('scroll', updatePopupPosition, true);
+      return () => {
+        window.removeEventListener('resize', updatePopupPosition);
+        window.removeEventListener('scroll', updatePopupPosition, true);
+      };
+    }
+  }, [activePopup, updatePopupPosition]);
 
   // Independent open/close states
   const [isGeminiOpen, setIsGeminiOpen] = useState(false);
@@ -676,12 +713,15 @@ const CenterSearch = ({ onPopupStateChange = () => {} }) => {
       const clickedAccountPopup = accountPopupRef.current?.contains(event.target);
       const clickedProviderTrigger = providerTriggerRef.current?.contains(event.target);
       const clickedProviderMenu = providerMenuRef.current?.contains(event.target);
+      const clickedSearchPopup = searchDrag.popupRef.current?.contains(event.target);
+      const clickedSearchTrigger = triggerRef.current?.contains(event.target);
       
       const clickedGeminiPopup = document.querySelector('.center-search-answer-popup[data-provider="gemini"]')?.contains(event.target);
       const clickedStepFunPopup = document.querySelector('.center-search-answer-popup[data-provider="stepfun"]')?.contains(event.target);
       const clickedManusPopup = document.querySelector('.center-search-answer-popup[data-provider="manus"]')?.contains(event.target);
 
       if (clickedAccountTrigger || clickedAccountPopup || clickedProviderTrigger || clickedProviderMenu || 
+          clickedSearchPopup || clickedSearchTrigger ||
           clickedGeminiPopup || clickedStepFunPopup || clickedManusPopup) {
         return;
       }
@@ -703,7 +743,7 @@ const CenterSearch = ({ onPopupStateChange = () => {} }) => {
     };
   }, []);
 
-  const isAnyPopupOpen = activePopup !== null || isGeminiOpen || isStepFunOpen || isManusOpen;
+  const isAnyPopupOpen = activePopup !== null || isGeminiOpen || isStepFunOpen || isManusOpen || isMetaOpen;
   useEffect(() => {
     onPopupStateChange(isAnyPopupOpen);
   }, [isAnyPopupOpen, onPopupStateChange]);
@@ -1067,19 +1107,13 @@ const CenterSearch = ({ onPopupStateChange = () => {} }) => {
       )
     : null;
 
-  return (
-    <div ref={wrapperRef} className="center-search-shell">
-      <button
-        type="button"
-        className={`flex-center center-search-trigger ${activePopup === 'search' ? 'is-open' : ''}`}
-        onClick={() => setActivePopup((current) => (current === 'search' ? null : 'search'))}
-        aria-label="Open search"
-      >
-        <Search size={14} />
-      </button>
-
-      {activePopup === 'search' && (
-        <div ref={searchDrag.popupRef} style={searchDrag.dragStyle} className="center-search-popup">
+  const searchPopup = activePopup === 'search'
+    ? createPortal(
+        <div
+          ref={searchDrag.popupRef}
+          className="search-popup center-search-popup"
+          style={popupStyle}
+        >
           <form
             className={`center-search-bar ${activePopup === 'search' ? 'is-open' : ''}`}
             onSubmit={handleSearchSubmit}
@@ -1251,8 +1285,24 @@ const CenterSearch = ({ onPopupStateChange = () => {} }) => {
               </div>
             )}
           </div>
-        </div>
-      )}
+        </div>,
+        document.body
+      )
+    : null;
+
+  return (
+    <div ref={wrapperRef} className="center-search-shell">
+      <button
+        type="button"
+        ref={triggerRef}
+        className={`flex-center center-search-trigger ${activePopup === 'search' ? 'is-open' : ''}`}
+        onClick={() => setActivePopup((current) => (current === 'search' ? null : 'search'))}
+        aria-label="Open search"
+      >
+        <Search size={14} />
+      </button>
+
+      {searchPopup}
       {accountPopup}
       {providerMenu}
       <AiChatPopup

@@ -36,6 +36,23 @@ const StatusBar = () => {
   useEffect(() => {
     document.body.classList.toggle("ddo-toolbar-visible", actualIsVisible);
     document.body.classList.toggle("ddo-toolbar-hidden", !actualIsVisible);
+    document.body.classList.toggle("ddo-visible", actualIsVisible);
+    document.body.classList.toggle("ddo-hidden", !actualIsVisible);
+  }, [actualIsVisible]);
+
+  useEffect(() => {
+    if (typeof window !== 'undefined' && window.electronAPI?.onShowToolbar) {
+      const unsubscribe = window.electronAPI.onShowToolbar(() => {
+        setIsVisible(true);
+      });
+      return () => unsubscribe();
+    }
+  }, []);
+
+  useEffect(() => {
+    if (typeof window !== 'undefined' && window.electronAPI?.updateVisibility) {
+      window.electronAPI.updateVisibility(actualIsVisible);
+    }
   }, [actualIsVisible]);
 
 
@@ -242,6 +259,16 @@ const StatusBar = () => {
 
   useEffect(() => {
     const handleGlobalMouseMove = (e) => {
+      if (!actualIsVisible) {
+        if (typeof window !== 'undefined' && window.electronAPI?.setIgnoreMouseEvents) {
+          if (lastIgnoreRef.current !== true) {
+            lastIgnoreRef.current = true;
+            window.electronAPI.setIgnoreMouseEvents(true, { forward: true });
+          }
+        }
+        return;
+      }
+
       const inRegion = isPointerInInteractiveRegion(e.clientX, e.clientY);
       
       const triggerWidth = 360;
@@ -251,7 +278,7 @@ const StatusBar = () => {
       const rightBound = (window.innerWidth + triggerWidth) / 2;
       const inTriggerZone = e.clientY <= triggerHeight && e.clientX >= leftBound && e.clientX <= rightBound;
 
-      if (inTriggerZone) {
+      if (inTriggerZone && !window.electronAPI) {
         setIsVisible(true);
       }
 
@@ -292,7 +319,7 @@ const StatusBar = () => {
         window.electronAPI.setIgnoreMouseEvents(false);
       }
     };
-  }, [isPointerInInteractiveRegion]);
+  }, [isPointerInInteractiveRegion, actualIsVisible]);
 
 
   // Cancel timeouts on unmount to prevent leaks
