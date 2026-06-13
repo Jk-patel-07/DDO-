@@ -9758,15 +9758,16 @@ body.electron .status-bar-container {
   pointer-events: none;
 }
 
-.top-trigger-zone {
+.top-edge-trigger {
   position: fixed;
   top: 0;
   left: 50%;
   width: 360px;
-  height: 8px;
+  height: 6px;
   transform: translateX(-50%);
   background: transparent !important;
   z-index: 99999;
+  pointer-events: auto;
 }
 
 

@@ -1,11 +1,12 @@
 import { useState, useEffect, useRef, useCallback } from 'react';
+import { EyeOff } from 'lucide-react';
 
 import LeftMenu from './LeftMenu';
 import RightTray from './RightTray';
 import FloatingNavBar from './FloatingNavBar';
 
 const StatusBar = () => {
-  const [isVisible, setIsVisible] = useState(false);
+  const [isVisible, setIsVisible] = useState(true);
   const [permanentlyVisible, setPermanentlyVisible] = useState(false);
 
   useEffect(() => {
@@ -23,6 +24,11 @@ const StatusBar = () => {
     } catch (e) {
       console.error(e);
     }
+  };
+
+  const handleHide = () => {
+    setIsVisible(false);
+    handleTogglePermanentlyVisible(false);
   };
 
   const actualIsVisible = permanentlyVisible || isVisible;
@@ -164,20 +170,7 @@ const StatusBar = () => {
     };
   }, []);
 
-  // Monitor nav bar visibility to auto-hide status bar when nav bar closes
-  useEffect(() => {
-    if (permanentlyVisible) {
-      return;
-    }
-    if (!isNavBarVisible && !isBackdropActive) {
-      if (document.activeElement && document.activeElement.tagName === 'INPUT') {
-        return;
-      }
-      if (!isMouseOverStatusBarRef.current) {
-        setIsVisible(false);
-      }
-    }
-  }, [isNavBarVisible, isBackdropActive, permanentlyVisible]);
+
 
   const isPointerInInteractiveRegion = useCallback((x, y) => {
     if (actualIsVisible) {
@@ -231,7 +224,6 @@ const StatusBar = () => {
 
 
   const lastIgnoreRef = useRef(null);
-  const statusBarHideTimeoutRef = useRef(null);
 
   const isBackdropActiveRef = useRef(isBackdropActive);
   useEffect(() => {
@@ -253,25 +245,14 @@ const StatusBar = () => {
       const inRegion = isPointerInInteractiveRegion(e.clientX, e.clientY);
       
       const triggerWidth = 360;
-      const triggerHeight = 8;
+      const triggerHeight = 6;
 
       const leftBound = (window.innerWidth - triggerWidth) / 2;
       const rightBound = (window.innerWidth + triggerWidth) / 2;
       const inTriggerZone = e.clientY <= triggerHeight && e.clientX >= leftBound && e.clientX <= rightBound;
 
-      if (inRegion || inTriggerZone || isBackdropActiveRef.current) {
-        if (statusBarHideTimeoutRef.current) {
-          clearTimeout(statusBarHideTimeoutRef.current);
-          statusBarHideTimeoutRef.current = null;
-        }
+      if (inTriggerZone) {
         setIsVisible(true);
-      } else {
-        if (!statusBarHideTimeoutRef.current && isVisibleRef.current && !permanentlyVisibleRef.current) {
-          statusBarHideTimeoutRef.current = setTimeout(() => {
-            setIsVisible(false);
-            statusBarHideTimeoutRef.current = null;
-          }, 300);
-        }
       }
 
       if (typeof window !== 'undefined' && window.electronAPI?.setIgnoreMouseEvents) {
@@ -294,15 +275,6 @@ const StatusBar = () => {
           window.electronAPI.setIgnoreMouseEvents(true, { forward: true });
         }
       }
-      if (!isBackdropActiveRef.current && !permanentlyVisibleRef.current) {
-        if (statusBarHideTimeoutRef.current) {
-          clearTimeout(statusBarHideTimeoutRef.current);
-        }
-        statusBarHideTimeoutRef.current = setTimeout(() => {
-          setIsVisible(false);
-          statusBarHideTimeoutRef.current = null;
-        }, 300);
-      }
     };
 
     window.addEventListener('mousemove', handleGlobalMouseMove);
@@ -316,9 +288,6 @@ const StatusBar = () => {
     return () => {
       window.removeEventListener('mousemove', handleGlobalMouseMove);
       window.removeEventListener('mouseleave', handleGlobalMouseLeave);
-      if (statusBarHideTimeoutRef.current) {
-        clearTimeout(statusBarHideTimeoutRef.current);
-      }
       if (typeof window !== 'undefined' && window.electronAPI?.setIgnoreMouseEvents) {
         window.electronAPI.setIgnoreMouseEvents(false);
       }
@@ -362,14 +331,8 @@ const StatusBar = () => {
   return (
     <>
       <div
-        className="top-trigger-zone"
-        onMouseEnter={() => {
-          if (statusBarHideTimeoutRef.current) {
-            clearTimeout(statusBarHideTimeoutRef.current);
-            statusBarHideTimeoutRef.current = null;
-          }
-          setIsVisible(true);
-        }}
+        className="top-edge-trigger"
+        onMouseEnter={() => setIsVisible(true)}
       />
       <div
         className="toolbar-root status-bar-layer ddo-toolbar-layer"
@@ -408,6 +371,14 @@ const StatusBar = () => {
           {/* Right Section */}
           <div className="status-bar-right-section" style={{ display: 'flex', alignItems: 'center', gap: '16px', flex: 1, justifyContent: 'flex-end' }}>
             <RightTray mode="right" onPopupStateChange={setIsRightTrayPopupActive} />
+            <div 
+              className="flex-center icon-item" 
+              onClick={handleHide}
+              style={{ cursor: 'pointer' }}
+              title="Hide Status Bar"
+            >
+              <EyeOff size={14} color="white" />
+            </div>
           </div>
         </div>
       </div>
