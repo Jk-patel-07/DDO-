@@ -247,14 +247,20 @@ const RightTray = ({ mode, onPopupStateChange = () => {} }) => {
 
   const handleTriggerUpdateCheck = async () => {
     try {
-      const response = await fetch(buildApiUrl('/api/update/check'));
+      const response = await fetch(buildApiUrl('/api/update/latest'));
       if (response.ok) {
         const data = await response.json();
         const currentVersion = packageJson.ddoVersion;
         
+        // Clean version strings to keep only numbers and dots
+        const clean = (v) => {
+          const match = String(v).match(/[\d.]+/);
+          return match ? match[0] : '0';
+        };
+        const parse = (v) => clean(v).split('.').map(num => parseInt(num, 10) || 0);
+        
         const isNewer = (current, latest) => {
           if (!current || !latest) return false;
-          const parse = (v) => v.replace(/^DOI-/, '').split('.').map(Number);
           const cParts = parse(current);
           const lParts = parse(latest);
           const len = Math.max(cParts.length, lParts.length);
@@ -271,10 +277,8 @@ const RightTray = ({ mode, onPopupStateChange = () => {} }) => {
           if (typeof window !== 'undefined' && window.electronAPI?.openUpdateWindow) {
             window.electronAPI.openUpdateWindow(data);
           } else {
-            const event = new CustomEvent('ddo-trigger-update-popup', { detail: data });
-            window.dispatchEvent(event);
+            window.open(data.updatePageUrl || `http://localhost:6001/update/${encodeURIComponent(data.latestVersion)}`, '_blank');
           }
-          setIsUsStatusPopupOpen(false);
         } else {
           window.alert('No update in DDO');
         }

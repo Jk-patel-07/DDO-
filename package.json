@@ -15,7 +15,9 @@
     "preview": "vite preview",
     "tauri": "tauri",
     "electron:dev": "concurrently \"npm run dev\" \"npm run backend\" \"wait-on http://127.0.0.1:3000 http://127.0.0.1:5000 && electron electron/main.cjs\"",
-    "electron:build": "npm run build && electron-builder"
+    "electron:build": "npm run build && electron-builder",
+    "doi:dev": "npm run dev --prefix doi-portal",
+    "doi:build": "npm run build --prefix doi-portal"
   },
   "dependencies": {
     "@tauri-apps/api": "^2.11.0",

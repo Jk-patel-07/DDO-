@@ -134,18 +134,22 @@ const StatusBar = () => {
     window.location.hostname === "localhost" ||
     window.location.hostname === "127.0.0.1";
 
-  const isDevMode =
-    import.meta.env.VITE_APP_MODE === "development";
+  const isElectron = Boolean(window.electronAPI);
 
-  const isElectron =
-    !!window.electronAPI;
-
-  const showDOI = isLocalhost && isDevMode && !isElectron;
+  const showDOI = isLocalhost && !isElectron;
 
   const handleDoiClick = () => {
-    const session = readStoredAuthSession();
-    const token = session?.token || '';
-    window.open(`http://localhost:6000/?token=${encodeURIComponent(token)}`, '_blank', 'noopener,noreferrer');
+    const token =
+      localStorage.getItem("token") ||
+      localStorage.getItem("authToken") ||
+      sessionStorage.getItem("token") ||
+      "";
+
+    const doiUrl = token
+      ? `http://localhost:6001/?token=${encodeURIComponent(token)}`
+      : "http://localhost:6001";
+
+    window.open(doiUrl, "_blank", "noopener,noreferrer");
   };
 
   console.log("VITE_APP_MODE:", import.meta.env.VITE_APP_MODE);
@@ -153,29 +157,9 @@ const StatusBar = () => {
   console.log("user role:", user?.role);
   console.log("showDOI:", showDOI);
 
+  // Automatic update check on mount disabled. Update is only checked via Settings.
   useEffect(() => {
-    // Check for updates ONLY in production mode (never in localhost/development)
-    if (import.meta.env.VITE_APP_MODE !== 'production') {
-      return;
-    }
-
-    const checkUpdates = async () => {
-      try {
-        const response = await fetch(buildApiUrl('/api/update/check'));
-        if (response.ok) {
-          const data = await response.json();
-          const currentVersion = packageJson.ddoVersion;
-          if (isNewerVersion(currentVersion, data.latestVersion)) {
-            setUpdateInfo(data);
-            setShowUpdatePopup(true);
-          }
-        }
-      } catch (err) {
-        console.error("Failed to check for updates:", err);
-      }
-    };
-
-    checkUpdates();
+    // Left empty to avoid auto update checking on startup.
   }, []);
 
   const handleUpdateNow = () => {
@@ -684,10 +668,25 @@ const StatusBar = () => {
               </div>
             )}
 
-            {updateInfo.graphicsInfo && (
+            {updateInfo.graphicChanges && updateInfo.graphicChanges.length > 0 && (
               <div style={{ fontSize: '12px', lineHeight: '1.4' }}>
-                <div style={{ fontWeight: 'bold', marginBottom: '2px', color: '#f0f6fc' }}>Graphics & Animation:</div>
-                <div style={{ color: '#c9d1d9' }}>{updateInfo.graphicsInfo}</div>
+                <div style={{ fontWeight: 'bold', marginBottom: '2px', color: '#f0f6fc' }}>Graphic Changes:</div>
+                <ul style={{ margin: 0, paddingLeft: '16px', color: '#c9d1d9' }}>
+                  {updateInfo.graphicChanges.map((detail, idx) => (
+                    <li key={idx} style={{ marginBottom: '2px' }}>{detail}</li>
+                  ))}
+                </ul>
+              </div>
+            )}
+
+            {updateInfo.animationChanges && updateInfo.animationChanges.length > 0 && (
+              <div style={{ fontSize: '12px', lineHeight: '1.4' }}>
+                <div style={{ fontWeight: 'bold', marginBottom: '2px', color: '#f0f6fc' }}>Animation Changes:</div>
+                <ul style={{ margin: 0, paddingLeft: '16px', color: '#c9d1d9' }}>
+                  {updateInfo.animationChanges.map((detail, idx) => (
+                    <li key={idx} style={{ marginBottom: '2px' }}>{detail}</li>
+                  ))}
+                </ul>
               </div>
             )}
 

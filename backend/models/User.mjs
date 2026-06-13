@@ -48,6 +48,15 @@ const userSchema = new mongoose.Schema(
       default: 'Active',
       trim: true,
     },
+    role: {
+      type: String,
+      default: 'user',
+      trim: true,
+    },
+    mustChangePassword: {
+      type: Boolean,
+      default: false,
+    },
   },
   { timestamps: true },
 );

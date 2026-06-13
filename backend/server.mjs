@@ -6,7 +6,7 @@ import { compare, hash as bcryptHash } from 'bcrypt';
 import cors from 'cors';
 import express from 'express';
 import mongoose from 'mongoose';
-import { execFile } from 'node:child_process';
+import { execFile, exec } from 'node:child_process';
 import {
   createHash,
   createHmac,
@@ -14,7 +14,8 @@ import {
   scryptSync,
   timingSafeEqual,
 } from 'node:crypto';
-import { mkdir, readFile, writeFile, unlink } from 'node:fs/promises';
+import { mkdir, readFile, writeFile, unlink, stat } from 'node:fs/promises';
+import { existsSync } from 'node:fs';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { promisify } from 'node:util';
@@ -54,6 +55,8 @@ const ALLOWED_ORIGINS = new Set([
   'http://localhost:3000',
   'http://127.0.0.1:5173',
   'http://localhost:5173',
+  'http://127.0.0.1:6001',
+  'http://localhost:6001',
 ]);
 const MONGODB_URI = String(process.env.MONGO_URI || process.env.MONGODB_URI || '').trim();
 const AUTH_SECRET = process.env.JWT_SECRET || process.env.APP_AUTH_SECRET || 'ddo-local-auth-secret-change-me';
@@ -100,13 +103,15 @@ class HttpError extends Error {
   }
 }
 
-app.use(express.json({ limit: '10mb' }));
+app.use(express.json({ limit: '50mb' }));
 app.use(cors({
   origin: [
     'http://127.0.0.1:3000',
     'http://localhost:3000',
     'http://127.0.0.1:5173',
     'http://localhost:5173',
+    'http://127.0.0.1:6001',
+    'http://localhost:6001',
   ],
   credentials: true,
   methods: ['GET', 'POST', 'PATCH', 'DELETE', 'OPTIONS'],
@@ -684,6 +689,8 @@ const mapStoredUser = (user) => {
     passwordHash: String(user.passwordHash || ''),
     provider: sanitizeText(user.provider || 'local', 40) || 'local',
     accountStatus: sanitizeText(user.accountStatus || 'Active', 40) || 'Active',
+    role: sanitizeText(user.role || 'user', 40) || 'user',
+    mustChangePassword: Boolean(user.mustChangePassword),
     createdAt: user.createdAt ? new Date(user.createdAt).toISOString() : new Date().toISOString(),
     updatedAt: user.updatedAt ? new Date(user.updatedAt).toISOString() : new Date().toISOString(),
   };
@@ -754,6 +761,8 @@ const createStoredUser = async (userInput) => {
     passwordHash: normalizedUser.passwordHash,
     provider: normalizedUser.provider,
     accountStatus: normalizedUser.accountStatus,
+    role: normalizedUser.role,
+    mustChangePassword: normalizedUser.mustChangePassword,
   });
 
   return mapStoredUser(createdUser.toObject());
@@ -1004,6 +1013,7 @@ const toPublicUser = (user) => ({
   moreInformation: sanitizeText(user.moreInformation, 240),
   provider: user.provider || 'local',
   role: user.role || 'user',
+  mustChangePassword: Boolean(user.mustChangePassword),
   companyId: user.companyId ? sanitizeText(user.companyId, 120) : '',
   companyName: user.companyName ? sanitizeText(user.companyName, 160) : '',
   companyEmail: user.companyEmail ? sanitizeEmail(user.companyEmail) : '',
@@ -2520,6 +2530,293 @@ app.post('/api/auth/login', async (request, response, next) => {
   }
 });
 
+const execAsync = promisify(exec);
+
+const shouldIgnore = (filePath) => {
+  const normalized = filePath.replace(/\\/g, '/');
+  const parts = normalized.split('/');
+  
+  // Ignore folders / files used exclusively by DOI
+  if (parts.includes('doi-portal') || parts.some(p => p.toLowerCase() === 'doi-portal')) {
+    return true;
+  }
+  
+  // Ignore DOI-only helper files
+  const baseName = parts[parts.length - 1];
+  const baseNameLower = baseName.toLowerCase();
+  if (baseNameLower === 'doiserver.mjs' || baseNameLower.startsWith('doi-') || baseNameLower.endsWith('-doi')) {
+    return true;
+  }
+
+  // Standard ignores
+  if (parts.includes('node_modules') || 
+      parts.includes('dist') || 
+      parts.includes('release') || 
+      parts.includes('.git') || 
+      parts.includes('logs') || 
+      parts.includes('coverage') ||
+      parts.includes('private')) {
+    return true;
+  }
+
+  if (baseName === '.env' || baseName.startsWith('.env.') || baseName.endsWith('.log') || 
+      baseName.endsWith('.zip') || baseName.endsWith('.exe') || baseName.endsWith('.msi') || baseName.endsWith('.xlsx')) {
+    return true;
+  }
+
+  return false;
+};
+
+const scanDdoChanges = async () => {
+  try {
+    const rootDir = path.resolve('.');
+    const { stdout } = await execAsync('git status --porcelain', { cwd: rootDir });
+    
+    const lines = stdout.split('\n');
+    const modified = [];
+    const newFiles = [];
+    const deleted = [];
+    const renamed = [];
+    const changedListForZip = [];
+
+    for (const line of lines) {
+      if (!line.trim()) continue;
+      
+      const status = line.slice(0, 2);
+      const filePathStr = line.slice(3).trim();
+
+      if (status.includes('R')) {
+        const parts = filePathStr.split(' -> ');
+        const fromPath = parts[0].replace(/^"|"$/g, '').trim();
+        const toPath = parts[1].replace(/^"|"$/g, '').trim();
+        
+        if (!shouldIgnore(toPath)) {
+          renamed.push({ from: fromPath, to: toPath });
+          changedListForZip.push(toPath);
+        }
+      } else if (status.includes('D')) {
+        const filePath = filePathStr.replace(/^"|"$/g, '').trim();
+        if (!shouldIgnore(filePath)) {
+          deleted.push(filePath);
+        }
+      } else if (status.includes('M')) {
+        const filePath = filePathStr.replace(/^"|"$/g, '').trim();
+        if (!shouldIgnore(filePath)) {
+          modified.push(filePath);
+          changedListForZip.push(filePath);
+        }
+      } else if (status.trim() === '??' || status.includes('A')) {
+        const filePath = filePathStr.replace(/^"|"$/g, '').trim();
+        if (!shouldIgnore(filePath)) {
+          newFiles.push(filePath);
+          changedListForZip.push(filePath);
+        }
+      }
+    }
+
+    return {
+      modified,
+      newFiles,
+      deleted,
+      renamed,
+      changedListForZip
+    };
+  } catch (error) {
+    console.error('Error scanning DDO changes:', error);
+    throw error;
+  }
+};
+
+app.get('/api/doi/changes', async (req, res, next) => {
+  try {
+    const session = requireAuth(req);
+    if (session.role !== 'admin' && session.role !== 'developer') {
+      throw new HttpError(403, 'Permission denied.');
+    }
+
+    const changes = await scanDdoChanges();
+
+    if (changes.changedListForZip.length === 0) {
+      return res.json({
+        modified: changes.modified,
+        newFiles: changes.newFiles,
+        deleted: changes.deleted,
+        renamed: changes.renamed,
+        totalModified: changes.modified.length,
+        totalNew: changes.newFiles.length,
+        totalDeleted: changes.deleted.length,
+        totalRenamed: changes.renamed.length,
+        packageSize: '0 KB'
+      });
+    }
+
+    const tempZipName = `temp-scan-${Date.now()}.zip`;
+    const tempZipPath = path.join(PRIVATE_DATA_DIR, tempZipName);
+    const tempListName = `temp-list-${Date.now()}.txt`;
+    const tempListPath = path.join(PRIVATE_DATA_DIR, tempListName);
+
+    const fileListContent = changes.changedListForZip.map(f => f.replace(/\\/g, '/')).join('\n');
+    await mkdir(PRIVATE_DATA_DIR, { recursive: true });
+    await writeFile(tempListPath, fileListContent, 'utf8');
+
+    await execAsync(`tar -c -a -f "${tempZipPath}" -T "${tempListPath}"`, { cwd: path.resolve('.') });
+
+    const stats = await stat(tempZipPath);
+    const sizeInBytes = stats.size;
+    let packageSize = '';
+    if (sizeInBytes < 1024) {
+      packageSize = `${sizeInBytes} B`;
+    } else if (sizeInBytes < 1024 * 1024) {
+      packageSize = `${(sizeInBytes / 1024).toFixed(2)} KB`;
+    } else {
+      packageSize = `${(sizeInBytes / (1024 * 1024)).toFixed(2)} MB`;
+    }
+
+    try {
+      await unlink(tempListPath);
+      await unlink(tempZipPath);
+    } catch (err) {
+      console.warn('Failed to clean up temp scan files:', err.message);
+    }
+
+    res.json({
+      modified: changes.modified,
+      newFiles: changes.newFiles,
+      deleted: changes.deleted,
+      renamed: changes.renamed,
+      totalModified: changes.modified.length,
+      totalNew: changes.newFiles.length,
+      totalDeleted: changes.deleted.length,
+      totalRenamed: changes.renamed.length,
+      packageSize
+    });
+  } catch (error) {
+    next(error);
+  }
+});
+
+const loginAttempts = new Map();
+const RATE_LIMIT_WINDOW_MS = 15 * 60 * 1000; // 15 minutes
+const MAX_LOGIN_ATTEMPTS = 5;
+
+const loginRateLimiter = (req, res, next) => {
+  const ip = req.ip || req.headers['x-forwarded-for'] || req.socket.remoteAddress;
+  const now = Date.now();
+
+  const record = loginAttempts.get(ip);
+  if (!record) {
+    loginAttempts.set(ip, { count: 1, firstAttempt: now });
+    return next();
+  }
+
+  if (now - record.firstAttempt > RATE_LIMIT_WINDOW_MS) {
+    loginAttempts.set(ip, { count: 1, firstAttempt: now });
+    return next();
+  }
+
+  if (record.count >= MAX_LOGIN_ATTEMPTS) {
+    const remainingTime = Math.ceil((RATE_LIMIT_WINDOW_MS - (now - record.firstAttempt)) / 1000);
+    return res.status(429).json({
+      error: `Too many login attempts. Please try again in ${remainingTime} seconds.`
+    });
+  }
+
+  record.count += 1;
+  next();
+};
+
+app.post('/api/doi/auth/login', loginRateLimiter, async (req, res, next) => {
+  try {
+    requireMongoConnection();
+    const { email, password } = req.body || {};
+    const ip = req.ip || req.headers['x-forwarded-for'] || req.socket.remoteAddress;
+
+    if (!email || !password) {
+      throw new HttpError(400, 'Invalid credentials.');
+    }
+
+    const normalizedEmail = String(email).trim().toLowerCase();
+    const userDocument = await User.findOne({
+      email: normalizedEmail,
+      accountStatus: { $ne: 'Deleted' },
+    }).lean();
+
+    if (!userDocument) {
+      throw new HttpError(401, 'Invalid credentials.');
+    }
+
+    const user = mapStoredUser(userDocument);
+
+    // Verify role is admin or developer
+    if (user.role !== 'admin' && user.role !== 'developer') {
+      throw new HttpError(401, 'Invalid credentials.');
+    }
+
+    // Verify password using bcrypt.compare
+    const isMatch = await compare(String(password), user.passwordHash);
+    if (!isMatch) {
+      throw new HttpError(401, 'Invalid credentials.');
+    }
+
+    // Successful login -> clear rate limit
+    loginAttempts.delete(ip);
+
+    // Generate short-lived JWT (1 hour)
+    const token = createToken(user, { expiresInSeconds: 3600 });
+
+    res.json({
+      token,
+      user: toPublicUser(user),
+    });
+  } catch (error) {
+    next(error);
+  }
+});
+
+app.post('/api/doi/auth/change-password', async (req, res, next) => {
+  try {
+    requireMongoConnection();
+    const session = requireAuth(req);
+
+    // Verify role is admin or developer
+    if (session.role !== 'admin' && session.role !== 'developer') {
+      throw new HttpError(403, 'Permission denied.');
+    }
+
+    const { newPassword } = req.body || {};
+    if (!newPassword || String(newPassword).trim().length < 6) {
+      throw new HttpError(400, 'Password must be at least 6 characters long.');
+    }
+
+    // Hash the new password using bcrypt (12 rounds)
+    const passwordHash = await bcryptHash(String(newPassword), 12);
+
+    // Update user in database
+    const userDocument = await User.findOneAndUpdate(
+      { email: session.email },
+      { passwordHash, mustChangePassword: false },
+      { new: true }
+    );
+
+    if (!userDocument) {
+      throw new HttpError(404, 'User not found.');
+    }
+
+    const user = mapStoredUser(userDocument.toObject());
+
+    // Generate a new short-lived JWT with the updated user info
+    const token = createToken(user, { expiresInSeconds: 3600 });
+
+    res.json({
+      ok: true,
+      token,
+      user: toPublicUser(user),
+    });
+  } catch (error) {
+    next(error);
+  }
+});
+
 app.post('/api/company/login', async (request, response, next) => {
   try {
     requireMongoConnection();
@@ -3430,6 +3727,66 @@ app.get('/api/spotify/callback-status', (req, res) => {
   res.json({ pending: false, code: data.code, error: data.error });
 });
 
+app.get('/updates/:filename', (req, res) => {
+  const filename = req.params.filename;
+  if (filename.includes('..') || path.isAbsolute(filename)) {
+    return res.status(400).send('Invalid filename.');
+  }
+  const filePath = path.join(PRIVATE_DATA_DIR, 'updates', filename);
+  if (existsSync(filePath)) {
+    res.download(filePath);
+  } else {
+    res.status(404).send('File not found.');
+  }
+});
+
+app.get('/api/update/latest', async (req, res, next) => {
+  try {
+    const latestUpdate = await Update.findOne({ isActive: true }).sort({ publishedAt: -1 });
+    if (!latestUpdate) {
+      return res.json({ latestVersion: null });
+    }
+    res.json({
+      updateId: latestUpdate.updateId,
+      latestVersion: latestUpdate.versionName,
+      size: latestUpdate.size,
+      type: latestUpdate.type,
+      changes: latestUpdate.changes,
+      securityChanges: latestUpdate.securityChanges,
+      bugFixes: latestUpdate.bugFixes,
+      graphicChanges: latestUpdate.graphicChanges || [],
+      animationChanges: latestUpdate.animationChanges || [],
+      changedFiles: latestUpdate.changedFiles || [],
+      newFiles: latestUpdate.newFiles || [],
+      downloadUrl: latestUpdate.downloadUrl,
+      checksum: latestUpdate.checksum,
+      signature: latestUpdate.signature,
+      updatePageUrl: `http://localhost:6001/update-page/${latestUpdate.updateId}`,
+      publishedAt: latestUpdate.publishedAt
+    });
+  } catch (error) {
+    next(error);
+  }
+});
+
+app.get('/api/update/:updateId', async (req, res, next) => {
+  try {
+    const identifier = req.params.updateId;
+    const update = await Update.findOne({
+      $or: [
+        { updateId: identifier },
+        { versionName: identifier }
+      ]
+    });
+    if (!update) {
+      throw new HttpError(404, 'Update not found.');
+    }
+    res.json(update);
+  } catch (error) {
+    next(error);
+  }
+});
+
 app.get('/api/update/check', async (req, res, next) => {
   try {
     const latestUpdate = await Update.findOne({ isActive: true }).sort({ publishedAt: -1 });
@@ -3444,13 +3801,14 @@ app.get('/api/update/check', async (req, res, next) => {
       changes: latestUpdate.changes,
       securityChanges: latestUpdate.securityChanges,
       bugFixes: latestUpdate.bugFixes,
-      graphicsInfo: latestUpdate.graphicsInfo || '',
+      graphicChanges: latestUpdate.graphicChanges || [],
+      animationChanges: latestUpdate.animationChanges || [],
       changedFiles: latestUpdate.changedFiles || [],
       newFiles: latestUpdate.newFiles || [],
       downloadUrl: latestUpdate.downloadUrl,
       checksum: latestUpdate.checksum,
       signature: latestUpdate.signature,
-      updatePageUrl: `http://localhost:6000/update-page/${latestUpdate.updateId}`,
+      updatePageUrl: `http://localhost:6001/update-page/${latestUpdate.updateId}`,
       publishedAt: latestUpdate.publishedAt
     });
   } catch (error) {
@@ -3485,17 +3843,183 @@ app.post('/api/update/status', async (req, res, next) => {
   }
 });
 
+app.get('/api/update/auth-check', async (req, res, next) => {
+  try {
+    const session = requireAuth(req);
+    const isDev = session.role === 'admin' || session.role === 'developer';
+    if (!isDev) {
+      throw new HttpError(403, 'Permission denied.');
+    }
+    res.json({ ok: true, user: session });
+  } catch (error) {
+    next(error);
+  }
+});
+
+app.post('/api/update/confirm', async (req, res, next) => {
+  try {
+    const session = requireAuth(req);
+    const isDev = session.role === 'admin' || session.role === 'developer';
+    if (!isDev) {
+      throw new HttpError(403, 'Permission denied.');
+    }
+
+    const {
+      versionName,
+      type,
+      changes,
+      securityChanges,
+      bugFixes,
+      graphicChanges,
+      animationChanges,
+      downloadUrl,
+      releaseNotes
+    } = req.body;
+
+    if (!versionName || !String(versionName).trim()) {
+      throw new HttpError(400, 'Version name is required.');
+    }
+    if (!type || !String(type).trim()) {
+      throw new HttpError(400, 'Update type is required.');
+    }
+    if (!changes || !Array.isArray(changes) || changes.filter(c => String(c).trim()).length === 0) {
+      throw new HttpError(400, 'What changed details are required.');
+    }
+    if (downloadUrl && !/^https?:\/\//i.test(downloadUrl)) {
+      throw new HttpError(400, 'Invalid custom download URL. It must start with http:// or https://');
+    }
+
+    // Automatically scan changed DDO files
+    const changesObj = await scanDdoChanges();
+    if (changesObj.changedListForZip.length === 0) {
+      throw new HttpError(400, 'No changed files detected to package.');
+    }
+
+    const secureFileName = `ddo-update-${String(versionName).replace(/[^a-zA-Z0-9.-]/g, '_')}-${Date.now()}.zip`;
+    const updatesDir = path.join(PRIVATE_DATA_DIR, 'updates');
+    await mkdir(updatesDir, { recursive: true });
+    const finalFilePath = path.join(updatesDir, secureFileName);
+
+    const tempListName = `temp-list-confirm-${Date.now()}.txt`;
+    const tempListPath = path.join(PRIVATE_DATA_DIR, tempListName);
+
+    const fileListContent = changesObj.changedListForZip.map(f => f.replace(/\\/g, '/')).join('\n');
+    await writeFile(tempListPath, fileListContent, 'utf8');
+
+    // Create the ZIP automatically via tar
+    await execAsync(`tar -c -a -f "${finalFilePath}" -T "${tempListPath}"`, { cwd: path.resolve('.') });
+    await unlink(tempListPath);
+
+    // Calculate package size and checksum from the generated zip
+    const stats = await stat(finalFilePath);
+    const sizeInBytes = stats.size;
+    let actualSizeStr = '';
+    if (sizeInBytes < 1024) {
+      actualSizeStr = `${sizeInBytes} B`;
+    } else if (sizeInBytes < 1024 * 1024) {
+      actualSizeStr = `${(sizeInBytes / 1024).toFixed(2)} KB`;
+    } else {
+      actualSizeStr = `${(sizeInBytes / (1024 * 1024)).toFixed(2)} MB`;
+    }
+
+    const buffer = await readFile(finalFilePath);
+    const checksum = createHash('sha256').update(buffer).digest('hex');
+    const generatedDownloadUrl = `http://localhost:5000/updates/${secureFileName}`;
+
+    // Sign the checksum
+    const keysDir = path.join(PRIVATE_DATA_DIR, 'keys');
+    const privateKeyPath = path.join(keysDir, 'private.key');
+    const privateKey = await readFile(privateKeyPath, 'utf8');
+    const { createSign } = await import('node:crypto');
+    const signer = createSign('SHA256');
+    signer.update(checksum);
+    const signature = signer.sign(privateKey, 'base64');
+
+    const updateId = `doi-update-${randomBytes(16).toString('hex')}`;
+
+    const newUpdate = new Update({
+      updateId,
+      versionName: String(versionName).trim(),
+      size: actualSizeStr,
+      type: String(type).trim(),
+      changes: changes.map(c => String(c).trim()).filter(Boolean),
+      securityChanges: Array.isArray(securityChanges) ? securityChanges.map(s => String(s).trim()).filter(Boolean) : [],
+      bugFixes: Array.isArray(bugFixes) ? bugFixes.map(b => String(b).trim()).filter(Boolean) : [],
+      graphicChanges: Array.isArray(graphicChanges) ? graphicChanges.map(g => String(g).trim()).filter(Boolean) : [],
+      animationChanges: Array.isArray(animationChanges) ? animationChanges.map(a => String(a).trim()).filter(Boolean) : [],
+      changedFiles: changesObj.modified.concat(changesObj.renamed.map(r => `${r.from} -> ${r.to}`)),
+      newFiles: changesObj.newFiles,
+      downloadUrl: downloadUrl || generatedDownloadUrl,
+      checksum,
+      signature,
+      status: 'Published',
+      releaseNotes: String(releaseNotes || '').trim(),
+      publishedBy: session.email || 'developer',
+      isActive: true,
+      publishedAt: new Date(),
+      auditLog: [{
+        publisher: session.email || 'developer',
+        date: new Date(),
+        status: 'Published',
+        details: 'Published via DOI One portal.'
+      }]
+    });
+
+    await Update.updateMany({}, { isActive: false });
+    await newUpdate.save();
+
+    res.json({
+      ok: true,
+      updateId,
+      checksum,
+      signature,
+      updatePageUrl: `http://localhost:6001/update/${encodeURIComponent(versionName)}`
+    });
+  } catch (error) {
+    next(error);
+  }
+});
+
 app.post('/api/update/publish', async (req, res, next) => {
   try {
     const session = requireAuth(req);
-    const adminEmail = String(process.env.DDO_ADMIN_EMAIL || 'admin@ddo.com').trim().toLowerCase();
-    const isDev = session.role === 'admin' || session.role === 'developer' || (session.email && session.email.toLowerCase() === adminEmail);
+    const isDev = session.role === 'admin' || session.role === 'developer';
     if (!isDev) {
-      throw new HttpError(403, 'Developer authentication required.');
+      throw new HttpError(403, 'Permission denied.');
     }
 
-    const { versionName, size, type, changes, securityChanges, bugFixes, downloadUrl, graphicsInfo, changedFiles, newFiles, checksum, signature } = req.body;
+    const { updateId, versionName, size, type, changes, securityChanges, bugFixes, downloadUrl, graphicChanges, animationChanges, changedFiles, newFiles, checksum, signature } = req.body;
 
+    if (updateId) {
+      // Publish a staged draft
+      const update = await Update.findOne({ updateId });
+      if (!update) {
+        throw new HttpError(404, 'Staged update draft not found.');
+      }
+
+      await Update.updateMany({}, { isActive: false });
+
+      update.status = 'Published';
+      update.isActive = true;
+      update.publishedAt = new Date();
+      update.auditLog.push({
+        publisher: session.email || 'developer',
+        date: new Date(),
+        status: 'Confirmed',
+        details: 'Draft update confirmed by developer.'
+      });
+      update.auditLog.push({
+        publisher: session.email || 'developer',
+        date: new Date(),
+        status: 'Published',
+        details: 'Update published and activated across DDO system.'
+      });
+
+      await update.save();
+      return res.json({ ok: true, update });
+    }
+
+    // Direct publish fallback
     if (!versionName || !String(versionName).trim()) {
       throw new HttpError(400, 'Version name is required.');
     }
@@ -3506,13 +4030,12 @@ app.post('/api/update/publish', async (req, res, next) => {
       throw new HttpError(400, 'Update type is required.');
     }
     if (!changes || !Array.isArray(changes) || changes.filter(c => String(c).trim()).length === 0) {
-      throw new HttpError(400, 'What changed details are required and cannot be empty.');
+      throw new HttpError(400, 'What changed details are required.');
     }
     if (!downloadUrl || !String(downloadUrl).trim() || !/^https?:\/\//i.test(downloadUrl)) {
       throw new HttpError(400, 'A valid download URL is required.');
     }
 
-    // Set all other updates as inactive so only the latest update is active
     await Update.updateMany({}, { isActive: false });
 
     const newUpdate = new Update({
@@ -3523,11 +4046,12 @@ app.post('/api/update/publish', async (req, res, next) => {
       changes: changes.map(c => String(c).trim()).filter(Boolean),
       securityChanges: Array.isArray(securityChanges) ? securityChanges.map(s => String(s).trim()).filter(Boolean) : [],
       bugFixes: Array.isArray(bugFixes) ? bugFixes.map(b => String(b).trim()).filter(Boolean) : [],
-      graphicsInfo: String(graphicsInfo || '').trim(),
+      graphicChanges: Array.isArray(graphicChanges) ? graphicChanges.map(g => String(g).trim()).filter(Boolean) : [],
+      animationChanges: Array.isArray(animationChanges) ? animationChanges.map(a => String(a).trim()).filter(Boolean) : [],
       changedFiles: Array.isArray(changedFiles) ? changedFiles.map(f => String(f).trim()).filter(Boolean) : [],
       newFiles: Array.isArray(newFiles) ? newFiles.map(f => String(f).trim()).filter(Boolean) : [],
       downloadUrl: String(downloadUrl).trim(),
-      checksum: String(checksum || 'dummy-checksum-sha256').trim(),
+      checksum: String(checksum || 'dummy-checksum').trim(),
       signature: String(signature || 'dummy-signature').trim(),
       status: 'Published',
       publishedBy: session.email || 'admin',
@@ -3559,6 +4083,41 @@ app.use((error, _request, response, _next) => {
   response.status(statusCode).json({ error: message });
 });
 
+const seedAdminUser = async () => {
+  const email = process.env.DOI_ADMIN_EMAIL;
+  const initialPassword = process.env.DOI_ADMIN_INITIAL_PASSWORD;
+
+  if (!email || !initialPassword) {
+    console.warn('[Admin Seed] Admin email or initial password not set in environment variables.');
+    return;
+  }
+
+  try {
+    requireMongoConnection();
+    const existing = await User.findOne({ email: email.toLowerCase().trim() });
+    if (existing) {
+      console.log('[Admin Seed] Admin account already exists.');
+      return;
+    }
+
+    console.log('[Admin Seed] Seeding admin account...');
+    const passwordHash = await bcryptHash(initialPassword, 12);
+
+    await User.create({
+      email: email.toLowerCase().trim(),
+      firstName: 'Admin',
+      lastName: 'DDO',
+      passwordHash,
+      role: 'admin',
+      mustChangePassword: true,
+      accountStatus: 'Active'
+    });
+    console.log('[Admin Seed] Admin account seeded successfully.');
+  } catch (error) {
+    console.error('[Admin Seed] Failed to seed admin account:', error.message);
+  }
+};
+
 const connectMongoDB = async () => {
   console.log("MONGO_URI loaded:", Boolean(process.env.MONGO_URI));
   console.log("Connecting to MongoDB...");
@@ -3571,6 +4130,7 @@ const connectMongoDB = async () => {
   try {
     await mongoose.connect(process.env.MONGO_URI);
     console.log('MongoDB connected');
+    await seedAdminUser();
   } catch (error) {
     console.error("MongoDB connection failed:", error.message);
     console.warn('Backend will continue in degraded mode without MongoDB.');
@@ -3586,7 +4146,35 @@ const checkStepFunApiKeyOnStartup = () => {
   }
 };
 
+const ensureKeys = async () => {
+  const keysDir = path.join(PRIVATE_DATA_DIR, 'keys');
+  const privateKeyPath = path.join(keysDir, 'private.key');
+  const publicKeyPath = path.join(keysDir, 'public.key');
+  
+  await mkdir(keysDir, { recursive: true });
+  
+  if (!existsSync(privateKeyPath) || !existsSync(publicKeyPath)) {
+    console.log('[Backend] Generating RSA key pair for update signing...');
+    const { generateKeyPairSync } = await import('node:crypto');
+    const { privateKey, publicKey } = generateKeyPairSync('rsa', {
+      modulusLength: 2048,
+      publicKeyEncoding: {
+        type: 'spki',
+        format: 'pem'
+      },
+      privateKeyEncoding: {
+        type: 'pkcs8',
+        format: 'pem'
+      }
+    });
+    await writeFile(privateKeyPath, privateKey);
+    await writeFile(publicKeyPath, publicKey);
+    console.log('[Backend] RSA key pair generated successfully.');
+  }
+};
+
 const startServer = async () => {
+  await ensureKeys();
   const server = app.listen(PORT, HOST, () => {
     console.log(`DDO backend listening at http://${HOST}:${PORT}`);
   });
